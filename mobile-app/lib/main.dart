@@ -45,7 +45,7 @@ class _HomePageState extends State<HomePage> {
     }
 
     try {
-      final uri = Uri.parse('ws://$_serverAddress:8766');
+      final uri = Uri.parse('ws://$_serverAddress:8767');
       _channel = WebSocketChannel.connect(uri);
 
       _channel!.stream.listen(
@@ -92,7 +92,7 @@ class _HomePageState extends State<HomePage> {
 
       setState(() {
         _isConnected = true;
-        _messages.add('Connected to $_serverAddress:8766');
+        _messages.add('Connected to $_serverAddress:8767');
       });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(

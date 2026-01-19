@@ -221,11 +221,11 @@ Cursor AI 응답을 가져옵니다. (향후 구현)
 ## 연결 흐름
 
 1. **모바일 앱 시작**
-   - PC 서버의 WebSocket 서버에 연결 (`ws://server_ip:8766`)
+   - PC 서버의 WebSocket 서버에 연결 (`ws://server_ip:8767`)
 
 2. **PC 서버 시작**
-   - WebSocket 서버 시작 (포트 8766)
-   - Extension의 WebSocket 서버에 연결 시도 (`ws://localhost:8766`)
+   - WebSocket 서버 시작 (포트 8767 - 모바일용)
+   - Extension의 WebSocket 서버에 클라이언트로 연결 시도 (`ws://localhost:8766`)
 
 3. **Extension 시작**
    - WebSocket 서버 시작 (포트 8766)
@@ -239,7 +239,8 @@ Cursor AI 응답을 가져옵니다. (향후 구현)
 
 | 포트 | 프로토콜 | 용도 |
 |------|----------|------|
-| 8766 | WebSocket | 모바일 ↔ PC 서버 ↔ Extension |
+| 8766 | WebSocket | Extension WebSocket 서버 (PC 서버가 클라이언트로 연결) |
+| 8767 | WebSocket | 모바일 ↔ PC 서버 (실시간 양방향 통신) |
 | 8765 | HTTP | Extension ↔ PC 서버 (향후 확장용) |
 
 ## 보안 고려사항

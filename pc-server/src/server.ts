@@ -2,12 +2,12 @@ import WebSocket from 'ws';
 import express from 'express';
 import { getLocalIPAddress } from './utils';
 
-const PORT = 8766;
+const MOBILE_PORT = 8767; // 모바일 앱용 포트
 const HTTP_PORT = 8765;
 const EXTENSION_WS_PORT = 8766; // Extension의 WebSocket 포트
 
 // WebSocket 서버 (모바일 앱과 통신)
-const wss = new WebSocket.Server({ port: PORT });
+const wss = new WebSocket.Server({ port: MOBILE_PORT });
 
 // HTTP 서버 (Extension과 통신 - 향후 확장용)
 const app = express();
@@ -143,7 +143,7 @@ connectToExtension();
 // 서버 시작
 const localIP = getLocalIPAddress();
 console.log(`\n✅ Cursor Remote PC Server started!`);
-console.log(`📱 Mobile app should connect to: ${localIP}:${PORT}`);
-console.log(`🔌 WebSocket server: ws://${localIP}:${PORT}`);
+console.log(`📱 Mobile app should connect to: ${localIP}:${MOBILE_PORT}`);
+console.log(`🔌 WebSocket server (Mobile): ws://${localIP}:${MOBILE_PORT}`);
 console.log(`🌐 HTTP server: http://${localIP}:${HTTP_PORT}`);
 console.log(`🔗 Extension WebSocket: ws://localhost:${EXTENSION_WS_PORT}\n`);

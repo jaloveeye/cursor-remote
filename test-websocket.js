@@ -7,7 +7,7 @@
 
 const WebSocket = require('ws');
 
-const SERVER_URL = process.argv[2] || 'ws://localhost:8766';
+const SERVER_URL = process.argv[2] || 'ws://localhost:8767';
 
 console.log(`Connecting to ${SERVER_URL}...`);
 
