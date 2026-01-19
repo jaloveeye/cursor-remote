@@ -30,20 +30,30 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   WebSocketChannel? _channel;
   String _serverAddress = '';
   bool _isConnected = false;
   final List<String> _messages = [];
   final TextEditingController _commandController = TextEditingController();
+  final TextEditingController _serverAddressController = TextEditingController();
+  final FocusNode _serverAddressFocusNode = FocusNode();
+  final FocusNode _commandFocusNode = FocusNode();
+  final ScrollController _scrollController = ScrollController();
 
   void _connect() {
-    if (_serverAddress.isEmpty) {
+    // TextField에서 값을 가져오기
+    final address = _serverAddressController.text.trim();
+    if (address.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('서버 주소를 입력하세요')),
       );
       return;
     }
+    
+    setState(() {
+      _serverAddress = address;
+    });
 
     try {
       final uri = Uri.parse('ws://$_serverAddress:8767');
@@ -76,6 +86,8 @@ class _HomePageState extends State<HomePage> {
               _messages.add('Received: $message');
             }
           });
+          // 새 메시지 추가 후 자동으로 맨 아래로 스크롤
+          _scrollToBottom();
         },
         onError: (error) {
           setState(() {
@@ -110,7 +122,7 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  void _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt}) {
+  void _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt, bool? execute, String? action}) {
     if (_channel == null || !_isConnected) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Not connected')),
@@ -125,11 +137,28 @@ class _HomePageState extends State<HomePage> {
       if (command != null) 'command': command,
       if (args != null) 'args': args,
       if (prompt != null) 'prompt': prompt,
+      if (execute != null) 'execute': execute,
+      if (action != null) 'action': action,
     };
 
     _channel!.sink.add(jsonEncode(message));
     setState(() {
       _messages.add('Sent: ${message.toString()}');
+    });
+    // 새 메시지 추가 후 자동으로 맨 아래로 스크롤
+    _scrollToBottom();
+  }
+
+  void _scrollToBottom() {
+    // 다음 프레임에서 스크롤 (위젯이 빌드된 후)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
     });
   }
 
@@ -137,6 +166,8 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     _channel?.sink.close();
     _commandController.dispose();
+    _serverAddressController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -158,12 +189,14 @@ class _HomePageState extends State<HomePage> {
                 child: Column(
                   children: [
                     TextField(
+                      controller: _serverAddressController,
                       decoration: const InputDecoration(
                         labelText: 'Server Address',
                         hintText: '192.168.0.10',
                         border: OutlineInputBorder(),
                       ),
                       enabled: !_isConnected,
+                      keyboardType: TextInputType.number,
                       onChanged: (value) {
                         setState(() {
                           _serverAddress = value;
@@ -220,49 +253,47 @@ class _HomePageState extends State<HomePage> {
                           labelText: 'Command',
                           border: OutlineInputBorder(),
                         ),
+                        textInputAction: TextInputAction.newline,
+                        keyboardType: TextInputType.multiline,
+                        maxLines: null,
+                        minLines: 3,
+                        enableSuggestions: true,
+                        autocorrect: true,
                       ),
                       const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          ElevatedButton(
-                            onPressed: () {
-                              final text = _commandController.text;
-                              if (text.isNotEmpty) {
-                                _sendCommand('insert_text', text: text, prompt: true);
-                                _commandController.clear();
-                              }
-                            },
-                            child: const Text('Send to Prompt'),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () {
+                                final text = _commandController.text;
+                                if (text.isNotEmpty) {
+                                  _sendCommand('insert_text', text: text, prompt: true, execute: true);
+                                  _commandController.clear();
+                                }
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                              ),
+                              child: const Text('Execute Prompt'),
+                            ),
                           ),
-                          ElevatedButton(
-                            onPressed: () {
-                              final text = _commandController.text;
-                              if (text.isNotEmpty) {
-                                _sendCommand('insert_text', text: text, prompt: false);
-                                _commandController.clear();
-                              }
-                            },
-                            child: const Text('Send to Editor'),
-                          ),
-                          ElevatedButton(
-                            onPressed: () {
-                              _sendCommand('get_active_file');
-                            },
-                            child: const Text('Get Active File'),
-                          ),
-                          ElevatedButton(
-                            onPressed: () {
-                              _sendCommand('save_file');
-                            },
-                            child: const Text('Save File'),
-                          ),
-                          ElevatedButton(
-                            onPressed: () {
-                              _sendCommand('execute_command', command: 'workbench.action.files.save');
-                            },
-                            child: const Text('Save (Cmd)'),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () {
+                                _sendCommand('stop_prompt');
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                              ),
+                              child: const Text('Stop Prompt'),
+                            ),
                           ),
                         ],
                       ),
@@ -290,6 +321,7 @@ class _HomePageState extends State<HomePage> {
                     ),
                     Expanded(
                       child: ListView.builder(
+                        controller: _scrollController,
                         itemCount: _messages.length,
                         itemBuilder: (context, index) {
                           return GestureDetector(
@@ -303,8 +335,15 @@ class _HomePageState extends State<HomePage> {
                               );
                             },
                             child: ListTile(
-                              title: Text(_messages[index]),
+                              title: Text(
+                                _messages[index],
+                                style: const TextStyle(fontSize: 14),
+                              ),
                               dense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16.0,
+                                vertical: 4.0,
+                              ),
                               trailing: IconButton(
                                 icon: const Icon(Icons.copy, size: 18),
                                 onPressed: () {

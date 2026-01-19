@@ -37,43 +37,61 @@ exports.WebSocketServer = void 0;
 const WebSocket = __importStar(require("ws"));
 const vscode = __importStar(require("vscode"));
 class WebSocketServer {
-    constructor(port) {
+    constructor(port, outputChannel) {
         this.wss = null;
         this.messageHandlers = [];
         this.clientChangeHandlers = [];
         this.clients = new Set();
+        this.outputChannel = null;
         this.port = port;
+        this.outputChannel = outputChannel || null;
+    }
+    log(message) {
+        const timestamp = new Date().toLocaleTimeString();
+        const logMessage = `[${timestamp}] ${message}`;
+        if (this.outputChannel) {
+            this.outputChannel.appendLine(logMessage);
+        }
+        console.log(logMessage);
+    }
+    logError(message, error) {
+        const timestamp = new Date().toLocaleTimeString();
+        const logMessage = `[${timestamp}] ERROR: ${message}${error ? ` - ${error}` : ''}`;
+        if (this.outputChannel) {
+            this.outputChannel.appendLine(logMessage);
+        }
+        console.error(logMessage);
     }
     start() {
         if (this.wss) {
-            console.log('WebSocket server is already running');
+            this.log('WebSocket server is already running');
             return;
         }
         this.wss = new WebSocket.Server({ port: this.port });
         this.wss.on('connection', (ws) => {
             this.clients.add(ws);
-            console.log('Client connected to Cursor Remote');
+            this.log('Client connected to Cursor Remote');
             this.notifyClientChange(true);
             ws.on('message', (message) => {
                 const messageStr = message.toString();
-                console.log('Received message:', messageStr);
+                this.log(`Received message: ${messageStr.substring(0, 100)}${messageStr.length > 100 ? '...' : ''}`);
                 // 모든 핸들러에 메시지 전달
                 this.messageHandlers.forEach(handler => {
                     try {
                         handler(messageStr);
                     }
                     catch (error) {
-                        console.error('Error in message handler:', error);
+                        this.logError('Error in message handler', error);
                     }
                 });
             });
             ws.on('close', () => {
-                console.log('Client disconnected from Cursor Remote');
+                this.log('Client disconnected from Cursor Remote');
                 this.clients.delete(ws);
                 this.notifyClientChange(this.clients.size > 0);
             });
             ws.on('error', (error) => {
-                console.error('WebSocket error:', error);
+                this.logError('WebSocket error', error);
             });
             // 연결 성공 메시지 전송
             this.sendToClient(ws, JSON.stringify({
@@ -82,16 +100,16 @@ class WebSocketServer {
             }));
         });
         this.wss.on('error', (error) => {
-            console.error('WebSocket server error:', error);
+            this.logError('WebSocket server error', error);
             vscode.window.showErrorMessage(`Cursor Remote server error: ${error.message}`);
         });
-        console.log(`Cursor Remote WebSocket server started on port ${this.port}`);
+        this.log(`WebSocket server started on port ${this.port}`);
     }
     stop() {
         if (this.wss) {
             this.wss.close();
             this.wss = null;
-            console.log('Cursor Remote WebSocket server stopped');
+            this.log('WebSocket server stopped');
         }
     }
     isRunning() {
@@ -118,7 +136,7 @@ class WebSocketServer {
     }
     send(message) {
         if (!this.wss) {
-            console.warn('WebSocket server is not running');
+            this.log('WARNING: WebSocket server is not running');
             return;
         }
         this.clients.forEach((client) => {

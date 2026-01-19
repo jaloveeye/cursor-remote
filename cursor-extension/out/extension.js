@@ -41,7 +41,12 @@ const command_handler_1 = require("./command-handler");
 let wsServer = null;
 let commandHandler = null;
 let statusBarItem;
+let outputChannel;
 function activate(context) {
+    // Output 채널 생성
+    outputChannel = vscode.window.createOutputChannel('Cursor Remote');
+    context.subscriptions.push(outputChannel);
+    outputChannel.appendLine('Cursor Remote extension is now active!');
     console.log('Cursor Remote extension is now active!');
     // 상태 표시줄 아이템 생성
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -49,15 +54,18 @@ function activate(context) {
     statusBarItem.tooltip = 'Toggle Cursor Remote Server';
     context.subscriptions.push(statusBarItem);
     // WebSocket 서버 초기화
-    wsServer = new websocket_server_1.WebSocketServer(8766);
-    commandHandler = new command_handler_1.CommandHandler();
+    wsServer = new websocket_server_1.WebSocketServer(8766, outputChannel);
+    commandHandler = new command_handler_1.CommandHandler(outputChannel);
     // WebSocket 메시지 핸들러
     wsServer.onMessage((message) => {
         try {
             const command = JSON.parse(message);
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Received command: ${command.type}`);
             handleCommand(command);
         }
         catch (error) {
+            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Error parsing message: ${errorMsg}`);
             console.error('Error parsing message:', error);
         }
     });
@@ -142,8 +150,9 @@ async function handleCommand(command) {
                 try {
                     // prompt 옵션이 있으면 프롬프트 입력창에, 없으면 에디터에 삽입
                     if (command.prompt === true) {
-                        await commandHandler.insertToPrompt(command.text);
-                        result = { success: true, message: 'Text inserted to prompt' };
+                        const execute = command.execute === true; // execute 옵션 확인
+                        await commandHandler.insertToPrompt(command.text, execute);
+                        result = { success: true, message: execute ? 'Text inserted to prompt and executed' : 'Text inserted to prompt' };
                     }
                     else {
                         await commandHandler.insertText(command.text);
@@ -170,17 +179,27 @@ async function handleCommand(command) {
             case 'save_file':
                 result = await commandHandler.saveFile();
                 break;
+            case 'stop_prompt':
+                result = await commandHandler.stopPrompt();
+                break;
+            case 'execute_action':
+                result = await commandHandler.executeAction(command.action);
+                break;
             default:
+                const errorMsg = `Unknown command type: ${command.type}`;
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ${errorMsg}`);
                 console.warn('Unknown command type:', command.type);
                 wsServer.send(JSON.stringify({
                     id: commandId,
                     type: 'command_result',
                     success: false,
-                    error: `Unknown command type: ${command.type}`
+                    error: errorMsg
                 }));
                 return;
         }
         // 성공 응답 전송
+        const successMsg = `Command ${command.type} executed successfully`;
+        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ${successMsg}`);
         wsServer.send(JSON.stringify({
             id: commandId,
             type: 'command_result',
@@ -189,12 +208,14 @@ async function handleCommand(command) {
         }));
     }
     catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Error handling command: ${errorMsg}`);
         console.error('Error handling command:', error);
         wsServer.send(JSON.stringify({
             id: commandId,
             type: 'command_result',
             success: false,
-            error: error instanceof Error ? error.message : 'Unknown error'
+            error: errorMsg
         }));
     }
 }
