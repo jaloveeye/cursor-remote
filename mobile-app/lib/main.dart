@@ -110,7 +110,7 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  void _sendCommand(String type, {String? text, String? command, List<dynamic>? args}) {
+  void _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt}) {
     if (_channel == null || !_isConnected) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Not connected')),
@@ -124,6 +124,7 @@ class _HomePageState extends State<HomePage> {
       if (text != null) 'text': text,
       if (command != null) 'command': command,
       if (args != null) 'args': args,
+      if (prompt != null) 'prompt': prompt,
     };
 
     _channel!.sink.add(jsonEncode(message));
@@ -229,11 +230,21 @@ class _HomePageState extends State<HomePage> {
                             onPressed: () {
                               final text = _commandController.text;
                               if (text.isNotEmpty) {
-                                _sendCommand('insert_text', text: text);
+                                _sendCommand('insert_text', text: text, prompt: true);
                                 _commandController.clear();
                               }
                             },
-                            child: const Text('Send Text'),
+                            child: const Text('Send to Prompt'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () {
+                              final text = _commandController.text;
+                              if (text.isNotEmpty) {
+                                _sendCommand('insert_text', text: text, prompt: false);
+                                _commandController.clear();
+                              }
+                            },
+                            child: const Text('Send to Editor'),
                           ),
                           ElevatedButton(
                             onPressed: () {

@@ -140,8 +140,15 @@ async function handleCommand(command) {
         switch (command.type) {
             case 'insert_text':
                 try {
-                    await commandHandler.insertText(command.text);
-                    result = { success: true, message: 'Text inserted' };
+                    // prompt 옵션이 있으면 프롬프트 입력창에, 없으면 에디터에 삽입
+                    if (command.prompt === true) {
+                        await commandHandler.insertToPrompt(command.text);
+                        result = { success: true, message: 'Text inserted to prompt' };
+                    }
+                    else {
+                        await commandHandler.insertText(command.text);
+                        result = { success: true, message: 'Text inserted' };
+                    }
                 }
                 catch (error) {
                     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
