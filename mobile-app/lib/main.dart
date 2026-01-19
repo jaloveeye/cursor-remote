@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -50,7 +51,29 @@ class _HomePageState extends State<HomePage> {
       _channel!.stream.listen(
         (message) {
           setState(() {
-            _messages.add('Received: $message');
+            try {
+              final json = message.toString();
+              _messages.add('Received: $json');
+              
+              // JSON 파싱 시도
+              final decoded = jsonDecode(json);
+              if (decoded is Map) {
+                final type = decoded['type'];
+                if (type == 'command_result') {
+                  if (decoded['success'] == true) {
+                    _messages.add('✅ Command succeeded');
+                  } else {
+                    _messages.add('❌ Command failed: ${decoded['error']}');
+                  }
+                } else if (type == 'connected') {
+                  _messages.add('✅ ${decoded['message']}');
+                } else if (type == 'error') {
+                  _messages.add('❌ Error: ${decoded['message']}');
+                }
+              }
+            } catch (e) {
+              _messages.add('Received: $message');
+            }
           });
         },
         onError: (error) {
@@ -86,7 +109,7 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  void _sendCommand(String type, {String? text, String? command}) {
+  void _sendCommand(String type, {String? text, String? command, List<dynamic>? args}) {
     if (_channel == null || !_isConnected) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Not connected')),
@@ -96,8 +119,10 @@ class _HomePageState extends State<HomePage> {
 
     final message = {
       'type': type,
+      'id': DateTime.now().millisecondsSinceEpoch.toString(),
       if (text != null) 'text': text,
       if (command != null) 'command': command,
+      if (args != null) 'args': args,
     };
 
     _channel!.sink.add(message.toString());
@@ -195,15 +220,39 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      ElevatedButton(
-                        onPressed: () {
-                          final text = _commandController.text;
-                          if (text.isNotEmpty) {
-                            _sendCommand('insert_text', text: text);
-                            _commandController.clear();
-                          }
-                        },
-                        child: const Text('Send Text'),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ElevatedButton(
+                            onPressed: () {
+                              final text = _commandController.text;
+                              if (text.isNotEmpty) {
+                                _sendCommand('insert_text', text: text);
+                                _commandController.clear();
+                              }
+                            },
+                            child: const Text('Send Text'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () {
+                              _sendCommand('get_active_file');
+                            },
+                            child: const Text('Get Active File'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () {
+                              _sendCommand('save_file');
+                            },
+                            child: const Text('Save File'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () {
+                              _sendCommand('execute_command', command: 'workbench.action.files.save');
+                            },
+                            child: const Text('Save (Cmd)'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
