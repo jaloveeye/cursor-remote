@@ -1,0 +1,26 @@
+{
+  "name": "cursor-remote",
+  "version": "0.1.0",
+  "description": "Control Cursor IDE from Your Mobile Device",
+  "author": "Cursor Remote Team",
+  "private": true,
+  "workspaces": [
+    "cursor-extension",
+    "pc-server"
+  ],
+  "scripts": {
+    "install:all": "npm install && cd cursor-extension && npm install && cd ../pc-server && npm install",
+    "build:extension": "cd cursor-extension && npm run compile",
+    "start:server": "cd pc-server && npm start",
+    "dev:extension": "cd cursor-extension && npm run watch",
+    "dev:server": "cd pc-server && npm run dev"
+  },
+  "keywords": [
+    "cursor",
+    "ide",
+    "remote",
+    "mobile",
+    "websocket"
+  ],
+  "license": "MIT"
+}

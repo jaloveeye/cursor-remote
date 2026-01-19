@@ -1,0 +1,42 @@
+{
+  "name": "cursor-remote-extension",
+  "displayName": "Cursor Remote",
+  "description": "Remote control extension for Cursor IDE",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "cursorRemote.start",
+        "title": "Start Cursor Remote Server"
+      },
+      {
+        "command": "cursorRemote.stop",
+        "title": "Stop Cursor Remote Server"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.74.0",
+    "@types/ws": "^8.5.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "ws": "^8.19.0"
+  }
+}
