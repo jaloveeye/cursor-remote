@@ -42,6 +42,7 @@ let wsServer = null;
 let commandHandler = null;
 let statusBarItem;
 let outputChannel;
+let terminalOutputListener = null;
 function activate(context) {
     // Output 채널 생성
     outputChannel = vscode.window.createOutputChannel('Cursor Remote');
@@ -55,7 +56,9 @@ function activate(context) {
     context.subscriptions.push(statusBarItem);
     // WebSocket 서버 초기화
     wsServer = new websocket_server_1.WebSocketServer(8766, outputChannel);
-    commandHandler = new command_handler_1.CommandHandler(outputChannel);
+    commandHandler = new command_handler_1.CommandHandler(outputChannel, wsServer);
+    // 터미널 출력 모니터링 시작
+    startTerminalOutputMonitoring();
     // WebSocket 메시지 핸들러
     wsServer.onMessage((message) => {
         try {
@@ -131,12 +134,44 @@ function updateStatusBar(connected) {
     }
 }
 function deactivate() {
+    if (terminalOutputListener) {
+        terminalOutputListener.dispose();
+        terminalOutputListener = null;
+    }
     if (wsServer) {
         wsServer.stop();
     }
     if (commandHandler) {
         commandHandler.dispose();
     }
+}
+// 터미널 출력 모니터링 시작
+function startTerminalOutputMonitoring() {
+    // 기존 리스너가 있으면 제거
+    if (terminalOutputListener) {
+        terminalOutputListener.dispose();
+    }
+    // 터미널 생성 이벤트 모니터링
+    terminalOutputListener = vscode.window.onDidChangeActiveTerminal((terminal) => {
+        if (terminal) {
+            setupTerminalOutputListener(terminal);
+        }
+    });
+    // 현재 활성 터미널이 있으면 모니터링 시작
+    const activeTerminal = vscode.window.activeTerminal;
+    if (activeTerminal) {
+        setupTerminalOutputListener(activeTerminal);
+    }
+}
+// 터미널 출력 리스너 설정
+function setupTerminalOutputListener(terminal) {
+    // 터미널의 출력을 모니터링하여 모바일 앱으로 전송
+    // 주의: VS Code API로는 터미널의 출력을 직접 읽을 수 없음
+    // 대신 터미널이 활성화될 때마다 모니터링을 시도
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Monitoring terminal: ${terminal.name}`);
+    // 터미널 프로세스 ID를 통해 출력을 읽을 수 없으므로,
+    // 사용자가 터미널에서 명령을 실행할 때 출력을 확인하는 다른 방법이 필요
+    // 현재는 터미널에 텍스트를 입력하는 기능만 제공
 }
 async function handleCommand(command) {
     if (!commandHandler || !wsServer) {
@@ -148,19 +183,33 @@ async function handleCommand(command) {
         switch (command.type) {
             case 'insert_text':
                 try {
-                    // prompt 옵션이 있으면 프롬프트 입력창에, 없으면 에디터에 삽입
-                    if (command.prompt === true) {
+                    // 디버깅: 명령 파라미터 확인
+                    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] insert_text command - terminal: ${command.terminal} (type: ${typeof command.terminal}), prompt: ${command.prompt}, text length: ${command.text?.length || 0}`);
+                    // terminal 옵션이 있으면 터미널에, prompt 옵션이 있으면 프롬프트 입력창에, 없으면 에디터에 삽입
+                    // JSON 파싱 시 boolean이 문자열로 올 수 있으므로 안전하게 체크
+                    const isTerminal = command.terminal === true || command.terminal === 'true';
+                    const isPrompt = command.prompt === true || command.prompt === 'true';
+                    if (isTerminal) {
+                        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Routing to terminal`);
+                        const execute = command.execute === true; // execute 옵션 확인
+                        await commandHandler.insertToTerminal(command.text, execute);
+                        result = { success: true, message: execute ? 'Text sent to terminal and executed' : 'Text sent to terminal' };
+                    }
+                    else if (isPrompt) {
+                        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Routing to prompt`);
                         const execute = command.execute === true; // execute 옵션 확인
                         await commandHandler.insertToPrompt(command.text, execute);
                         result = { success: true, message: execute ? 'Text inserted to prompt and executed' : 'Text inserted to prompt' };
                     }
                     else {
+                        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Routing to editor (fallback)`);
                         await commandHandler.insertText(command.text);
                         result = { success: true, message: 'Text inserted' };
                     }
                 }
                 catch (error) {
                     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Error in insert_text: ${errorMsg}`);
                     result = { success: false, error: errorMsg };
                     // 에러를 다시 throw하지 않고 result에 포함
                 }

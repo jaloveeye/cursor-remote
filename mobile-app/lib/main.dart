@@ -61,92 +61,169 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
       _channel!.stream.listen(
         (message) {
-          setState(() {
-            try {
-              final json = message.toString();
-              _messages.add('Received: $json');
-              
-              // JSON 파싱 시도
-              final decoded = jsonDecode(json);
-              if (decoded is Map) {
-                final type = decoded['type'];
-                if (type == 'command_result') {
-                  if (decoded['success'] == true) {
-                    _messages.add('✅ Command succeeded');
-                  } else {
-                    _messages.add('❌ Command failed: ${decoded['error']}');
+          if (!mounted) return; // 위젯이 마운트되지 않았으면 리턴
+          try {
+            setState(() {
+              try {
+                final json = message.toString();
+                _messages.add('Received: $json');
+                
+                // JSON 파싱 시도
+                final decoded = jsonDecode(json);
+                if (decoded is Map) {
+                  final type = decoded['type'];
+                  if (type == 'command_result') {
+                    if (decoded['success'] == true) {
+                      _messages.add('✅ Command succeeded');
+                    } else {
+                      _messages.add('❌ Command failed: ${decoded['error']}');
+                    }
+                  } else if (type == 'connected') {
+                    _messages.add('✅ ${decoded['message']}');
+                    // 연결 확인 시 상태 업데이트
+                    if (!_isConnected) {
+                      _isConnected = true;
+                    }
+                  } else if (type == 'error') {
+                    _messages.add('❌ Error: ${decoded['message']}');
+                  } else if (type == 'user_message') {
+                    // 사용자 메시지 (대화 히스토리용)
+                    final text = decoded['text'] ?? '';
+                    _messages.add('💬 You: $text');
+                  } else if (type == 'gemini_response') {
+                    // Gemini 응답 (대화 히스토리용)
+                    final text = decoded['text'] ?? '';
+                    _messages.add('🤖 Gemini: $text');
+                  } else if (type == 'terminal_output') {
+                    // 터미널 출력
+                    final text = decoded['text'] ?? '';
+                    _messages.add('📟 Terminal: $text');
                   }
-                } else if (type == 'connected') {
-                  _messages.add('✅ ${decoded['message']}');
-                } else if (type == 'error') {
-                  _messages.add('❌ Error: ${decoded['message']}');
                 }
+              } catch (e) {
+                _messages.add('Received: $message');
               }
-            } catch (e) {
-              _messages.add('Received: $message');
+            });
+            // 새 메시지 추가 후 자동으로 맨 아래로 스크롤
+            _scrollToBottom();
+          } catch (e) {
+            // setState 에러 처리
+            if (mounted) {
+              _messages.add('Error processing message: $e');
             }
-          });
-          // 새 메시지 추가 후 자동으로 맨 아래로 스크롤
-          _scrollToBottom();
+          }
         },
         onError: (error) {
-          setState(() {
-            _isConnected = false;
-            _messages.add('Error: $error');
-          });
+          if (!mounted) return;
+          try {
+            setState(() {
+              _isConnected = false;
+              _messages.add('Error: $error');
+            });
+          } catch (e) {
+            // setState 에러 무시
+          }
         },
         onDone: () {
-          setState(() {
-            _isConnected = false;
-            _messages.add('Connection closed');
-          });
+          if (!mounted) return;
+          try {
+            setState(() {
+              _isConnected = false;
+              _messages.add('Connection closed');
+            });
+          } catch (e) {
+            // setState 에러 무시
+          }
         },
+        cancelOnError: false, // 에러 발생 시 스트림 취소 방지
       );
 
-      setState(() {
-        _isConnected = true;
-        _messages.add('Connected to $_serverAddress:8767');
-      });
+      if (mounted) {
+        setState(() {
+          _isConnected = true;
+          _messages.add('Connected to $_serverAddress:8767');
+        });
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Connection error: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Connection error: $e')),
+        );
+        setState(() {
+          _isConnected = false;
+          _messages.add('Connection failed: $e');
+        });
+      }
     }
   }
 
   void _disconnect() {
-    _channel?.sink.close();
-    setState(() {
-      _isConnected = false;
-      _messages.add('Disconnected');
-    });
+    try {
+      _channel?.sink.close();
+    } catch (e) {
+      // 연결이 이미 끊어진 경우 무시
+    }
+    if (mounted) {
+      setState(() {
+        _isConnected = false;
+        _messages.add('Disconnected');
+      });
+    }
   }
 
-  void _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt, bool? execute, String? action}) {
+  void _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt, bool? terminal, bool? execute, String? action}) {
+    // 연결 상태 재확인
+    _checkConnectionState();
+    
     if (_channel == null || !_isConnected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Not connected')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Not connected')),
+        );
+      }
       return;
     }
 
-    final message = {
-      'type': type,
-      'id': DateTime.now().millisecondsSinceEpoch.toString(),
-      if (text != null) 'text': text,
-      if (command != null) 'command': command,
-      if (args != null) 'args': args,
-      if (prompt != null) 'prompt': prompt,
-      if (execute != null) 'execute': execute,
-      if (action != null) 'action': action,
-    };
+    try {
+      final message = {
+        'type': type,
+        'id': DateTime.now().millisecondsSinceEpoch.toString(),
+        if (text != null) 'text': text,
+        if (command != null) 'command': command,
+        if (args != null) 'args': args,
+        if (prompt != null) 'prompt': prompt,
+        if (terminal != null) 'terminal': terminal,
+        if (execute != null) 'execute': execute,
+        if (action != null) 'action': action,
+      };
 
-    _channel!.sink.add(jsonEncode(message));
-    setState(() {
-      _messages.add('Sent: ${message.toString()}');
-    });
-    // 새 메시지 추가 후 자동으로 맨 아래로 스크롤
-    _scrollToBottom();
+      _channel!.sink.add(jsonEncode(message));
+      if (mounted) {
+        try {
+          setState(() {
+            _messages.add('Sent: ${message.toString()}');
+          });
+          // 새 메시지 추가 후 자동으로 맨 아래로 스크롤
+          _scrollToBottom();
+        } catch (e) {
+          // setState 에러 무시
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        try {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to send command: $e')),
+          );
+          setState(() {
+            _isConnected = false;
+            _messages.add('Send error: $e');
+          });
+        } catch (setStateError) {
+          // setState 에러 무시
+        }
+      }
+    }
   }
 
   void _scrollToBottom() {
@@ -163,11 +240,62 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      // 앱이 다시 활성화되었을 때 연결 상태 확인 및 UI 갱신
+      if (mounted) {
+        // 연결 상태 확인
+        _checkConnectionState();
+        // UI 강제 갱신
+        setState(() {
+          // 상태 갱신으로 UI 다시 렌더링
+        });
+      }
+    } else if (state == AppLifecycleState.paused) {
+      // 앱이 백그라운드로 갔을 때는 특별한 처리가 필요 없음
+    }
+  }
+
+  // 연결 상태 확인 및 필요시 재연결
+  void _checkConnectionState() {
+    if (_channel == null && _isConnected) {
+      // 채널이 null인데 연결 상태가 true면 상태 불일치
+      if (mounted) {
+        setState(() {
+          _isConnected = false;
+          _messages.add('⚠️ Connection lost, please reconnect');
+        });
+      }
+    } else if (_channel != null && !_isConnected) {
+      // 채널이 있는데 연결 상태가 false면 상태 불일치
+      if (mounted) {
+        setState(() {
+          _isConnected = true;
+        });
+      }
+    }
+  }
+
+  @override
   void dispose() {
-    _channel?.sink.close();
+    WidgetsBinding.instance.removeObserver(this);
+    try {
+      _channel?.sink.close();
+    } catch (e) {
+      // 연결이 이미 끊어진 경우 무시
+    }
     _commandController.dispose();
     _serverAddressController.dispose();
     _scrollController.dispose();
+    _serverAddressFocusNode.dispose();
+    _commandFocusNode.dispose();
     super.dispose();
   }
 
@@ -249,6 +377,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     children: [
                       TextField(
                         controller: _commandController,
+                        focusNode: _commandFocusNode,
                         decoration: const InputDecoration(
                           labelText: 'Command',
                           border: OutlineInputBorder(),
@@ -259,6 +388,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         minLines: 3,
                         enableSuggestions: true,
                         autocorrect: true,
+                        textCapitalization: TextCapitalization.none,
+                        // 한영전환 문제 해결을 위한 설정
+                        onChanged: (value) {
+                          // 입력 변경 시 포커스 유지
+                          if (!_commandFocusNode.hasFocus) {
+                            _commandFocusNode.requestFocus();
+                          }
+                        },
                       ),
                       const SizedBox(height: 8),
                       Row(
@@ -266,33 +403,33 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         children: [
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: () {
+                              onPressed: _isConnected ? () {
                                 final text = _commandController.text;
                                 if (text.isNotEmpty) {
-                                  _sendCommand('insert_text', text: text, prompt: true, execute: true);
+                                  _sendCommand('insert_text', text: text, terminal: true, execute: true);
                                   _commandController.clear();
                                 }
-                              },
+                              } : null,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green,
+                                backgroundColor: Colors.blue,
                                 foregroundColor: Colors.white,
                                 padding: const EdgeInsets.symmetric(vertical: 16),
                               ),
-                              child: const Text('Execute Prompt'),
+                              child: const Text('Send to Terminal'),
                             ),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: () {
+                              onPressed: _isConnected ? () {
                                 _sendCommand('stop_prompt');
-                              },
+                              } : null,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.red,
                                 foregroundColor: Colors.white,
                                 padding: const EdgeInsets.symmetric(vertical: 16),
                               ),
-                              child: const Text('Stop Prompt'),
+                              child: const Text('Stop'),
                             ),
                           ),
                         ],

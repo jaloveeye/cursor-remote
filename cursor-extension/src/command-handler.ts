@@ -3,9 +3,11 @@ import * as path from 'path';
 
 export class CommandHandler {
     private outputChannel: vscode.OutputChannel | null = null;
+    private wsServer: any = null; // WebSocketServer 타입
 
-    constructor(outputChannel?: vscode.OutputChannel) {
+    constructor(outputChannel?: vscode.OutputChannel, wsServer?: any) {
         this.outputChannel = outputChannel || null;
+        this.wsServer = wsServer || null;
     }
 
     private log(message: string) {
@@ -40,6 +42,87 @@ export class CommandHandler {
             throw new Error('Failed to insert text. The editor may be read-only or the edit was rejected.');
         }
     }
+
+    async insertToTerminal(text: string, execute: boolean = false): Promise<void> {
+        this.log(`[Cursor Remote] insertToTerminal called - textLength: ${text.length}, execute: ${execute}`);
+        this.log(`[Cursor Remote] Text content: "${text.substring(0, 100)}${text.length > 100 ? '...' : ''}"`);
+        
+        try {
+            // 활성 터미널 가져오기
+            let terminal = vscode.window.activeTerminal;
+            this.log(`[Cursor Remote] Active terminal: ${terminal ? terminal.name : 'null'}`);
+            
+            if (!terminal) {
+                // 활성 터미널이 없으면 새 터미널 생성
+                this.log('[Cursor Remote] No active terminal, creating new terminal');
+                terminal = vscode.window.createTerminal('Cursor Remote');
+                this.log(`[Cursor Remote] Created terminal: ${terminal.name}`);
+                terminal.show(true); // true: 터미널에 포커스를 강제로 이동
+                this.log('[Cursor Remote] Terminal shown, waiting 800ms for activation...');
+                await new Promise(resolve => setTimeout(resolve, 800));
+            } else {
+                // 활성 터미널에 포커스
+                this.log(`[Cursor Remote] Using existing terminal: ${terminal.name}`);
+                terminal.show(true); // true: 터미널에 포커스를 강제로 이동
+                this.log('[Cursor Remote] Terminal shown, waiting 500ms for activation...');
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+            
+            // VS Code 명령을 사용하여 터미널에 포커스 강제 이동
+            this.log('[Cursor Remote] Executing workbench.action.terminal.focus command...');
+            await vscode.commands.executeCommand('workbench.action.terminal.focus');
+            await new Promise(resolve => setTimeout(resolve, 300)); // 추가 대기 시간
+            
+            // 터미널이 실제로 활성화되었는지 확인
+            const activeTerminalAfterWait = vscode.window.activeTerminal;
+            if (activeTerminalAfterWait?.name !== terminal.name) {
+                this.log(`[Cursor Remote] ⚠️ Warning: Terminal may not be active. Expected: ${terminal.name}, Active: ${activeTerminalAfterWait?.name || 'null'}`);
+                // 터미널이 활성화되지 않았어도 계속 진행 (터미널이 여러 개일 수 있음)
+            } else {
+                this.log(`[Cursor Remote] ✅ Terminal is active: ${terminal.name}`);
+            }
+            
+            // 터미널에 텍스트 전송
+            // execute가 false면 newline을 추가하지 않고, true면 Enter 키를 시뮬레이션
+            if (execute) {
+                // 터미널이 포커스를 받았는지 확인하기 위해 추가 대기
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // 방법: 텍스트를 newline 없이 먼저 보내고, 
+                // 다음 sendText 호출 시 이전 텍스트가 실행되는 특성을 이용
+                this.log(`[Cursor Remote] Sending text to terminal (without newline first)`);
+                terminal.sendText(text, false); // false: newline 없이 텍스트만 전송
+                this.log('[Cursor Remote] Text sent, waiting for execution trigger...');
+                
+                // 충분한 대기 후 줄바꿈을 보내서 이전 텍스트 실행 트리거
+                // 터미널이 텍스트를 완전히 처리할 시간을 줌
+                await new Promise(resolve => setTimeout(resolve, 500));
+                this.log(`[Cursor Remote] Sending execution trigger (newline)`);
+                terminal.sendText('\n', false); // 줄바꿈 전송으로 이전 텍스트 실행 트리거
+                this.log('[Cursor Remote] ✅ Text sent to terminal with execution (triggered by newline)');
+                
+                // 사용자 메시지를 모바일 앱으로 전송 (대화 히스토리용)
+                if (this.wsServer) {
+                    this.wsServer.send(JSON.stringify({
+                        type: 'user_message',
+                        text: text,
+                        timestamp: new Date().toISOString()
+                    }));
+                }
+            } else {
+                // 텍스트만 전송 (newline 없이)
+                this.log(`[Cursor Remote] Sending text to terminal without execution (no newline)`);
+                terminal.sendText(text, false);
+                this.log('[Cursor Remote] ✅ Text sent to terminal (no execution)');
+            }
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+            this.logError(`[Cursor Remote] Error in insertToTerminal: ${errorMsg}`);
+            this.logError(`[Cursor Remote] Error stack: ${error instanceof Error ? error.stack : 'N/A'}`);
+            throw new Error(`터미널 입력 실패: ${errorMsg}`);
+        }
+    }
+
 
     async insertToPrompt(text: string, execute: boolean = false): Promise<void> {
         this.log(`[Cursor Remote] insertToPrompt called - textLength: ${text.length}, execute: ${execute}`);

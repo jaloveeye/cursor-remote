@@ -5,6 +5,7 @@
 ### 방법 1: 개발 모드로 로드 (권장)
 
 1. **Extension 컴파일**
+
    ```bash
    cd cursor-extension
    npm install
@@ -25,6 +26,7 @@
 ### 방법 2: VSIX 파일로 설치
 
 1. **VSIX 파일 생성** (향후 구현)
+
    ```bash
    npm install -g vsce
    vsce package
@@ -60,6 +62,7 @@ Cursor IDE 하단 상태 표시줄(Status Bar) 우측을 확인하세요:
 1. `Help` → `Toggle Developer Tools` (또는 `Cmd+Option+I` / `Ctrl+Shift+I`)
 2. Console 탭 확인
 3. 다음 메시지가 보이면 활성화됨:
+
    ```
    Cursor Remote extension is now active!
    Cursor Remote WebSocket server started on port 8766
@@ -101,13 +104,16 @@ Cursor IDE 하단 상태 표시줄(Status Bar) 우측을 확인하세요:
 ### Extension이 활성화되지 않는 경우
 
 1. **컴파일 확인**
+
    ```bash
    cd cursor-extension
    npm run compile
    ```
+
    - `out/` 폴더에 파일이 생성되었는지 확인
 
 2. **의존성 확인**
+
    ```bash
    npm install
    ```
@@ -128,9 +134,11 @@ Cursor IDE 하단 상태 표시줄(Status Bar) 우측을 확인하세요:
 
 - 포트 8766이 이미 사용 중일 수 있습니다
 - 터미널에서 확인:
+
   ```bash
   lsof -i :8766
   ```
+
 - 다른 프로세스가 사용 중이면 종료하거나 Extension 코드에서 포트 변경
 
 ## 테스트
