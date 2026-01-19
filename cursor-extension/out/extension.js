@@ -1,98 +1,128 @@
-import * as vscode from 'vscode';
-import { WebSocketServer } from './websocket-server';
-import { CommandHandler } from './command-handler';
-
-let wsServer: WebSocketServer | null = null;
-let commandHandler: CommandHandler | null = null;
-let statusBarItem: vscode.StatusBarItem;
-
-export function activate(context: vscode.ExtensionContext) {
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.activate = activate;
+exports.deactivate = deactivate;
+const vscode = __importStar(require("vscode"));
+const websocket_server_1 = require("./websocket-server");
+const command_handler_1 = require("./command-handler");
+let wsServer = null;
+let commandHandler = null;
+let statusBarItem;
+function activate(context) {
     console.log('Cursor Remote extension is now active!');
-
     // 상태 표시줄 아이템 생성
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBarItem.command = 'cursorRemote.toggle';
     statusBarItem.tooltip = 'Toggle Cursor Remote Server';
     context.subscriptions.push(statusBarItem);
-
     // WebSocket 서버 초기화
-    wsServer = new WebSocketServer(8766);
-    commandHandler = new CommandHandler();
-
+    wsServer = new websocket_server_1.WebSocketServer(8766);
+    commandHandler = new command_handler_1.CommandHandler();
     // WebSocket 메시지 핸들러
-    wsServer.onMessage((message: string) => {
+    wsServer.onMessage((message) => {
         try {
             const command = JSON.parse(message);
             handleCommand(command);
-        } catch (error) {
+        }
+        catch (error) {
             console.error('Error parsing message:', error);
         }
     });
-
     // 클라이언트 연결/해제 이벤트 처리
-    wsServer.onClientChange((connected: boolean) => {
+    wsServer.onClientChange((connected) => {
         updateStatusBar(connected);
     });
-
     // 명령 등록
     const startCommand = vscode.commands.registerCommand('cursorRemote.start', () => {
         if (wsServer && !wsServer.isRunning()) {
             wsServer.start();
             updateStatusBar(false);
             vscode.window.showInformationMessage('Cursor Remote server started on port 8766');
-        } else {
+        }
+        else {
             vscode.window.showInformationMessage('Cursor Remote server is already running');
         }
     });
-
     const stopCommand = vscode.commands.registerCommand('cursorRemote.stop', () => {
         if (wsServer && wsServer.isRunning()) {
             wsServer.stop();
             updateStatusBar(false);
             vscode.window.showInformationMessage('Cursor Remote server stopped');
-        } else {
+        }
+        else {
             vscode.window.showInformationMessage('Cursor Remote server is not running');
         }
     });
-
     const toggleCommand = vscode.commands.registerCommand('cursorRemote.toggle', () => {
         if (wsServer) {
             if (wsServer.isRunning()) {
                 wsServer.stop();
                 updateStatusBar(false);
-            } else {
+            }
+            else {
                 wsServer.start();
                 updateStatusBar(false);
             }
         }
     });
-
     context.subscriptions.push(startCommand, stopCommand, toggleCommand);
-
     // 자동 시작
     wsServer.start();
     updateStatusBar(false);
     statusBarItem.show();
 }
-
-function updateStatusBar(connected: boolean) {
-    if (!statusBarItem) return;
-    
+function updateStatusBar(connected) {
+    if (!statusBarItem)
+        return;
     if (wsServer && wsServer.isRunning()) {
         if (connected) {
             statusBarItem.text = '$(cloud) Cursor Remote: Connected';
             statusBarItem.backgroundColor = undefined;
-        } else {
+        }
+        else {
             statusBarItem.text = '$(cloud) Cursor Remote: Waiting';
             statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
         }
-    } else {
+    }
+    else {
         statusBarItem.text = '$(cloud-off) Cursor Remote: Stopped';
         statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
     }
 }
-
-export function deactivate() {
+function deactivate() {
     if (wsServer) {
         wsServer.stop();
     }
@@ -100,17 +130,13 @@ export function deactivate() {
         commandHandler.dispose();
     }
 }
-
-async function handleCommand(command: any) {
+async function handleCommand(command) {
     if (!commandHandler || !wsServer) {
         return;
     }
-
     const commandId = command.id || Date.now().toString();
-
     try {
-        let result: any = null;
-
+        let result = null;
         switch (command.type) {
             case 'insert_text':
                 await commandHandler.insertText(command.text);
@@ -132,30 +158,30 @@ async function handleCommand(command: any) {
                 break;
             default:
                 console.warn('Unknown command type:', command.type);
-                wsServer.send(JSON.stringify({ 
+                wsServer.send(JSON.stringify({
                     id: commandId,
-                    type: 'command_result', 
+                    type: 'command_result',
                     success: false,
                     error: `Unknown command type: ${command.type}`
                 }));
                 return;
         }
-
         // 성공 응답 전송
-        wsServer.send(JSON.stringify({ 
+        wsServer.send(JSON.stringify({
             id: commandId,
-            type: 'command_result', 
+            type: 'command_result',
             success: true,
             ...result
         }));
-
-    } catch (error) {
+    }
+    catch (error) {
         console.error('Error handling command:', error);
-        wsServer.send(JSON.stringify({ 
+        wsServer.send(JSON.stringify({
             id: commandId,
-            type: 'command_result', 
+            type: 'command_result',
             success: false,
-            error: error instanceof Error ? error.message : 'Unknown error' 
+            error: error instanceof Error ? error.message : 'Unknown error'
         }));
     }
 }
+//# sourceMappingURL=extension.js.map

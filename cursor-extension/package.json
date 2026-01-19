@@ -22,6 +22,10 @@
       {
         "command": "cursorRemote.stop",
         "title": "Stop Cursor Remote Server"
+      },
+      {
+        "command": "cursorRemote.toggle",
+        "title": "Toggle Cursor Remote Server"
       }
     ]
   },
