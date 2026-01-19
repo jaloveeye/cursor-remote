@@ -11,10 +11,12 @@ npm run compile
 ```
 
 **확인 사항:**
+
 - `out/` 폴더에 컴파일된 파일이 생성되었는지 확인
 - `extension.js`, `websocket-server.js`, `command-handler.js` 파일 존재 확인
 
 **Cursor IDE에서 테스트:**
+
 1. Cursor IDE 실행
 2. `Cmd+Shift+P` (Mac) 또는 `Ctrl+Shift+P` (Windows/Linux)
 3. "Extensions: Install from VSIX..." 선택
@@ -23,6 +25,7 @@ npm run compile
    - Extension이 자동으로 활성화됨
 
 **확인:**
+
 - 상태 표시줄에 "Cursor Remote: Waiting" 표시 확인
 - 명령 팔레트에서 "Start Cursor Remote Server" 실행
 - 상태 표시줄이 "Cursor Remote: Waiting"으로 변경되는지 확인
@@ -37,6 +40,7 @@ npm start
 ```
 
 **예상 출력:**
+
 ```
 Attempting to connect to extension at ws://localhost:8766...
 ✅ Cursor Remote PC Server started!
@@ -47,11 +51,13 @@ Attempting to connect to extension at ws://localhost:8766...
 ```
 
 **확인 사항:**
+
 - 서버가 정상적으로 시작되는지 확인
 - Extension 연결 시도 메시지 확인
 - Extension이 실행 중이면 "✅ Connected to Cursor Extension" 메시지 확인
 
 **포트 확인:**
+
 ```bash
 # macOS/Linux
 lsof -i :8766
@@ -118,10 +124,12 @@ flutter run
    - 상태 표시줄 확인
 
 2. **PC 서버 시작**
+
    ```bash
    cd pc-server
    npm start
    ```
+
    - Extension 연결 확인
    - 서버 IP 주소 확인
 
@@ -163,12 +171,15 @@ flutter run
 ## 로그 확인
 
 ### Extension 로그
+
 - Cursor IDE: `Help > Toggle Developer Tools > Console`
 
 ### PC 서버 로그
+
 - 터미널 출력 확인
 
 ### 모바일 앱 로그
+
 - Flutter: `flutter run` 출력 확인
 - 또는 Android Studio / Xcode 로그 확인
 
