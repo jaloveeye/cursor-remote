@@ -125,7 +125,7 @@ class _HomePageState extends State<HomePage> {
       if (args != null) 'args': args,
     };
 
-    _channel!.sink.add(JSON.encode(message));
+    _channel!.sink.add(jsonEncode(message));
     setState(() {
       _messages.add('Sent: ${message.toString()}');
     });
