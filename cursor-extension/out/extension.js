@@ -139,8 +139,15 @@ async function handleCommand(command) {
         let result = null;
         switch (command.type) {
             case 'insert_text':
-                await commandHandler.insertText(command.text);
-                result = { success: true, message: 'Text inserted' };
+                try {
+                    await commandHandler.insertText(command.text);
+                    result = { success: true, message: 'Text inserted' };
+                }
+                catch (error) {
+                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                    result = { success: false, error: errorMsg };
+                    // 에러를 다시 throw하지 않고 result에 포함
+                }
                 break;
             case 'execute_command':
                 result = await commandHandler.executeCommand(command.command, ...(command.args || []));

@@ -39,12 +39,15 @@ class CommandHandler {
     async insertText(text) {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
-            throw new Error('No active editor');
+            throw new Error('No active editor. Please open a file in Cursor IDE.');
         }
-        await editor.edit(editBuilder => {
+        const success = await editor.edit(editBuilder => {
             const position = editor.selection.active;
             editBuilder.insert(position, text);
         });
+        if (!success) {
+            throw new Error('Failed to insert text. The editor may be read-only or the edit was rejected.');
+        }
     }
     async executeCommand(command, ...args) {
         return await vscode.commands.executeCommand(command, ...args);

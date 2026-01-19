@@ -180,7 +180,7 @@ flutter run
 
 ### 모바일 앱 로그
 
-- Flutter: `flutter run` 출력 확인
+- Flutter: `flutter run` 출력 확인hi there
 - 또는 Android Studio / Xcode 로그 확인
 
 ---

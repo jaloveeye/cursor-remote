@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 void main() {
@@ -280,9 +281,32 @@ class _HomePageState extends State<HomePage> {
                       child: ListView.builder(
                         itemCount: _messages.length,
                         itemBuilder: (context, index) {
-                          return ListTile(
-                            title: Text(_messages[index]),
-                            dense: true,
+                          return GestureDetector(
+                            onLongPress: () {
+                              Clipboard.setData(ClipboardData(text: _messages[index]));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('메시지가 클립보드에 복사되었습니다'),
+                                  duration: Duration(seconds: 1),
+                                ),
+                              );
+                            },
+                            child: ListTile(
+                              title: Text(_messages[index]),
+                              dense: true,
+                              trailing: IconButton(
+                                icon: const Icon(Icons.copy, size: 18),
+                                onPressed: () {
+                                  Clipboard.setData(ClipboardData(text: _messages[index]));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('메시지가 클립보드에 복사되었습니다'),
+                                      duration: Duration(seconds: 1),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
                           );
                         },
                       ),
