@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import * as http from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
 import { WebSocketServer } from './websocket-server';
 import { CommandHandler } from './command-handler';
 
@@ -7,6 +10,10 @@ let commandHandler: CommandHandler | null = null;
 let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 let terminalOutputListener: vscode.Disposable | null = null;
+let terminalOutputFile: string | null = null;
+let lastTerminalOutputSize: number = 0;
+// 터미널별 출력 리스너 관리
+const terminalDataListeners: Map<vscode.Terminal, vscode.Disposable> = new Map();
 
 export function activate(context: vscode.ExtensionContext) {
     // Output 채널 생성
@@ -26,8 +33,14 @@ export function activate(context: vscode.ExtensionContext) {
     wsServer = new WebSocketServer(8766, outputChannel);
     commandHandler = new CommandHandler(outputChannel, wsServer);
     
-    // 터미널 출력 모니터링 시작
-    startTerminalOutputMonitoring();
+    // 터미널 출력 모니터링 비활성화 (prompt 사용으로 전환)
+    // startTerminalOutputMonitoring(context);
+    
+    // 터미널 출력 파일 모니터링 비활성화 (prompt 사용으로 전환)
+    // startTerminalOutputFileMonitoring(context);
+    
+    // HTTP 서버 시작 (hook에서 Gemini 응답을 받기 위해)
+    startHttpServerForHooks();
 
     // WebSocket 메시지 핸들러
     wsServer.onMessage((message: string) => {
@@ -105,11 +118,26 @@ function updateStatusBar(connected: boolean) {
     }
 }
 
+let httpServer: http.Server | null = null;
+
 export function deactivate() {
+    if (terminalOutputFile) {
+        fs.unwatchFile(terminalOutputFile);
+        terminalOutputFile = null;
+    }
+    if (httpServer) {
+        httpServer.close();
+        httpServer = null;
+    }
     if (terminalOutputListener) {
         terminalOutputListener.dispose();
         terminalOutputListener = null;
     }
+    // 모든 터미널 출력 리스너 정리
+    terminalDataListeners.forEach((listener) => {
+        listener.dispose();
+    });
+    terminalDataListeners.clear();
     if (wsServer) {
         wsServer.stop();
     }
@@ -118,37 +146,172 @@ export function deactivate() {
     }
 }
 
+// 터미널 출력 파일 모니터링 시작
+function startTerminalOutputFileMonitoring(context: vscode.ExtensionContext) {
+    // 워크스페이스 루트 경로 가져오기
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+        outputChannel.appendLine('[Terminal Output] No workspace folder found');
+        return;
+    }
+
+    const workspaceRoot = workspaceFolders[0].uri.fsPath;
+    const outputFile = path.join(workspaceRoot, '.cursor-remote-terminal-output.log');
+    
+    outputChannel.appendLine(`[Terminal Output] Monitoring file: ${outputFile}`);
+    
+    // 파일이 없으면 생성
+    if (!fs.existsSync(outputFile)) {
+        fs.writeFileSync(outputFile, '');
+    }
+
+    // 파일 크기 초기화
+    try {
+        const stats = fs.statSync(outputFile);
+        lastTerminalOutputSize = stats.size;
+    } catch (error) {
+        lastTerminalOutputSize = 0;
+    }
+
+    // 파일 변경 감지
+    terminalOutputFile = outputFile;
+    fs.watchFile(outputFile, { interval: 500 }, (curr, prev) => {
+        if (curr.size > lastTerminalOutputSize) {
+            // 새 내용이 추가됨
+            try {
+                const fileContent = fs.readFileSync(outputFile, 'utf8');
+                const newContent = fileContent.substring(lastTerminalOutputSize);
+                
+                if (newContent.trim().length > 0) {
+                    outputChannel.appendLine(`[Terminal Output] New content detected (${newContent.length} bytes)`);
+                    
+                    // WebSocket으로 클라이언트에 전송
+                    if (wsServer) {
+                        wsServer.sendFromHook({
+                            type: 'terminal_output',
+                            text: newContent,
+                            timestamp: new Date().toISOString()
+                        });
+                    }
+                }
+                
+                lastTerminalOutputSize = curr.size;
+            } catch (error) {
+                const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                outputChannel.appendLine(`[Terminal Output] Error reading file: ${errorMsg}`);
+            }
+        }
+    });
+
+    // 파일 모니터링은 백업 방식으로 유지 (자동 캡처가 작동하지 않는 경우를 대비)
+    outputChannel.appendLine(`[Terminal Output] File monitoring enabled as backup: ${outputFile}`);
+}
+
+// Hook에서 Gemini 응답을 받기 위한 HTTP 서버
+function startHttpServerForHooks() {
+    if (httpServer) {
+        return;
+    }
+
+    httpServer = http.createServer((req, res) => {
+        if (req.method === 'POST' && req.url === '/hook') {
+            let body = '';
+            
+            req.on('data', (chunk) => {
+                body += chunk.toString();
+            });
+            
+            req.on('end', () => {
+                try {
+                    const data = JSON.parse(body);
+                    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Received from hook: ${data.type || 'unknown'}`);
+                    
+                    // WebSocket으로 클라이언트에 전송
+                    if (wsServer) {
+                        wsServer.sendFromHook(data);
+                    }
+                    
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true }));
+                } catch (error) {
+                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Error processing hook data: ${errorMsg}`);
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: false, error: errorMsg }));
+                }
+            });
+        } else {
+            res.writeHead(404);
+            res.end('Not found');
+        }
+    });
+
+    httpServer.listen(8768, 'localhost', () => {
+        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] HTTP server for hooks started on port 8768`);
+    });
+
+    httpServer.on('error', (error) => {
+        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] HTTP server error: ${error.message}`);
+    });
+}
+
 // 터미널 출력 모니터링 시작
-function startTerminalOutputMonitoring() {
+function startTerminalOutputMonitoring(context: vscode.ExtensionContext) {
     // 기존 리스너가 있으면 제거
     if (terminalOutputListener) {
         terminalOutputListener.dispose();
     }
     
-    // 터미널 생성 이벤트 모니터링
+    // 터미널 활성화 변경 이벤트 모니터링
     terminalOutputListener = vscode.window.onDidChangeActiveTerminal((terminal) => {
         if (terminal) {
             setupTerminalOutputListener(terminal);
         }
     });
+    context.subscriptions.push(terminalOutputListener);
+    
+    // 터미널 생성 이벤트 모니터링 (새 터미널이 생성될 때)
+    const terminalCreateListener = vscode.window.onDidOpenTerminal((terminal) => {
+        if (terminal) {
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] New terminal created: ${terminal.name}`);
+            setupTerminalOutputListener(terminal);
+        }
+    });
+    context.subscriptions.push(terminalCreateListener);
     
     // 현재 활성 터미널이 있으면 모니터링 시작
     const activeTerminal = vscode.window.activeTerminal;
     if (activeTerminal) {
         setupTerminalOutputListener(activeTerminal);
     }
+    
+    // 모든 기존 터미널에 대해 모니터링 시작
+    vscode.window.terminals.forEach((terminal) => {
+        setupTerminalOutputListener(terminal);
+    });
+    
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    const outputFile = workspaceFolders && workspaceFolders.length > 0 
+        ? path.join(workspaceFolders[0].uri.fsPath, '.cursor-remote-terminal-output.log')
+        : 'N/A';
+    
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ Terminal output auto-capture enabled`);
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 💡 Commands sent via Extension will automatically capture output`);
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 💡 Output is captured to: ${outputFile}`);
 }
 
 // 터미널 출력 리스너 설정
 function setupTerminalOutputListener(terminal: vscode.Terminal) {
-    // 터미널의 출력을 모니터링하여 모바일 앱으로 전송
-    // 주의: VS Code API로는 터미널의 출력을 직접 읽을 수 없음
-    // 대신 터미널이 활성화될 때마다 모니터링을 시도
-    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Monitoring terminal: ${terminal.name}`);
+    // 이미 리스너가 설정된 터미널이면 스킵
+    if (terminalDataListeners.has(terminal)) {
+        return;
+    }
     
-    // 터미널 프로세스 ID를 통해 출력을 읽을 수 없으므로,
-    // 사용자가 터미널에서 명령을 실행할 때 출력을 확인하는 다른 방법이 필요
-    // 현재는 터미널에 텍스트를 입력하는 기능만 제공
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Terminal registered for auto-capture: ${terminal.name}`);
+    
+    // VS Code의 안정적인 API로는 터미널 출력을 직접 캡처할 수 없으므로,
+    // insertToTerminal에서 명령을 보낼 때 자동으로 출력을 캡처하도록 처리
+    // 터미널이 생성되거나 활성화될 때 등록만 하고, 실제 캡처는 insertToTerminal에서 처리
 }
 
 async function handleCommand(command: any) {
@@ -175,6 +338,9 @@ async function handleCommand(command: any) {
                     if (isTerminal) {
                         outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Routing to terminal`);
                         const execute = command.execute === true; // execute 옵션 확인
+                        
+                        // Gemini CLI 모드인지 확인 (기본적으로 활성화)
+                        // 일반 터미널에도 전송하되, Gemini CLI 프로세스에도 전송 시도
                         await commandHandler.insertToTerminal(command.text, execute);
                         result = { success: true, message: execute ? 'Text sent to terminal and executed' : 'Text sent to terminal' };
                     } else if (isPrompt) {

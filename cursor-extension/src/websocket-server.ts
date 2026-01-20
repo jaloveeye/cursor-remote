@@ -133,6 +133,13 @@ export class WebSocketServer {
         });
     }
 
+    // HTTP POST 요청으로 메시지 수신 (hook에서 사용)
+    sendFromHook(data: any) {
+        const message = JSON.stringify(data);
+        this.send(message);
+        this.log(`Message sent from hook: ${data.type || 'unknown'}`);
+    }
+
     private sendToClient(ws: WebSocketClient, message: string) {
         if (ws.readyState === WebSocket.OPEN) {
             ws.send(message);

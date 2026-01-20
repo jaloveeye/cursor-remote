@@ -534,7 +534,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 setState(() {
                                   // 버튼 클릭 상태 업데이트
                                 });
-                                _sendCommand('insert_text', text: text, terminal: true, execute: true);
+                                _sendCommand('insert_text', text: text, prompt: true, execute: true);
                                 // 텍스트 클리어 후 UI 업데이트
                                 _commandController.clear();
                                 if (mounted) {
@@ -549,7 +549,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 14),
                             ),
-                            child: const Text('Send to Terminal'),
+                            child: const Text('Send to Prompt'),
                           ),
                         ),
                         const SizedBox(width: 8),

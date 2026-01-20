@@ -35,6 +35,8 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CommandHandler = void 0;
 const vscode = __importStar(require("vscode"));
+const path = __importStar(require("path"));
+const fs = __importStar(require("fs"));
 class CommandHandler {
     constructor(outputChannel, wsServer) {
         this.outputChannel = null;
@@ -58,6 +60,42 @@ class CommandHandler {
         }
         console.error(logMessage);
     }
+    // 텍스트가 명령어인지 판단하는 헬퍼 함수
+    isLikelyCommand(text) {
+        if (!text || text.length === 0) {
+            return false;
+        }
+        // 단일 단어만 있는 경우 (공백 없음) - 일반 텍스트로 간주
+        if (!text.includes(' ') && !text.includes('\t')) {
+            // 예외: 명령어로 보이는 패턴들
+            const commandPatterns = [
+                /^[a-z]+-[a-z]+/i, // kebab-case (예: gemini-cli, npm-install)
+                /^[a-z]+\.[a-z]+/i, // dot notation (예: npm.test)
+                /^[a-z]+:[a-z]+/i, // colon notation
+            ];
+            // 패턴 매칭 확인
+            for (const pattern of commandPatterns) {
+                if (pattern.test(text)) {
+                    return true;
+                }
+            }
+            // 단일 단어는 일반 텍스트로 간주
+            return false;
+        }
+        // 공백이 있으면 명령어로 간주 (명령어 + 인자 형태)
+        // 하지만 특정 예외 패턴은 제외
+        const plainTextPatterns = [
+            /^hello\s*$/i,
+            /^hi\s*$/i,
+            /^hey\s*$/i,
+        ];
+        for (const pattern of plainTextPatterns) {
+            if (pattern.test(text.trim())) {
+                return false;
+            }
+        }
+        return true;
+    }
     async insertText(text) {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
@@ -75,6 +113,13 @@ class CommandHandler {
         this.log(`[Cursor Remote] insertToTerminal called - textLength: ${text.length}, execute: ${execute}`);
         this.log(`[Cursor Remote] Text content: "${text.substring(0, 100)}${text.length > 100 ? '...' : ''}"`);
         try {
+            // 출력 파일 경로 가져오기
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            let outputFile = null;
+            if (workspaceFolders && workspaceFolders.length > 0) {
+                const workspaceRoot = workspaceFolders[0].uri.fsPath;
+                outputFile = path.join(workspaceRoot, '.cursor-remote-terminal-output.log');
+            }
             // 활성 터미널 가져오기
             let terminal = vscode.window.activeTerminal;
             this.log(`[Cursor Remote] Active terminal: ${terminal ? terminal.name : 'null'}`);
@@ -112,10 +157,32 @@ class CommandHandler {
             if (execute) {
                 // 터미널이 포커스를 받았는지 확인하기 위해 추가 대기
                 await new Promise(resolve => setTimeout(resolve, 100));
+                // 출력 자동 캡처: 명령어처럼 보이는 경우에만 자동으로 출력을 파일로 리다이렉트
+                let commandToSend = text;
+                if (outputFile) {
+                    // 명령어인지 판단하는 로직
+                    const trimmedText = text.trim();
+                    const isCommand = this.isLikelyCommand(trimmedText);
+                    if (isCommand) {
+                        // 명령에 자동으로 출력 캡처 추가 (tee를 사용하여 터미널과 파일에 동시 출력)
+                        // 단, 이미 tee나 리다이렉트가 포함된 명령은 그대로 사용
+                        if (!text.includes('| tee') && !text.includes('>>') && !text.includes('>')) {
+                            // 명령을 래핑하여 출력을 자동으로 캡처
+                            commandToSend = `(${text}) 2>&1 | tee -a "${outputFile}"`;
+                            this.log(`[Cursor Remote] Auto-capturing output to: ${outputFile}`);
+                        }
+                        else {
+                            this.log(`[Cursor Remote] Command already has output redirection, using as-is`);
+                        }
+                    }
+                    else {
+                        // 일반 텍스트는 그대로 전송 (자동 캡처하지 않음)
+                        this.log(`[Cursor Remote] Text appears to be plain text, not capturing output`);
+                    }
+                }
                 // 방법: 텍스트를 newline 없이 먼저 보내고, 
                 // 다음 sendText 호출 시 이전 텍스트가 실행되는 특성을 이용
-                this.log(`[Cursor Remote] Sending text to terminal (without newline first)`);
-                terminal.sendText(text, false); // false: newline 없이 텍스트만 전송
+                terminal.sendText(commandToSend, false); // false: newline 없이 텍스트만 전송
                 this.log('[Cursor Remote] Text sent, waiting for execution trigger...');
                 // 충분한 대기 후 줄바꿈을 보내서 이전 텍스트 실행 트리거
                 // 터미널이 텍스트를 완전히 처리할 시간을 줌
@@ -471,7 +538,31 @@ class CommandHandler {
         }
     }
     dispose() {
-        // 정리 작업
+        // 정리 작업이 필요한 경우 여기에 추가
+    }
+    // 터미널 출력을 자동으로 캡처하기 위한 래퍼 스크립트 생성
+    // 사용자는 터미널에서 직접 입력하고 출력을 볼 수 있으면서, 동시에 모바일 앱에도 전송됨
+    async setupTerminalOutputCapture() {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            throw new Error('워크스페이스가 열려있지 않습니다');
+        }
+        const workspaceRoot = workspaceFolders[0].uri.fsPath;
+        const outputFile = path.join(workspaceRoot, '.cursor-remote-terminal-output.log');
+        const wrapperScript = path.join(workspaceRoot, '.cursor-remote-gemini-wrapper.sh');
+        // 래퍼 스크립트 생성 (tee를 사용하여 터미널과 파일에 동시 출력)
+        const scriptContent = `#!/bin/bash
+# Cursor Remote Gemini CLI Wrapper
+# 터미널에도 출력하고 파일에도 저장하여 모바일 앱으로 전송
+
+OUTPUT_FILE="${outputFile}"
+gemini-cli "$@" 2>&1 | tee -a "$OUTPUT_FILE"
+`;
+        fs.writeFileSync(wrapperScript, scriptContent);
+        fs.chmodSync(wrapperScript, 0o755);
+        this.log(`[Cursor Remote] Wrapper script created: ${wrapperScript}`);
+        this.log(`[Cursor Remote] Output file: ${outputFile}`);
+        return wrapperScript;
     }
 }
 exports.CommandHandler = CommandHandler;
