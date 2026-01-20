@@ -46,3 +46,6 @@ mobile-app/.android/
 
 # TypeScript
 *.tsbuildinfo
+
+# Cursor Remote extension files
+.cursor/CHAT_SUMMARY

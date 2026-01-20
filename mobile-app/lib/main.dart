@@ -30,11 +30,18 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
+class MessageItem {
+  final String text;
+  final String type; // 'normal', 'chat_response', 'user_message', etc.
+  
+  MessageItem(this.text, {this.type = 'normal'});
+}
+
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   WebSocketChannel? _channel;
   String _serverAddress = '';
   bool _isConnected = false;
-  final List<String> _messages = [];
+  final List<MessageItem> _messages = [];
   final TextEditingController _commandController = TextEditingController();
   final TextEditingController _serverAddressController = TextEditingController();
   final FocusNode _serverAddressFocusNode = FocusNode();
@@ -69,7 +76,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               setState(() {
                 try {
                   final json = message.toString();
-                  _messages.add('Received: $json');
+                  _messages.add(MessageItem('Received: $json'));
                   
                   // JSON 파싱 시도
                   final decoded = jsonDecode(json);
@@ -77,34 +84,41 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     final type = decoded['type'];
                     if (type == 'command_result') {
                       if (decoded['success'] == true) {
-                        _messages.add('✅ Command succeeded');
+                        _messages.add(MessageItem('✅ Command succeeded'));
                       } else {
-                        _messages.add('❌ Command failed: ${decoded['error']}');
+                        _messages.add(MessageItem('❌ Command failed: ${decoded['error']}'));
                       }
                     } else if (type == 'connected') {
-                      _messages.add('✅ ${decoded['message']}');
+                      _messages.add(MessageItem('✅ ${decoded['message']}'));
                       // 연결 확인 시 상태 업데이트
                       if (!_isConnected) {
                         _isConnected = true;
                       }
                     } else if (type == 'error') {
-                      _messages.add('❌ Error: ${decoded['message']}');
+                      _messages.add(MessageItem('❌ Error: ${decoded['message']}'));
                     } else if (type == 'user_message') {
                       // 사용자 메시지 (대화 히스토리용)
                       final text = decoded['text'] ?? '';
-                      _messages.add('💬 You: $text');
+                      _messages.add(MessageItem('💬 You: $text', type: 'user_message'));
                     } else if (type == 'gemini_response') {
                       // Gemini 응답 (대화 히스토리용)
                       final text = decoded['text'] ?? '';
-                      _messages.add('🤖 Gemini: $text');
+                      _messages.add(MessageItem('🤖 Gemini: $text', type: 'gemini_response'));
                     } else if (type == 'terminal_output') {
                       // 터미널 출력
                       final text = decoded['text'] ?? '';
-                      _messages.add('📟 Terminal: $text');
+                      _messages.add(MessageItem('📟 Terminal: $text', type: 'terminal_output'));
+                    } else if (type == 'chat_response') {
+                      // Cursor IDE 채팅 응답 - 구분감 있게 표시
+                      final text = decoded['text'] ?? '';
+                      _messages.add(MessageItem('', type: 'chat_response_divider')); // 구분선
+                      _messages.add(MessageItem('🤖 Cursor AI Response', type: 'chat_response_header'));
+                      _messages.add(MessageItem(text, type: 'chat_response'));
+                      _messages.add(MessageItem('', type: 'chat_response_divider')); // 구분선
                     }
                   }
                 } catch (e) {
-                  _messages.add('Received: $message');
+                  _messages.add(MessageItem('Received: $message'));
                 }
               });
               // 새 메시지 추가 후 자동으로 맨 아래로 스크롤
@@ -114,7 +128,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               if (mounted) {
                 try {
                   setState(() {
-                    _messages.add('Error processing message: $e');
+                    _messages.add(MessageItem('Error processing message: $e'));
                   });
                 } catch (setStateError) {
                   // setState 에러 무시
@@ -128,7 +142,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           try {
             setState(() {
               _isConnected = false;
-              _messages.add('Error: $error');
+              _messages.add(MessageItem('Error: $error'));
             });
           } catch (e) {
             // setState 에러 무시
@@ -139,7 +153,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           try {
             setState(() {
               _isConnected = false;
-              _messages.add('Connection closed');
+              _messages.add(MessageItem('Connection closed'));
             });
           } catch (e) {
             // setState 에러 무시
@@ -151,7 +165,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           _isConnected = true;
-          _messages.add('Connected to $_serverAddress:8767');
+          _messages.add(MessageItem('Connected to $_serverAddress:8767'));
         });
       }
     } catch (e) {
@@ -161,7 +175,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         );
         setState(() {
           _isConnected = false;
-          _messages.add('Connection failed: $e');
+          _messages.add(MessageItem('Connection failed: $e'));
         });
       }
     }
@@ -176,7 +190,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (mounted) {
       setState(() {
         _isConnected = false;
-        _messages.add('Disconnected');
+        _messages.add(MessageItem('Disconnected'));
       });
     }
   }
@@ -211,7 +225,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (mounted) {
         try {
           setState(() {
-            _messages.add('Sent: ${message.toString()}');
+            _messages.add(MessageItem('Sent: ${message.toString()}'));
           });
           // 새 메시지 추가 후 자동으로 맨 아래로 스크롤
           _scrollToBottom();
@@ -227,7 +241,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           );
           setState(() {
             _isConnected = false;
-            _messages.add('Send error: $e');
+            _messages.add(MessageItem('Send error: $e'));
           });
         } catch (setStateError) {
           // setState 에러 무시
@@ -252,6 +266,106 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       }
     });
+  }
+
+  Widget _buildMessageItem(MessageItem message) {
+    // 구분선
+    if (message.type == 'chat_response_divider') {
+      return const Divider(
+        height: 1,
+        thickness: 2,
+        color: Colors.blue,
+      );
+    }
+    
+    // 헤더
+    if (message.type == 'chat_response_header') {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+        color: Colors.blue.withOpacity(0.1),
+        child: Row(
+          children: [
+            const Icon(Icons.smart_toy, size: 18, color: Colors.blue),
+            const SizedBox(width: 8),
+            Text(
+              message.text,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.blue,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    // 채팅 응답 본문
+    if (message.type == 'chat_response') {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+        color: Colors.blue.withOpacity(0.05),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SelectableText(
+              message.text,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.copy, size: 16),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: message.text));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('메시지가 클립보드에 복사되었습니다'),
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+    
+    // 일반 메시지
+    return ListTile(
+      title: Text(
+        message.text,
+        style: const TextStyle(fontSize: 13),
+      ),
+      dense: true,
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 16.0,
+        vertical: 2.0,
+      ),
+      trailing: IconButton(
+        icon: const Icon(Icons.copy, size: 16),
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(),
+        onPressed: () {
+          Clipboard.setData(ClipboardData(text: message.text));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('메시지가 클립보드에 복사되었습니다'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -289,7 +403,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           _isConnected = false;
-          _messages.add('⚠️ Connection lost, please reconnect');
+          _messages.add(MessageItem('⚠️ Connection lost, please reconnect'));
         });
       }
     } else if (_channel != null && !_isConnected) {
@@ -438,7 +552,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             itemBuilder: (context, index) {
                               return GestureDetector(
                                 onLongPress: () {
-                                  Clipboard.setData(ClipboardData(text: _messages[index]));
+                                  Clipboard.setData(ClipboardData(text: _messages[index].text));
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
                                       content: Text('메시지가 클립보드에 복사되었습니다'),
@@ -446,31 +560,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                     ),
                                   );
                                 },
-                                child: ListTile(
-                                  title: Text(
-                                    _messages[index],
-                                    style: const TextStyle(fontSize: 13),
-                                  ),
-                                  dense: true,
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 16.0,
-                                    vertical: 2.0,
-                                  ),
-                                  trailing: IconButton(
-                                    icon: const Icon(Icons.copy, size: 16),
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                    onPressed: () {
-                                      Clipboard.setData(ClipboardData(text: _messages[index]));
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('메시지가 클립보드에 복사되었습니다'),
-                                          duration: Duration(seconds: 1),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ),
+                                child: _buildMessageItem(_messages[index]),
                               );
                             },
                           ),

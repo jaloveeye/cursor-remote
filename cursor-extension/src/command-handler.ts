@@ -203,211 +203,41 @@ export class CommandHandler {
         this.log(`[Cursor Remote] insertToPrompt called - textLength: ${text.length}, execute: ${execute}`);
         
         try {
-            // Cursor IDE의 채팅 패널 처리
-            // workbench.action.chat.open은 새 채팅창을 생성하지만, 텍스트를 입력하려면 채팅 패널이 열려있어야 함
-            // 새 채팅창 생성을 허용하고, 텍스트 입력과 자동 실행에 집중
-            
-            this.log('[Cursor Remote] Opening chat panel (may create new chat if none exists)');
-            
-            // 채팅 패널 열기 (기존 채팅창이 있으면 포커스, 없으면 새로 생성)
-            try {
-                this.log('[Cursor Remote] Executing workbench.action.chat.open');
-                await vscode.commands.executeCommand('workbench.action.chat.open');
-                this.log('[Cursor Remote] Chat panel opened');
-                // 채팅 패널이 열리거나 포커스될 시간 확보
-                await new Promise(resolve => setTimeout(resolve, 800));
-            } catch (e) {
-                this.logError(`[Cursor Remote] Failed to open chat panel: ${e}`);
-                throw new Error('채팅 패널을 열 수 없습니다.');
-            }
+            // 1단계: 채팅 패널 열기 (기존 채팅창이 있으면 포커스, 없으면 새로 생성)
+            this.log('[Cursor Remote] Opening chat panel');
+            await vscode.commands.executeCommand('workbench.action.chat.open');
+            await new Promise(resolve => setTimeout(resolve, 1000));
 
-            // 채팅 입력창에 텍스트를 입력하는 여러 방법 시도
-            let textInserted = false;
+            // 2단계: 텍스트 입력 (클립보드 방식)
+            this.log('[Cursor Remote] Preparing text for clipboard');
+            await vscode.env.clipboard.writeText(text);
+            await new Promise(resolve => setTimeout(resolve, 300));
             
-            // 방법 1: 클립보드 붙여넣기 시도
-            try {
-                this.log('[Cursor Remote] Attempting clipboard paste');
-                await vscode.env.clipboard.writeText(text);
-                await new Promise(resolve => setTimeout(resolve, 200));
-                await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
-                await new Promise(resolve => setTimeout(resolve, 300));
-                textInserted = true;
-                this.log('[Cursor Remote] ✅ Text inserted via clipboard paste');
-            } catch (e) {
-                this.log(`[Cursor Remote] ❌ Clipboard paste failed: ${e}`);
-            }
+            // 채팅 패널이 완전히 열릴 때까지 대기
+            await new Promise(resolve => setTimeout(resolve, 200));
             
-            // 방법 2: type 명령으로 직접 입력 시도 (붙여넣기가 실패한 경우)
-            if (!textInserted) {
-                try {
-                    this.log('[Cursor Remote] Attempting type command');
-                    // 텍스트를 한 글자씩 입력하는 것처럼 시뮬레이션
-                    // 하지만 긴 텍스트의 경우 느릴 수 있으므로, 짧은 텍스트만 시도
-                    if (text.length < 100) {
-                        await vscode.commands.executeCommand('type', { text: text });
-                        await new Promise(resolve => setTimeout(resolve, 300));
-                        textInserted = true;
-                        this.log('[Cursor Remote] ✅ Text inserted via type command');
-                    } else {
-                        // 긴 텍스트는 클립보드 붙여넣기만 사용
-                        throw new Error('Text too long for type command');
-                    }
-                } catch (e) {
-                    this.log(`[Cursor Remote] ❌ Type command failed: ${e}`);
-                }
-            }
-            
-            if (!textInserted) {
-                this.logError('[Cursor Remote] ❌ Failed to insert text');
-                throw new Error('텍스트를 입력할 수 없습니다.');
-            }
-            
-            // execute 옵션이 true이면 프롬프트 실행 (Enter 키 전송)
+            // 붙여넣기
+            this.log('[Cursor Remote] Pasting text from clipboard');
+            await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Rules 기반 캡처는 자동으로 작동하므로 별도 모니터링 불필요
+            this.log('[Cursor Remote] Rules-based chat capture is active - responses will be automatically sent via hooks');
+
             if (execute) {
-                this.log('[Cursor Remote] Attempting to execute prompt');
-                // 텍스트 입력 후 충분히 대기 (입력이 완료될 시간 확보)
-                await new Promise(resolve => setTimeout(resolve, 800));
+                // 3단계: 채팅 패널 재확인 (입력 완료 대기)
+                this.log('[Cursor Remote] Waiting for input to complete before execution');
+                await new Promise(resolve => setTimeout(resolve, 300));
+
+                // 4단계: 여러 방식으로 Enter 시뮬레이션 시도
+                const submitted = await this.trySubmitChat();
                 
-                // 채팅 입력창에 다시 포커스를 맞추지 않음 (새 채팅창 생성 방지)
-                // 이미 채팅 패널이 열려있고 포커스가 맞춰져 있다고 가정
-                this.log('[Cursor Remote] Skipping re-focus to avoid creating new chat panel');
-                await new Promise(resolve => setTimeout(resolve, 200));
-                
-                // 키보드 이벤트 시뮬레이션을 우선 시도 (가장 확실한 방법)
-                // Cursor IDE의 채팅 입력창은 일반 명령어로는 제어하기 어려움
-                let executed = false;
-                
-                // 여러 방법으로 Enter 키 시뮬레이션 시도
-                // Cursor IDE의 채팅 입력창은 웹뷰일 수 있어 일반적인 방법이 작동하지 않을 수 있음
-                const enterMethods = [
-                    // 방법 1: Enter 키를 여러 번 시도 (채팅 입력창에 포커스가 있을 것으로 가정)
-                    async () => {
-                        this.log('[Cursor Remote] Method 1: Enter key via type command (multiple attempts)');
-                        // 채팅 입력창에 포커스가 있을 것으로 가정하고 Enter 키 시도
-                        for (let i = 0; i < 3; i++) {
-                            try {
-                                this.log(`[Cursor Remote] Enter key attempt ${i + 1}/3`);
-                                await vscode.commands.executeCommand('type', { text: '\n' });
-                                await new Promise(resolve => setTimeout(resolve, 250));
-                            } catch (e) {
-                                this.log(`[Cursor Remote] Enter key attempt ${i + 1} failed: ${e}`);
-                            }
-                        }
-                    },
-                    // 방법 2: type 명령으로 Enter 키 (더 많은 시도)
-                    async () => {
-                        this.log('[Cursor Remote] Method 2: Enter key via type command (multiple attempts)');
-                        for (let i = 0; i < 5; i++) {
-                            try {
-                                this.log(`[Cursor Remote] Enter key attempt ${i + 1}/5`);
-                                await vscode.commands.executeCommand('type', { text: '\n' });
-                                await new Promise(resolve => setTimeout(resolve, 300));
-                            } catch (e) {
-                                this.log(`[Cursor Remote] Enter key attempt ${i + 1} failed: ${e}`);
-                            }
-                        }
-                    },
-                    // 방법 3: 단일 Enter 키 시도
-                    async () => {
-                        this.log('[Cursor Remote] Method 3: Enter key via type command (single)');
-                        await vscode.commands.executeCommand('type', { text: '\n' });
-                    },
-                ];
-                
-                for (const method of enterMethods) {
-                    try {
-                        await method();
-                        executed = true;
-                        this.log('[Cursor Remote] ✅ Successfully simulated Enter key');
-                        break;
-                    } catch (e) {
-                        this.log(`[Cursor Remote] ❌ Enter key simulation failed: ${e}`);
-                        continue;
-                    }
-                }
-                
-                // 키보드 시뮬레이션이 실패하면 명령어 시도 (보조 방법)
-                // 하지만 type 명령이 성공했다고 해서 실제로 프롬프트가 실행되었는지 확인할 수 없음
-                // 따라서 명령어도 시도해봄
-                if (!executed) {
-                    this.log('[Cursor Remote] Keyboard simulation failed, trying command-based execution');
-                } else {
-                    this.log('[Cursor Remote] Keyboard simulation succeeded, but verifying with commands...');
-                }
-                
-                // 명령어 시도 (키보드 시뮬레이션이 성공했어도 실제로 작동했는지 확인하기 위해)
-                // Cmd+Enter 또는 Ctrl+Enter 단축키를 시뮬레이션
-                const executeCommands = [
-                    // Cursor IDE 특정 명령어들
-                    'cursor.chat.send',
-                    'cursor.chat.submit',
-                    'anysphere.chat.send',
-                    'anysphere.chat.submit',
-                    // VS Code 일반 명령어들
-                    'workbench.action.chat.submit',
-                    'workbench.action.chat.send',
-                    // 키보드 단축키 시뮬레이션 (Cmd+Enter / Ctrl+Enter)
-                    'workbench.action.acceptSelectedQuickOpenItem',
-                ];
-                
-                for (const cmd of executeCommands) {
-                    try {
-                        this.log(`[Cursor Remote] Trying execute command: ${cmd}`);
-                        await vscode.commands.executeCommand(cmd);
-                        executed = true;
-                        this.log(`[Cursor Remote] ✅ Successfully executed command: ${cmd}`);
-                        break;
-                    } catch (e) {
-                        this.log(`[Cursor Remote] ❌ Command ${cmd} failed: ${e}`);
-                        continue;
-                    }
-                }
-                
-                // 명령어도 실패하면 Cmd+Enter / Ctrl+Enter 키 조합 시뮬레이션 시도
-                if (!executed) {
-                    this.log('[Cursor Remote] Trying Cmd+Enter / Ctrl+Enter key combination');
-                    try {
-                        // Mac: Cmd+Enter, Windows/Linux: Ctrl+Enter
-                        // 하지만 VS Code API로는 키 조합을 직접 시뮬레이션하기 어려움
-                        // 대신 type 명령으로 여러 방법 시도
-                        const platform = process.platform;
-                        this.log(`[Cursor Remote] Platform: ${platform}`);
-                        
-                        // Enter 키를 다시 시도하되, 더 긴 대기 시간
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                        for (let i = 0; i < 3; i++) {
-                            try {
-                                await vscode.commands.executeCommand('type', { text: '\n' });
-                                await new Promise(resolve => setTimeout(resolve, 400));
-                            } catch (e) {
-                                this.log(`[Cursor Remote] Final Enter attempt ${i + 1} failed: ${e}`);
-                            }
-                        }
-                        executed = true;
-                        this.log('[Cursor Remote] ✅ Completed final Enter key attempts');
-                    } catch (e) {
-                        this.log(`[Cursor Remote] ❌ Key combination simulation failed: ${e}`);
-                    }
-                }
-                
-                // 최종 확인: 실제로 프롬프트가 실행되었는지 확인할 수 없으므로 경고 메시지
-                // Cursor IDE의 채팅 입력창이 웹뷰일 수 있어 VS Code Extension API로는 제어가 어려움
-                // 자동 실행이 작동하지 않는 경우가 많으므로, 사용자에게 알림만 표시
-                if (executed) {
+                if (submitted) {
                     this.log('[Cursor Remote] ✅ Prompt execution attempted successfully');
-                    this.log('[Cursor Remote] ⚠️  Note: Due to Cursor IDE architecture, automatic execution may not work.');
-                    this.log('[Cursor Remote] 💡 If the prompt did not execute automatically, please press Enter manually in the chat input.');
                 } else {
                     this.logError('[Cursor Remote] ❌ Could not execute prompt. Tried all available methods.');
                     this.logError('[Cursor Remote] 💡 Note: The text was inserted but execution failed. You may need to manually press Enter.');
                 }
-                
-                // 사용자에게 간단한 알림 표시 (항상 표시)
-                // 자동 실행이 작동하지 않을 수 있으므로 사용자에게 안내
-                vscode.window.showInformationMessage(
-                    'Text inserted to chat. Please press Enter to execute.',
-                    { modal: false }
-                );
             }
             
         } catch (error) {
@@ -415,6 +245,54 @@ export class CommandHandler {
             this.logError(`Error in insertToPrompt: ${errorMsg}`);
             throw new Error(`프롬프트 입력 실패: ${errorMsg}`);
         }
+    }
+
+    private async trySubmitChat(): Promise<boolean> {
+        let submitted = false;
+
+        // 방법 1: 채팅 제출 명령어들 시도 (가장 안전한 방법)
+        const submitCommands = [
+            'workbench.action.chat.acceptInput', // 가장 일반적인 명령어
+            'cursor.chat.submit',
+            'cursor.chat.send',
+            'anysphere.chat.submit',
+            'anysphere.chat.send',
+            'workbench.action.chat.submit',
+            'workbench.action.chat.send',
+        ];
+
+        for (const cmd of submitCommands) {
+            try {
+                this.log(`[Cursor Remote] Trying submit command: ${cmd}`);
+                await vscode.commands.executeCommand(cmd);
+                await new Promise(resolve => setTimeout(resolve, 300));
+                submitted = true;
+                this.log(`[Cursor Remote] ✅ Chat submission successful: ${cmd}`);
+                break;
+            } catch (e) {
+                this.log(`[Cursor Remote] ❌ Command ${cmd} failed: ${e}`);
+                continue;
+            }
+        }
+
+        // 방법 2: 직접 Enter 키 입력 시뮬레이션 (명령어가 실패한 경우만)
+        if (!submitted) {
+            try {
+                this.log('[Cursor Remote] Trying Enter key simulation');
+                // 채팅 패널 재확인
+                await vscode.commands.executeCommand('workbench.action.chat.open');
+                await new Promise(resolve => setTimeout(resolve, 200));
+                // Enter 키 시뮬레이션
+                await vscode.commands.executeCommand('type', { text: '\n' });
+                await new Promise(resolve => setTimeout(resolve, 300));
+                submitted = true;
+                this.log('[Cursor Remote] ✅ Enter key simulation successful');
+            } catch (e) {
+                this.log(`[Cursor Remote] ⚠️ Enter key simulation failed: ${e}`);
+            }
+        }
+
+        return submitted;
     }
 
     async executeCommand(command: string, ...args: any[]): Promise<any> {

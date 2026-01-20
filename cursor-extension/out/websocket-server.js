@@ -36,9 +36,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.WebSocketServer = void 0;
 const WebSocket = __importStar(require("ws"));
 const vscode = __importStar(require("vscode"));
+const net = __importStar(require("net"));
 class WebSocketServer {
     constructor(port, outputChannel) {
         this.wss = null;
+        this.actualPort = null;
         this.messageHandlers = [];
         this.clientChangeHandlers = [];
         this.clients = new Set();
@@ -62,55 +64,117 @@ class WebSocketServer {
         }
         console.error(logMessage);
     }
-    start() {
+    async findAvailablePort(startPort, maxAttempts = 10) {
+        return new Promise((resolve) => {
+            let currentPort = startPort;
+            let attempts = 0;
+            const tryPort = (port) => {
+                const server = net.createServer();
+                server.listen(port, () => {
+                    server.once('close', () => {
+                        resolve(port);
+                    });
+                    server.close();
+                });
+                server.on('error', (err) => {
+                    if (err.code === 'EADDRINUSE') {
+                        attempts++;
+                        if (attempts < maxAttempts) {
+                            tryPort(port + 1);
+                        }
+                        else {
+                            resolve(null);
+                        }
+                    }
+                    else {
+                        resolve(null);
+                    }
+                });
+            };
+            tryPort(currentPort);
+        });
+    }
+    async start() {
         if (this.wss) {
             this.log('WebSocket server is already running');
             return;
         }
-        this.wss = new WebSocket.Server({ port: this.port });
-        this.wss.on('connection', (ws) => {
-            this.clients.add(ws);
-            this.log('Client connected to Cursor Remote');
-            this.notifyClientChange(true);
-            ws.on('message', (message) => {
-                const messageStr = message.toString();
-                this.log(`Received message: ${messageStr.substring(0, 100)}${messageStr.length > 100 ? '...' : ''}`);
-                // 모든 핸들러에 메시지 전달
-                this.messageHandlers.forEach(handler => {
-                    try {
-                        handler(messageStr);
-                    }
-                    catch (error) {
-                        this.logError('Error in message handler', error);
-                    }
+        // 포트가 사용 중인지 확인하고 사용 가능한 포트 찾기
+        const availablePort = await this.findAvailablePort(this.port);
+        if (availablePort === null) {
+            const errorMsg = `포트 ${this.port}부터 ${this.port + 10}까지 모두 사용 중입니다. 다른 프로세스를 종료하거나 포트를 변경해주세요.`;
+            this.logError(errorMsg);
+            vscode.window.showErrorMessage(`Cursor Remote: ${errorMsg}`);
+            throw new Error(errorMsg);
+        }
+        if (availablePort !== this.port) {
+            this.log(`⚠️ 포트 ${this.port}가 사용 중이어서 포트 ${availablePort}를 사용합니다.`);
+            vscode.window.showWarningMessage(`Cursor Remote: 포트 ${this.port}가 사용 중이어서 포트 ${availablePort}로 시작합니다.`);
+        }
+        this.actualPort = availablePort;
+        this.wss = new WebSocket.Server({ port: availablePort });
+        // Promise로 서버 시작 완료 대기
+        return new Promise((resolve, reject) => {
+            this.wss.on('connection', (ws) => {
+                this.clients.add(ws);
+                this.log('Client connected to Cursor Remote');
+                this.notifyClientChange(true);
+                ws.on('message', (message) => {
+                    const messageStr = message.toString();
+                    this.log(`Received message: ${messageStr.substring(0, 100)}${messageStr.length > 100 ? '...' : ''}`);
+                    // 모든 핸들러에 메시지 전달
+                    this.messageHandlers.forEach(handler => {
+                        try {
+                            handler(messageStr);
+                        }
+                        catch (error) {
+                            this.logError('Error in message handler', error);
+                        }
+                    });
                 });
+                ws.on('close', () => {
+                    this.log('Client disconnected from Cursor Remote');
+                    this.clients.delete(ws);
+                    this.notifyClientChange(this.clients.size > 0);
+                });
+                ws.on('error', (error) => {
+                    this.logError('WebSocket error', error);
+                });
+                // 연결 성공 메시지 전송
+                this.sendToClient(ws, JSON.stringify({
+                    type: 'connected',
+                    message: 'Connected to Cursor Remote'
+                }));
             });
-            ws.on('close', () => {
-                this.log('Client disconnected from Cursor Remote');
-                this.clients.delete(ws);
-                this.notifyClientChange(this.clients.size > 0);
+            this.wss.on('error', (error) => {
+                this.logError('WebSocket server error', error);
+                if (error.code === 'EADDRINUSE') {
+                    const errorMsg = `포트 ${availablePort}가 사용 중입니다. 다른 프로세스를 종료하거나 Cursor를 재시작해주세요.`;
+                    vscode.window.showErrorMessage(`Cursor Remote: ${errorMsg}`);
+                    reject(new Error(errorMsg));
+                }
+                else {
+                    vscode.window.showErrorMessage(`Cursor Remote server error: ${error.message}`);
+                    reject(error);
+                }
             });
-            ws.on('error', (error) => {
-                this.logError('WebSocket error', error);
+            this.wss.on('listening', () => {
+                this.log(`✅ WebSocket server started on port ${availablePort}`);
+                resolve();
             });
-            // 연결 성공 메시지 전송
-            this.sendToClient(ws, JSON.stringify({
-                type: 'connected',
-                message: 'Connected to Cursor Remote'
-            }));
+            this.log(`WebSocket server starting on port ${availablePort}...`);
         });
-        this.wss.on('error', (error) => {
-            this.logError('WebSocket server error', error);
-            vscode.window.showErrorMessage(`Cursor Remote server error: ${error.message}`);
-        });
-        this.log(`WebSocket server started on port ${this.port}`);
     }
     stop() {
         if (this.wss) {
             this.wss.close();
             this.wss = null;
+            this.actualPort = null;
             this.log('WebSocket server stopped');
         }
+    }
+    getActualPort() {
+        return this.actualPort || (this.wss ? this.port : null);
     }
     isRunning() {
         return this.wss !== null;

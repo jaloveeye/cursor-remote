@@ -132,22 +132,33 @@ flutter build apk
 ## 📝 개발 계획
 
 ### Phase 1: 기본 통신 인프라
+
 - [ ] Cursor 확장 개발 (WebSocket 서버)
 - [ ] PC 서버 개발 (브릿지)
 - [ ] 모바일 앱 기본 UI
 - [ ] 기본 명령 전송 (텍스트 삽입)
 
 ### Phase 2: 고급 기능
+
 - [ ] AI 응답 스트리밍
 - [ ] 파일 편집 기능
 - [ ] 작업 결과 표시
 - [ ] 권한 요청 시스템
 
 ### Phase 3: UX 개선
+
 - [ ] 실시간 로그 표시
 - [ ] 에러 처리 및 재시도
 - [ ] 연결 상태 관리
 - [ ] 대화 히스토리
+
+## 📚 문서
+
+- [빠른 시작 가이드](./QUICK_START.md) - 빠른 설정 및 실행 방법
+- [Extension 설치 가이드](./EXTENSION_SETUP.md) - Extension 설치 및 활성화
+- [일반 테스트 가이드](./TEST_GUIDE.md) - 전체 시스템 테스트 방법
+- [Rules 기반 채팅 캡처 테스트 가이드](./RULES_BASED_CHAT_TEST_GUIDE.md) - Rules 기반 실시간 채팅 캡처 테스트
+- [통신 프로토콜](./PROTOCOL.md) - WebSocket 메시지 형식 및 프로토콜
 
 ## 📄 라이선스
 
