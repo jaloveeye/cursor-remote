@@ -1106,6 +1106,7 @@ async function handleCommand(command: any) {
             id: commandId,
             type: 'command_result', 
             success: true,
+            command_type: command.type, // 명령 타입 포함
             ...result
         }));
 

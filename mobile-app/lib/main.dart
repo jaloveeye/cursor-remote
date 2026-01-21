@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 void main() {
@@ -41,6 +42,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   WebSocketChannel? _channel;
   String _serverAddress = '';
   bool _isConnected = false;
+  bool _isWaitingForResponse = false; // 응답 대기 중 상태
   final List<MessageItem> _messages = [];
   final TextEditingController _commandController = TextEditingController();
   final TextEditingController _serverAddressController = TextEditingController();
@@ -85,8 +87,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     if (type == 'command_result') {
                       if (decoded['success'] == true) {
                         _messages.add(MessageItem('✅ Command succeeded'));
+                        // command_result는 프롬프트 전송 성공을 의미하지만, 실제 응답은 chat_response로 옴
+                        // 따라서 여기서는 대기 상태를 유지
+                        // 단, stop_prompt 명령의 경우 대기 상태 해제
+                        final commandType = decoded['command_type'] ?? '';
+                        if (commandType == 'stop_prompt') {
+                          _isWaitingForResponse = false;
+                        }
                       } else {
                         _messages.add(MessageItem('❌ Command failed: ${decoded['error']}'));
+                        // 명령 실패 시 대기 상태 해제
+                        _isWaitingForResponse = false;
                       }
                     } else if (type == 'connected') {
                       _messages.add(MessageItem('✅ ${decoded['message']}'));
@@ -96,6 +107,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       }
                     } else if (type == 'error') {
                       _messages.add(MessageItem('❌ Error: ${decoded['message']}'));
+                      // 에러 발생 시 대기 상태 해제
+                      _isWaitingForResponse = false;
                     } else if (type == 'user_message') {
                       // 사용자 메시지 (대화 히스토리용)
                       final text = decoded['text'] ?? '';
@@ -115,6 +128,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       _messages.add(MessageItem('🤖 Cursor AI Response', type: 'chat_response_header'));
                       _messages.add(MessageItem(text, type: 'chat_response'));
                       _messages.add(MessageItem('', type: 'chat_response_divider')); // 구분선
+                      
+                      // 응답을 받았으므로 대기 상태 해제
+                      _isWaitingForResponse = false;
                     }
                   }
                 } catch (e) {
@@ -221,6 +237,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (action != null) 'action': action,
       };
 
+      // 프롬프트 전송 시 응답 대기 상태 설정
+      if (prompt == true && execute == true) {
+        setState(() {
+          _isWaitingForResponse = true;
+        });
+      }
+
       _channel!.sink.add(jsonEncode(message));
       if (mounted) {
         try {
@@ -241,6 +264,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           );
           setState(() {
             _isConnected = false;
+            _isWaitingForResponse = false; // 에러 시 대기 상태 해제
             _messages.add(MessageItem('Send error: $e'));
           });
         } catch (setStateError) {
@@ -438,6 +462,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       appBar: AppBar(
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: const Text('Cursor Remote'),
+        actions: [
+          // 응답 대기 중 인디케이터
+          if (_isWaitingForResponse)
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    '응답 대기 중...',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
       body: Column(
         children: [
@@ -479,6 +528,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ),
                       enabled: !_isConnected,
                       keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (value) {
+                        // Enter 키를 눌렀을 때 Connect 시도
+                        if (!_isConnected && value.trim().isNotEmpty) {
+                          _connect();
+                        }
+                      },
                       onChanged: (value) {
                         setState(() {
                           _serverAddress = value;
@@ -535,7 +591,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ),
                   const Divider(height: 1),
                   Expanded(
-                    child: _messages.isEmpty
+                    child: _messages.isEmpty && !_isWaitingForResponse
                         ? const Center(
                             child: Text(
                               'No messages yet',
@@ -547,9 +603,36 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           )
                         : ListView.builder(
                             controller: _scrollController,
-                            itemCount: _messages.length,
+                            itemCount: _messages.length + (_isWaitingForResponse ? 1 : 0),
                             padding: const EdgeInsets.symmetric(vertical: 4),
                             itemBuilder: (context, index) {
+                              // 마지막에 로딩 메시지 추가
+                              if (index == _messages.length && _isWaitingForResponse) {
+                                return Container(
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Text(
+                                        '응답을 기다리는 중...',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.grey[600],
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }
                               return GestureDetector(
                                 onLongPress: () {
                                   Clipboard.setData(ClipboardData(text: _messages[index].text));
@@ -580,35 +663,63 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    TextField(
-                      controller: _commandController,
-                      focusNode: _commandFocusNode,
-                      decoration: const InputDecoration(
-                        labelText: 'Command',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                        contentPadding: EdgeInsets.all(12),
-                      ),
-                      textInputAction: TextInputAction.newline,
-                      keyboardType: TextInputType.multiline,
-                      maxLines: 3,
-                      minLines: 2,
-                      enableSuggestions: true,
-                      autocorrect: true,
-                      textCapitalization: TextCapitalization.none,
-                      // 한영전환 문제 해결을 위한 설정
-                      onChanged: (value) {
-                        // 입력 변경 시 UI 강제 업데이트
-                        if (mounted) {
-                          setState(() {
-                            // TextField 상태 업데이트를 위해 setState 호출
-                          });
-                          // 포커스 유지
-                          if (!_commandFocusNode.hasFocus) {
-                            _commandFocusNode.requestFocus();
+                    KeyboardListener(
+                      focusNode: FocusNode(),
+                      onKeyEvent: (event) {
+                        // Enter 키를 눌렀을 때 (Shift+Enter가 아닌 경우)
+                        if (event is KeyDownEvent &&
+                            event.logicalKey == LogicalKeyboardKey.enter &&
+                            !HardwareKeyboard.instance.isShiftPressed &&
+                            _commandFocusNode.hasFocus &&
+                            _isConnected) {
+                          final text = _commandController.text.trim();
+                          if (text.isNotEmpty) {
+                            // Enter 키 기본 동작(줄바꿈) 방지
+                            // Send to Prompt 실행
+                            setState(() {
+                              // 버튼 클릭 상태 업데이트
+                            });
+                            _sendCommand('insert_text', text: text, prompt: true, execute: true);
+                            // 텍스트 클리어 후 UI 업데이트
+                            _commandController.clear();
+                            if (mounted) {
+                              setState(() {
+                                // TextField 클리어 후 UI 업데이트
+                              });
+                            }
                           }
                         }
                       },
+                      child: TextField(
+                        controller: _commandController,
+                        focusNode: _commandFocusNode,
+                        decoration: const InputDecoration(
+                          labelText: 'Command',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                          contentPadding: EdgeInsets.all(12),
+                        ),
+                        textInputAction: TextInputAction.newline,
+                        keyboardType: TextInputType.multiline,
+                        maxLines: 3,
+                        minLines: 2,
+                        enableSuggestions: true,
+                        autocorrect: true,
+                        textCapitalization: TextCapitalization.none,
+                        // 한영전환 문제 해결을 위한 설정
+                        onChanged: (value) {
+                          // 입력 변경 시 UI 강제 업데이트
+                          if (mounted) {
+                            setState(() {
+                              // TextField 상태 업데이트를 위해 setState 호출
+                            });
+                            // 포커스 유지
+                            if (!_commandFocusNode.hasFocus) {
+                              _commandFocusNode.requestFocus();
+                            }
+                          }
+                        },
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -639,17 +750,34 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 14),
                             ),
-                            child: const Text('Send to Prompt'),
+                            child: _isWaitingForResponse
+                                ? const Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                        ),
+                                      ),
+                                      SizedBox(width: 8),
+                                      Text('대기 중...'),
+                                    ],
+                                  )
+                                : const Text('Send to Prompt'),
                           ),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: _isConnected ? () {
+                            onPressed: (_isConnected && _isWaitingForResponse) ? () {
                               if (!mounted) return;
                               // UI 업데이트를 위해 명시적으로 setState 호출
                               setState(() {
                                 // 버튼 클릭 상태 업데이트
+                                _isWaitingForResponse = false; // Stop 버튼 클릭 시 대기 상태 해제
                               });
                               _sendCommand('stop_prompt');
                             } : null,
