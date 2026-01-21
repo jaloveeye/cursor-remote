@@ -1,37 +1,73 @@
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
 import { 
   RelayMessage, 
   Session, 
-  DeviceInfo, 
   DeviceType,
   REDIS_KEYS, 
   TTL 
-} from './types';
+} from './types.js';
 
-// Vercel KV 클라이언트
-// 환경변수: KV_REST_API_URL, KV_REST_API_TOKEN (Vercel에서 자동 설정)
+// Upstash Redis 클라이언트 (lazy initialization)
+let _redis: Redis | null = null;
+
+function getRedis(): Redis {
+  if (!_redis) {
+    const url = process.env.UPSTASH_REDIS_REST_URL;
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+    
+    if (!url || !token) {
+      const errorMsg = `Redis not configured: URL=${!!url}, Token=${!!token}. Please set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN environment variables.`;
+      console.error(errorMsg);
+      throw new Error(errorMsg);
+    }
+    
+    try {
+      _redis = new Redis({ url, token });
+    } catch (error) {
+      console.error('Failed to initialize Redis client:', error);
+      throw new Error(`Failed to initialize Redis: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+  return _redis;
+}
+
+// 호환성을 위한 redis 객체
+const redis = {
+  set: (...args: Parameters<Redis['set']>) => getRedis().set(...args),
+  get: <T>(...args: Parameters<Redis['get']>) => getRedis().get<T>(...args),
+  del: (...args: Parameters<Redis['del']>) => getRedis().del(...args),
+  lpush: (...args: Parameters<Redis['lpush']>) => getRedis().lpush(...args),
+  rpop: <T>(...args: Parameters<Redis['rpop']>) => getRedis().rpop<T>(...args),
+  llen: (...args: Parameters<Redis['llen']>) => getRedis().llen(...args),
+  expire: (...args: Parameters<Redis['expire']>) => getRedis().expire(...args),
+};
 
 // 세션 생성
 export async function createSession(sessionId: string): Promise<Session> {
-  const now = Date.now();
-  const session: Session = {
-    sessionId,
-    createdAt: now,
-    expiresAt: now + TTL.session * 1000,
-  };
-  
-  await kv.set(
-    REDIS_KEYS.session(sessionId), 
-    JSON.stringify(session),
-    { ex: TTL.session }
-  );
-  
-  return session;
+  try {
+    const now = Date.now();
+    const session: Session = {
+      sessionId,
+      createdAt: now,
+      expiresAt: now + TTL.session * 1000,
+    };
+    
+    await redis.set(
+      REDIS_KEYS.session(sessionId), 
+      JSON.stringify(session),
+      { ex: TTL.session }
+    );
+    
+    return session;
+  } catch (error) {
+    console.error('createSession error:', error);
+    throw new Error(`Failed to create session: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
 // 세션 조회
 export async function getSession(sessionId: string): Promise<Session | null> {
-  const data = await kv.get<string>(REDIS_KEYS.session(sessionId));
+  const data = await redis.get<string>(REDIS_KEYS.session(sessionId));
   if (!data) return null;
   return typeof data === 'string' ? JSON.parse(data) : data;
 }
@@ -52,14 +88,14 @@ export async function joinSession(
     session.mobileDeviceId = deviceId;
   }
   
-  await kv.set(
+  await redis.set(
     REDIS_KEYS.session(sessionId),
     JSON.stringify(session),
     { ex: TTL.session }
   );
   
   // 디바이스 → 세션 매핑 저장
-  await kv.set(
+  await redis.set(
     REDIS_KEYS.deviceSession(deviceId),
     sessionId,
     { ex: TTL.device }
@@ -70,7 +106,7 @@ export async function joinSession(
 
 // 디바이스의 세션 조회
 export async function getDeviceSession(deviceId: string): Promise<string | null> {
-  return await kv.get<string>(REDIS_KEYS.deviceSession(deviceId));
+  return await redis.get<string>(REDIS_KEYS.deviceSession(deviceId));
 }
 
 // 메시지 전송 (큐에 추가)
@@ -83,10 +119,10 @@ export async function sendMessage(
     : REDIS_KEYS.messagesMobile2PC(sessionId);
   
   // 리스트에 메시지 추가 (LPUSH)
-  await kv.lpush(queueKey, JSON.stringify(message));
+  await redis.lpush(queueKey, JSON.stringify(message));
   
   // TTL 설정
-  await kv.expire(queueKey, TTL.message);
+  await redis.expire(queueKey, TTL.message);
 }
 
 // 메시지 수신 (큐에서 가져오기)
@@ -103,7 +139,7 @@ export async function receiveMessages(
   const messages: RelayMessage[] = [];
   
   for (let i = 0; i < limit; i++) {
-    const data = await kv.rpop<string>(queueKey);
+    const data = await redis.rpop<string>(queueKey);
     if (!data) break;
     
     const message = typeof data === 'string' ? JSON.parse(data) : data;
@@ -122,7 +158,7 @@ export async function hasMessages(
     ? REDIS_KEYS.messagesPC2Mobile(sessionId)
     : REDIS_KEYS.messagesMobile2PC(sessionId);
   
-  const length = await kv.llen(queueKey);
+  const length = await redis.llen(queueKey);
   return length > 0;
 }
 
@@ -145,7 +181,7 @@ export async function deleteSession(sessionId: string): Promise<void> {
     keysToDelete.push(REDIS_KEYS.deviceSession(session.mobileDeviceId));
   }
   
-  await kv.del(...keysToDelete);
+  await redis.del(...keysToDelete);
 }
 
-export { kv };
+export { redis };

@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createSession, getSession } from '../lib/redis';
-import { ApiResponse, Session } from '../lib/types';
+import { createSession, getSession } from '../lib/redis.js';
+import { ApiResponse, Session } from '../lib/types.js';
 
 // 랜덤 세션 ID 생성 (6자리)
 function generateSessionId(): string {
@@ -16,24 +16,49 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
-  // CORS preflight
+  // CORS 헤더 설정
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Device-Id, X-Device-Type');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24시간
+  
+  // CORS preflight - OPTIONS 요청 처리
   if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+    res.writeHead(200, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Device-Id, X-Device-Type',
+      'Access-Control-Max-Age': '86400',
+    });
+    return res.end();
   }
 
   try {
     // POST: 새 세션 생성
     if (req.method === 'POST') {
-      const sessionId = generateSessionId();
-      const session = await createSession(sessionId);
-      
-      const response: ApiResponse<Session> = {
-        success: true,
-        data: session,
-        timestamp: Date.now(),
-      };
-      
-      return res.status(201).json(response);
+      try {
+        const sessionId = generateSessionId();
+        const session = await createSession(sessionId);
+        
+        const response: ApiResponse<Session> = {
+          success: true,
+          data: session,
+          timestamp: Date.now(),
+        };
+        
+        return res.status(201).json(response);
+      } catch (createError) {
+        console.error('Failed to create session:', createError);
+        const errorMessage = createError instanceof Error 
+          ? createError.message 
+          : 'Failed to create session';
+        const response: ApiResponse = {
+          success: false,
+          error: errorMessage,
+          timestamp: Date.now(),
+        };
+        return res.status(500).json(response);
+      }
     }
     
     // GET: 세션 조회
@@ -79,9 +104,21 @@ export default async function handler(
     
   } catch (error) {
     console.error('Session API error:', error);
+    const errorMessage = error instanceof Error 
+      ? `${error.name}: ${error.message}` 
+      : 'Internal server error';
+    
+    // Redis 연결 오류인지 확인
+    const isRedisError = errorMessage.includes('Redis') || errorMessage.includes('UPSTASH');
+    
     const response: ApiResponse = {
       success: false,
-      error: error instanceof Error ? error.message : 'Internal server error',
+      error: isRedisError 
+        ? 'Database connection error. Please check server configuration.'
+        : errorMessage,
+      errorStack: process.env.NODE_ENV === 'development' && error instanceof Error 
+        ? error.stack 
+        : undefined,
       timestamp: Date.now(),
     };
     return res.status(500).json(response);

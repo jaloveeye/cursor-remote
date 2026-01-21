@@ -1,19 +1,17 @@
 {
   "version": 2,
-  "buildCommand": "npm run type-check",
-  "functions": {
-    "api/**/*.ts": {
-      "runtime": "@vercel/node@3.0.0"
-    }
-  },
-  "routes": [
+  "builds": [
+    { "src": "api/**/*.ts", "use": "@vercel/node@3.2.0" },
+    { "src": "lib/**/*.ts", "use": "@vercel/node@3.2.0" }
+  ],
+  "rewrites": [
     {
-      "src": "/api/stream",
-      "dest": "/api/stream.ts"
+      "source": "/api/stream",
+      "destination": "/api/stream.ts"
     },
     {
-      "src": "/api/(.*)",
-      "dest": "/api/$1.ts"
+      "source": "/api/:path*",
+      "destination": "/api/:path*.ts"
     }
   ],
   "headers": [

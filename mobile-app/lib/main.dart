@@ -1,8 +1,19 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
+
+// Relay 서버 URL
+const String RELAY_SERVER_URL = 'https://relay.jaloveeye.com';
+
+// 연결 타입
+enum ConnectionType {
+  local,   // 로컬 서버 (IP 주소 직접 연결)
+  relay,   // 릴레이 서버 (세션 ID 사용)
+}
 
 void main() {
   runApp(const MyApp());
@@ -79,14 +90,25 @@ class MessageItem {
 }
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
-  WebSocketChannel? _channel;
-  String _serverAddress = '';
+  // 연결 타입
+  ConnectionType _connectionType = ConnectionType.relay;
+  
+  // Relay 서버 관련
+  String? _sessionId;
+  String _deviceId = '';
   bool _isConnected = false;
   bool _isWaitingForResponse = false; // 응답 대기 중 상태
+  Timer? _pollTimer;
+  
+  // 로컬 서버 관련
+  WebSocketChannel? _localWebSocket;
+  final TextEditingController _localIpController = TextEditingController();
+  
   final List<MessageItem> _messages = [];
   final TextEditingController _commandController = TextEditingController();
-  final TextEditingController _serverAddressController = TextEditingController();
-  final FocusNode _serverAddressFocusNode = FocusNode();
+  final TextEditingController _sessionIdController = TextEditingController();
+  final FocusNode _sessionIdFocusNode = FocusNode();
+  final FocusNode _localIpFocusNode = FocusNode();
   final FocusNode _commandFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
   final ExpansionTileController _expansionTileController = ExpansionTileController();
@@ -107,178 +129,314 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }).toList();
   }
 
-  void _connect() {
-    // TextField에서 값을 가져오기
-    final address = _serverAddressController.text.trim();
-    if (address.isEmpty) {
+  // 새 세션 생성 (릴레이 서버 연결 시에만 사용)
+  Future<void> _createSession() async {
+    try {
+      setState(() {
+        _messages.add(MessageItem('Creating new session...', type: MessageType.system));
+      });
+      
+      final response = await http.post(
+        Uri.parse('$RELAY_SERVER_URL/api/session'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      
+      if (response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) {
+          final sessionId = data['data']['sessionId'];
+          setState(() {
+            _sessionIdController.text = sessionId;
+            _messages.add(MessageItem('✅ Session created: $sessionId', type: MessageType.system));
+          });
+          // 자동으로 세션에 연결
+          await _connectToSession(sessionId);
+        }
+      } else {
+        setState(() {
+          _messages.add(MessageItem('❌ Failed to create session: ${response.body}', type: MessageType.system));
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _messages.add(MessageItem('❌ Error creating session: $e', type: MessageType.system));
+      });
+    }
+  }
+  
+  // 로컬 서버 연결
+  Future<void> _connectToLocal() async {
+    final ip = _localIpController.text.trim();
+    if (ip.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('서버 주소를 입력하세요')),
+        const SnackBar(content: Text('IP 주소를 입력하세요')),
       );
       return;
     }
     
-    setState(() {
-      _serverAddress = address;
-    });
-
     try {
-      final uri = Uri.parse('ws://$_serverAddress:8767');
-      _channel = WebSocketChannel.connect(uri);
-
-      _channel!.stream.listen(
+      setState(() {
+        _messages.add(MessageItem('Connecting to local server at $ip:8767...', type: MessageType.system));
+      });
+      
+      // WebSocket 연결 (PC 서버의 WebSocket 포트는 8767)
+      final wsUrl = 'ws://$ip:8767';
+      _localWebSocket = WebSocketChannel.connect(Uri.parse(wsUrl));
+      
+      _localWebSocket!.stream.listen(
         (message) {
-          if (!mounted) return; // 위젯이 마운트되지 않았으면 리턴
-          // Future.microtask를 사용하여 다음 프레임에서 setState 실행
-          Future.microtask(() {
-            if (!mounted) return;
-            try {
-              setState(() {
-                try {
-                  final json = message.toString();
-                  _messages.add(MessageItem('Received: $json', type: MessageType.system));
-                  
-                  // JSON 파싱 시도
-                  final decoded = jsonDecode(json);
-                  if (decoded is Map) {
-                    final type = decoded['type'];
-                    if (type == 'command_result') {
-                      if (decoded['success'] == true) {
-                        _messages.add(MessageItem('✅ Command succeeded', type: MessageType.system));
-                        // command_result는 프롬프트 전송 성공을 의미하지만, 실제 응답은 chat_response로 옴
-                        // 따라서 여기서는 대기 상태를 유지
-                        // 단, stop_prompt 명령의 경우 대기 상태 해제
-                        final commandType = decoded['command_type'] ?? '';
-                        if (commandType == 'stop_prompt') {
-                          _isWaitingForResponse = false;
-                        }
-                      } else {
-                        _messages.add(MessageItem('❌ Command failed: ${decoded['error']}', type: MessageType.system));
-                        // 명령 실패 시 대기 상태 해제
-                        _isWaitingForResponse = false;
-                      }
-                    } else                     if (type == 'connected') {
-                      _messages.add(MessageItem('✅ ${decoded['message']}', type: MessageType.system));
-                      // 연결 확인 시 상태 업데이트
-                      if (!_isConnected) {
-                        _isConnected = true;
-                      }
-                      // 연결 성공 시 connect 화면 자동 닫기
-                      try {
-                        _expansionTileController.collapse();
-                      } catch (e) {
-                        // ExpansionTileController가 아직 연결되지 않은 경우 무시
-                      }
-                    } else if (type == 'error') {
-                      _messages.add(MessageItem('❌ Error: ${decoded['message']}', type: MessageType.system));
-                      // 에러 발생 시 대기 상태 해제
-                      _isWaitingForResponse = false;
-                    } else if (type == 'user_message') {
-                      // 사용자 메시지 (대화 히스토리용)
-                      final text = decoded['text'] ?? '';
-                      _messages.add(MessageItem('💬 You: $text', type: MessageType.userMessage));
-                    } else if (type == 'gemini_response') {
-                      // Gemini 응답 (대화 히스토리용)
-                      final text = decoded['text'] ?? '';
-                      _messages.add(MessageItem('🤖 Gemini: $text', type: MessageType.geminiResponse));
-                    } else if (type == 'terminal_output') {
-                      // 터미널 출력
-                      final text = decoded['text'] ?? '';
-                      _messages.add(MessageItem('📟 Terminal: $text', type: MessageType.terminalOutput));
-                    } else if (type == 'chat_response') {
-                      // Cursor IDE 채팅 응답 - 구분감 있게 표시
-                      final text = decoded['text'] ?? '';
-                      _messages.add(MessageItem('', type: MessageType.chatResponseDivider)); // 구분선
-                      _messages.add(MessageItem('🤖 Cursor AI Response', type: MessageType.chatResponseHeader));
-                      _messages.add(MessageItem(text, type: MessageType.chatResponse));
-                      _messages.add(MessageItem('', type: MessageType.chatResponseDivider)); // 구분선
-                      
-                      // 응답을 받았으므로 대기 상태 해제
-                      _isWaitingForResponse = false;
-                    }
-                  }
-                } catch (e) {
-                  _messages.add(MessageItem('Received: $message', type: MessageType.system));
-                }
-              });
-              // 새 메시지 추가 후 자동으로 맨 아래로 스크롤
-              _scrollToBottom();
-            } catch (e) {
-              // setState 에러 처리
-              if (mounted) {
-                try {
-                  setState(() {
-                    _messages.add(MessageItem('Error processing message: $e', type: MessageType.system));
-                  });
-                } catch (setStateError) {
-                  // setState 에러 무시
-                }
-              }
-            }
-          });
+          // 로컬 서버에서 메시지 수신
+          _handleLocalMessage(message.toString());
         },
         onError: (error) {
-          if (!mounted) return;
-          try {
+          if (mounted) {
             setState(() {
+              _messages.add(MessageItem('❌ Local connection error: $error', type: MessageType.system));
               _isConnected = false;
-              _messages.add(MessageItem('Error: $error', type: MessageType.system));
             });
-          } catch (e) {
-            // setState 에러 무시
           }
         },
         onDone: () {
-          if (!mounted) return;
-          try {
+          if (mounted) {
             setState(() {
+              _messages.add(MessageItem('Local connection closed', type: MessageType.system));
               _isConnected = false;
-              _messages.add(MessageItem('Connection closed', type: MessageType.system));
             });
-          } catch (e) {
-            // setState 에러 무시
           }
         },
-        cancelOnError: false, // 에러 발생 시 스트림 취소 방지
       );
-
-      if (mounted) {
-        setState(() {
-          _isConnected = true;
-          _messages.add(MessageItem('Connected to $_serverAddress:8767', type: MessageType.system));
-        });
+      
+      setState(() {
+        _isConnected = true;
+        _messages.add(MessageItem('✅ Connected to local server at $ip', type: MessageType.system));
+      });
+      
+      // 연결 성공 시 connect 화면 자동 닫기
+      try {
+        _expansionTileController.collapse();
+      } catch (e) {
+        // ExpansionTileController가 아직 연결되지 않은 경우 무시
       }
     } catch (e) {
+      setState(() {
+        _messages.add(MessageItem('❌ Error connecting to local server: $e', type: MessageType.system));
+      });
+    }
+  }
+  
+  // 로컬 서버에서 받은 메시지 처리
+  void _handleLocalMessage(String message) {
+    if (!mounted) return;
+    
+    try {
+      final data = jsonDecode(message);
+      final type = data['type'] ?? 'unknown';
+      
+      setState(() {
+        if (type == 'chat_response') {
+          final text = data['text'] ?? '';
+          _messages.add(MessageItem('', type: MessageType.chatResponseDivider));
+          _messages.add(MessageItem('🤖 Cursor AI Response', type: MessageType.chatResponseHeader));
+          _messages.add(MessageItem(text, type: MessageType.chatResponse));
+          _messages.add(MessageItem('', type: MessageType.chatResponseDivider));
+          _isWaitingForResponse = false;
+        } else if (type == 'command_result') {
+          if (data['success'] == true) {
+            _messages.add(MessageItem('✅ Command succeeded', type: MessageType.system));
+            if (data['command_type'] == 'stop_prompt') {
+              _isWaitingForResponse = false;
+            }
+          } else {
+            _messages.add(MessageItem('❌ Command failed: ${data['error']}', type: MessageType.system));
+            _isWaitingForResponse = false;
+          }
+        }
+      });
+      _scrollToBottom();
+    } catch (e) {
+      // JSON 파싱 실패 시 원본 메시지 표시
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Connection error: $e')),
-        );
         setState(() {
-          _isConnected = false;
-          _messages.add(MessageItem('Connection failed: $e', type: MessageType.system));
+          _messages.add(MessageItem('Received: $message', type: MessageType.system));
         });
       }
     }
   }
 
-  void _disconnect() {
-    try {
-      _channel?.sink.close();
-    } catch (e) {
-      // 연결이 이미 끊어진 경우 무시
+  // 기존 세션에 연결
+  Future<void> _connectToSession(String sessionId) async {
+    if (sessionId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('세션 ID를 입력하세요')),
+      );
+      return;
     }
+    
+    // 디바이스 ID 생성 (없으면)
+    if (_deviceId.isEmpty) {
+      _deviceId = 'mobile-${DateTime.now().millisecondsSinceEpoch}';
+    }
+    
+    try {
+      setState(() {
+        _messages.add(MessageItem('Connecting to session $sessionId...', type: MessageType.system));
+      });
+      
+      final response = await http.post(
+        Uri.parse('$RELAY_SERVER_URL/api/connect'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'sessionId': sessionId,
+          'deviceId': _deviceId,
+          'deviceType': 'mobile',
+        }),
+      );
+      
+      final data = jsonDecode(response.body);
+      
+      if (response.statusCode == 200 && data['success'] == true) {
+        setState(() {
+          _sessionId = sessionId;
+          _isConnected = true;
+          _messages.add(MessageItem('✅ Connected to session $sessionId', type: MessageType.system));
+        });
+        
+        // 연결 성공 시 connect 화면 자동 닫기
+        try {
+          _expansionTileController.collapse();
+        } catch (e) {
+          // ExpansionTileController가 아직 연결되지 않은 경우 무시
+        }
+        
+        // 폴링 시작
+        _startPolling();
+      } else {
+        setState(() {
+          _messages.add(MessageItem('❌ Failed to connect: ${data['error'] ?? 'Unknown error'}', type: MessageType.system));
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _messages.add(MessageItem('❌ Error connecting to session: $e', type: MessageType.system));
+      });
+    }
+  }
+
+  void _connect() {
+    if (_connectionType == ConnectionType.local) {
+      // 로컬 서버 연결
+      _connectToLocal();
+    } else {
+      // 릴레이 서버 연결
+      final sessionId = _sessionIdController.text.trim();
+      if (sessionId.isEmpty) {
+        // 세션 ID가 없으면 새 세션 생성
+        _createSession();
+      } else {
+        // 세션 ID가 있으면 해당 세션에 연결
+        _connectToSession(sessionId);
+      }
+    }
+  }
+  
+  // 메시지 폴링 시작
+  void _startPolling() {
+    _stopPolling(); // 기존 타이머 정지
+    
+    _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+      if (!_isConnected || _sessionId == null) return;
+      
+      try {
+        final response = await http.get(
+          Uri.parse('$RELAY_SERVER_URL/api/poll?sessionId=$_sessionId&deviceType=mobile'),
+        );
+        
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data['success'] == true && data['data']['messages'] != null) {
+            final messages = data['data']['messages'] as List;
+            for (final msg in messages) {
+              _handleRelayMessage(msg);
+            }
+          }
+        }
+      } catch (e) {
+        // 폴링 에러는 조용히 무시 (일시적인 네트워크 문제일 수 있음)
+      }
+    });
+  }
+  
+  void _stopPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
+  
+  // relay 서버에서 받은 메시지 처리
+  void _handleRelayMessage(Map<String, dynamic> msg) {
+    if (!mounted) return;
+    
+    final type = msg['type'] ?? msg['data']?['type'];
+    final messageData = msg['data'] ?? msg;
+    
+    setState(() {
+      _messages.add(MessageItem('Received: ${jsonEncode(msg)}', type: MessageType.system));
+      
+      if (type == 'command_result') {
+        if (messageData['success'] == true) {
+          _messages.add(MessageItem('✅ Command succeeded', type: MessageType.system));
+          final commandType = messageData['command_type'] ?? '';
+          if (commandType == 'stop_prompt') {
+            _isWaitingForResponse = false;
+          }
+        } else {
+          _messages.add(MessageItem('❌ Command failed: ${messageData['error']}', type: MessageType.system));
+          _isWaitingForResponse = false;
+        }
+      } else if (type == 'error') {
+        _messages.add(MessageItem('❌ Error: ${messageData['message']}', type: MessageType.system));
+        _isWaitingForResponse = false;
+      } else if (type == 'user_message') {
+        final text = messageData['text'] ?? '';
+        _messages.add(MessageItem('💬 You: $text', type: MessageType.userMessage));
+      } else if (type == 'gemini_response') {
+        final text = messageData['text'] ?? '';
+        _messages.add(MessageItem('🤖 Gemini: $text', type: MessageType.geminiResponse));
+      } else if (type == 'terminal_output') {
+        final text = messageData['text'] ?? '';
+        _messages.add(MessageItem('📟 Terminal: $text', type: MessageType.terminalOutput));
+      } else if (type == 'chat_response') {
+        final text = messageData['text'] ?? '';
+        _messages.add(MessageItem('', type: MessageType.chatResponseDivider));
+        _messages.add(MessageItem('🤖 Cursor AI Response', type: MessageType.chatResponseHeader));
+        _messages.add(MessageItem(text, type: MessageType.chatResponse));
+        _messages.add(MessageItem('', type: MessageType.chatResponseDivider));
+        _isWaitingForResponse = false;
+      }
+    });
+    _scrollToBottom();
+  }
+
+  void _disconnect() {
+    _stopPolling();
+    
+    // 로컬 WebSocket 연결 종료
+    _localWebSocket?.sink.close();
+    _localWebSocket = null;
+    
     if (mounted) {
       setState(() {
         _isConnected = false;
+        _sessionId = null;
         _messages.add(MessageItem('Disconnected', type: MessageType.system));
       });
     }
   }
 
-  void _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt, bool? terminal, bool? execute, String? action}) {
+  Future<void> _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt, bool? terminal, bool? execute, String? action}) async {
     // 연결 상태 재확인
     _checkConnectionState();
     
-    if (_channel == null || !_isConnected) {
+    if (!_isConnected) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Not connected')),
@@ -288,7 +446,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
 
     try {
-      final message = {
+      final commandData = {
         'type': type,
         'id': DateTime.now().millisecondsSinceEpoch.toString(),
         if (text != null) 'text': text,
@@ -309,32 +467,60 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         });
       }
 
-      _channel!.sink.add(jsonEncode(message));
-      if (mounted) {
-        try {
+      if (_connectionType == ConnectionType.local) {
+        // 로컬 서버로 메시지 전송 (WebSocket)
+        if (_localWebSocket != null) {
+          _localWebSocket!.sink.add(jsonEncode(commandData));
+          if (mounted) {
+            setState(() {
+              _messages.add(MessageItem('✅ Message sent to local server', type: MessageType.system));
+            });
+            _scrollToBottom();
+          }
+        } else {
+          throw Exception('Local WebSocket not connected');
+        }
+      } else {
+        // 릴레이 서버로 메시지 전송
+        if (_sessionId == null) {
+          throw Exception('Session ID is required for relay connection');
+        }
+        
+        final response = await http.post(
+          Uri.parse('$RELAY_SERVER_URL/api/send'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'sessionId': _sessionId,
+            'deviceId': _deviceId,
+            'deviceType': 'mobile',
+            'type': type,
+            'data': commandData,
+          }),
+        );
+        
+        if (mounted) {
+          final responseData = jsonDecode(response.body);
           setState(() {
-            _messages.add(MessageItem('Sent: ${message.toString()}', type: MessageType.system));
+            _messages.add(MessageItem('Sent: ${commandData.toString()}', type: MessageType.system));
+            if (response.statusCode == 200 && responseData['success'] == true) {
+              _messages.add(MessageItem('✅ Message sent to relay', type: MessageType.system));
+            } else {
+              _messages.add(MessageItem('❌ Failed to send: ${responseData['error'] ?? 'Unknown error'}', type: MessageType.system));
+              _isWaitingForResponse = false;
+            }
           });
-          // 새 메시지 추가 후 자동으로 맨 아래로 스크롤
           _scrollToBottom();
-        } catch (e) {
-          // setState 에러 무시
         }
       }
     } catch (e) {
       if (mounted) {
-        try {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to send command: $e')),
-          );
-          setState(() {
-            _isConnected = false;
-            _isWaitingForResponse = false; // 에러 시 대기 상태 해제
-            _messages.add(MessageItem('Send error: $e', type: MessageType.system));
-          });
-        } catch (setStateError) {
-          // setState 에러 무시
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send command: $e')),
+        );
+        setState(() {
+          _isWaitingForResponse = false;
+          _messages.add(MessageItem('Send error: $e', type: MessageType.system));
+        });
       }
     }
   }
@@ -615,20 +801,33 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // 연결 상태 확인 및 필요시 재연결
   void _checkConnectionState() {
-    if (_channel == null && _isConnected) {
-      // 채널이 null인데 연결 상태가 true면 상태 불일치
-      if (mounted) {
-        setState(() {
-          _isConnected = false;
-          _messages.add(MessageItem('⚠️ Connection lost, please reconnect', type: MessageType.system));
-        });
+    if (_connectionType == ConnectionType.local) {
+      // 로컬 연결: WebSocket 상태 확인
+      if (_localWebSocket == null && _isConnected) {
+        if (mounted) {
+          setState(() {
+            _isConnected = false;
+            _messages.add(MessageItem('⚠️ Local connection lost, please reconnect', type: MessageType.system));
+          });
+        }
       }
-    } else if (_channel != null && !_isConnected) {
-      // 채널이 있는데 연결 상태가 false면 상태 불일치
-      if (mounted) {
-        setState(() {
-          _isConnected = true;
-        });
+    } else {
+      // 릴레이 연결: 세션 ID 확인
+      if (_sessionId == null && _isConnected) {
+        // 세션이 null인데 연결 상태가 true면 상태 불일치
+        if (mounted) {
+          setState(() {
+            _isConnected = false;
+            _messages.add(MessageItem('⚠️ Connection lost, please reconnect', type: MessageType.system));
+          });
+        }
+      } else if (_sessionId != null && !_isConnected) {
+        // 세션이 있는데 연결 상태가 false면 상태 불일치
+        if (mounted) {
+          setState(() {
+            _isConnected = true;
+          });
+        }
       }
     }
   }
@@ -636,15 +835,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    try {
-      _channel?.sink.close();
-    } catch (e) {
-      // 연결이 이미 끊어진 경우 무시
-    }
+    _stopPolling();
+    _localWebSocket?.sink.close();
     _commandController.dispose();
-    _serverAddressController.dispose();
+    _sessionIdController.dispose();
+    _localIpController.dispose();
     _scrollController.dispose();
-    _serverAddressFocusNode.dispose();
+    _sessionIdFocusNode.dispose();
+    _localIpFocusNode.dispose();
     _commandFocusNode.dispose();
     super.dispose();
   }
@@ -697,44 +895,162 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            subtitle: _isConnected && _serverAddress.isNotEmpty
+            subtitle: _isConnected && _sessionId != null
                 ? Text(
-                    '$_serverAddress:8767',
+                    'Session: $_sessionId',
                     style: const TextStyle(fontSize: 12),
                   )
-                : null,
-            initiallyExpanded: false,
+                : const Text(
+                    'relay.jaloveeye.com',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+            initiallyExpanded: true,
             children: [
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    TextField(
-                      controller: _serverAddressController,
-                      focusNode: _serverAddressFocusNode,
-                      decoration: const InputDecoration(
-                        labelText: 'Server Address',
-                        hintText: '192.168.0.10',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                        contentPadding: EdgeInsets.all(12),
+                    // 연결 타입 선택
+                    const Text(
+                      'Connection Type',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
                       ),
-                      enabled: !_isConnected,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.done,
-                      onSubmitted: (value) {
-                        // Enter 키를 눌렀을 때 Connect 시도
-                        if (!_isConnected && value.trim().isNotEmpty) {
-                          _connect();
-                        }
-                      },
-                      onChanged: (value) {
-                        setState(() {
-                          _serverAddress = value;
-                        });
-                      },
                     ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: RadioListTile<ConnectionType>(
+                            title: const Text('Local Server'),
+                            subtitle: const Text('Direct IP connection'),
+                            value: ConnectionType.local,
+                            groupValue: _connectionType,
+                            onChanged: _isConnected ? null : (value) {
+                              if (value != null) {
+                                setState(() {
+                                  _connectionType = value;
+                                });
+                              }
+                            },
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                        Expanded(
+                          child: RadioListTile<ConnectionType>(
+                            title: const Text('Relay Server'),
+                            subtitle: const Text('Session ID'),
+                            value: ConnectionType.relay,
+                            groupValue: _connectionType,
+                            onChanged: _isConnected ? null : (value) {
+                              if (value != null) {
+                                setState(() {
+                                  _connectionType = value;
+                                });
+                              }
+                            },
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    // 로컬 서버 연결 UI
+                    if (_connectionType == ConnectionType.local) ...[
+                      TextField(
+                        controller: _localIpController,
+                        focusNode: _localIpFocusNode,
+                        decoration: const InputDecoration(
+                          labelText: 'PC Server IP Address',
+                          hintText: '192.168.0.10',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                          contentPadding: EdgeInsets.all(12),
+                          prefixIcon: Icon(Icons.computer),
+                        ),
+                        enabled: !_isConnected,
+                        keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (value) {
+                          if (!_isConnected) {
+                            _connect();
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.info_outline, size: 18, color: Colors.orange),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'PC와 모바일이 같은 네트워크에 있어야 합니다',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.orange[900],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ] else ...[
+                      // 릴레이 서버 연결 UI
+                      TextField(
+                        controller: _sessionIdController,
+                        focusNode: _sessionIdFocusNode,
+                        decoration: const InputDecoration(
+                          labelText: 'Session ID (leave empty to create new)',
+                          hintText: 'ABC123',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                          contentPadding: EdgeInsets.all(12),
+                          prefixIcon: Icon(Icons.cloud),
+                        ),
+                        enabled: !_isConnected,
+                        keyboardType: TextInputType.text,
+                        textCapitalization: TextCapitalization.characters,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (value) {
+                          if (!_isConnected) {
+                            _connect();
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.info_outline, size: 18, color: Colors.blue),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '세션 ID를 비워두면 새 세션이 생성됩니다',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.blue[900],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -744,8 +1060,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             onPressed: _isConnected ? null : _connect,
                             style: ElevatedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 12),
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
                             ),
-                            child: const Text('Connect'),
+                            child: Text(
+                              _connectionType == ConnectionType.local
+                                  ? 'Connect'
+                                  : (_sessionIdController.text.trim().isEmpty ? 'Create & Connect' : 'Connect'),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -760,6 +1082,42 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ),
                       ],
                     ),
+                    if (_isConnected && _connectionType == ConnectionType.relay && _sessionId != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.info_outline, size: 18, color: Colors.blue),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'PC에서 같은 세션 ID로 연결하세요: $_sessionId',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.copy, size: 18),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              onPressed: () {
+                                Clipboard.setData(ClipboardData(text: _sessionId!));
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('세션 ID가 클립보드에 복사되었습니다'),
+                                    duration: Duration(seconds: 1),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

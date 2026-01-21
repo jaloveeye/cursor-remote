@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { receiveMessages, getSession, getDeviceSession, hasMessages } from '../lib/redis';
-import { DeviceType, RelayMessage } from '../lib/types';
+import { receiveMessages, getSession, getDeviceSession, hasMessages } from '../lib/redis.js';
+import { DeviceType, RelayMessage } from '../lib/types.js';
 
 // SSE 이벤트 포맷
 function formatSSE(event: string, data: unknown): string {
@@ -11,9 +11,21 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
-  // CORS preflight
+  // CORS 헤더 설정
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Device-Id, X-Device-Type');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24시간
+  
+  // CORS preflight - OPTIONS 요청 처리
   if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+    res.writeHead(200, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Device-Id, X-Device-Type',
+      'Access-Control-Max-Age': '86400',
+    });
+    return res.end();
   }
 
   if (req.method !== 'GET') {

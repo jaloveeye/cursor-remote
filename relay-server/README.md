@@ -84,7 +84,7 @@ vercel env add UPSTASH_REDIS_REST_TOKEN
 ### 세션 생성 (PC)
 
 ```bash
-curl -X POST https://your-app.vercel.app/api/session
+curl -X POST https://relay.jaloveeye.com/api/session
 ```
 
 응답:
@@ -103,7 +103,7 @@ curl -X POST https://your-app.vercel.app/api/session
 ### 세션 연결 (Mobile/PC)
 
 ```bash
-curl -X POST https://your-app.vercel.app/api/connect \
+curl -X POST https://relay.jaloveeye.com/api/connect \
   -H "Content-Type: application/json" \
   -d '{
     "sessionId": "ABC123",
@@ -115,7 +115,7 @@ curl -X POST https://your-app.vercel.app/api/connect \
 ### 메시지 전송
 
 ```bash
-curl -X POST https://your-app.vercel.app/api/send \
+curl -X POST https://relay.jaloveeye.com/api/send \
   -H "Content-Type: application/json" \
   -d '{
     "sessionId": "ABC123",
@@ -131,14 +131,14 @@ curl -X POST https://your-app.vercel.app/api/send \
 ### 메시지 폴링
 
 ```bash
-curl "https://your-app.vercel.app/api/poll?sessionId=ABC123&deviceType=pc"
+curl "https://relay.jaloveeye.com/api/poll?sessionId=ABC123&deviceType=pc"
 ```
 
 ### SSE 스트림 연결
 
 ```javascript
 const eventSource = new EventSource(
-  'https://your-app.vercel.app/api/stream?sessionId=ABC123&deviceType=mobile'
+  'https://relay.jaloveeye.com/api/stream?sessionId=ABC123&deviceType=mobile'
 );
 
 eventSource.addEventListener('message', (event) => {
@@ -223,4 +223,4 @@ MIT License
 ---
 
 **작성 시간**: 2026년 1월 21일  
-**수정 시간**: 2026년 1월 21일
+**수정 시간**: 2026년 1월 21일 (도메인 변경: relay.jaloveeye.com)

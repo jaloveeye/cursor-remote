@@ -9,7 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  web_socket_channel: ^2.4.0
+  http: ^1.2.0
+  web_socket_channel: ^3.0.0
   cupertino_icons: ^1.0.6
 
 dev_dependencies:
