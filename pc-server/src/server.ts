@@ -3,16 +3,20 @@ import express from 'express';
 import { getLocalIPAddress } from './utils';
 import { CONFIG } from './config';
 
-// WebSocket 서버 (모바일 앱과 통신)
-const wss = new WebSocket.Server({ port: CONFIG.LOCAL_WS_PORT });
+// Relay 서버 URL
+const RELAY_SERVER_URL = CONFIG.RELAY_SERVER_URL;
 
-// HTTP 서버 (Extension과 통신 - 향후 확장용)
+// HTTP 서버
 const app = express();
 app.use(express.json());
 
-// WebSocket 클라이언트 관리
-const mobileClients = new Set<WebSocket>();
 let extensionClient: WebSocket | null = null;
+let localMobileClient: WebSocket | null = null; // 로컬 모바일 클라이언트
+let sessionId: string | null = null;
+let deviceId: string = `pc-${Date.now()}`;
+let pollInterval: NodeJS.Timeout | null = null;
+let isConnected = false;
+let isLocalMode = false; // 로컬 모드 여부
 
 // Extension WebSocket 클라이언트 연결 (Extension이 서버를 열면 연결)
 function connectToExtension() {
@@ -29,12 +33,18 @@ function connectToExtension() {
         console.log('✅ Connected to Cursor Extension');
     });
 
-    extensionClient.on('message', (message: Buffer) => {
+    extensionClient.on('message', async (message: Buffer) => {
         const messageStr = message.toString();
         console.log('Received from extension:', messageStr);
         
-        // 모든 모바일 클라이언트에 전달
-        broadcastToMobile(messageStr);
+        // 로컬 모드: 모바일 클라이언트로 직접 전달
+        if (isLocalMode && localMobileClient && localMobileClient.readyState === WebSocket.OPEN) {
+            localMobileClient.send(messageStr);
+        }
+        // 릴레이 모드: relay 서버로 전달
+        else if (sessionId && isConnected) {
+            await sendToRelay(messageStr);
+        }
     });
 
     extensionClient.on('close', () => {
@@ -50,83 +60,253 @@ function connectToExtension() {
     });
 }
 
-// 모바일 클라이언트 연결 처리
-wss.on('connection', (ws: WebSocket) => {
-    console.log('📱 Mobile client connected');
-    mobileClients.add(ws);
-
-    ws.on('message', (message: Buffer) => {
-        const messageStr = message.toString();
-        console.log('Received from mobile:', messageStr);
+// Relay 서버로 메시지 전송
+async function sendToRelay(message: string) {
+    if (!sessionId) {
+        console.error('No session ID');
+        return;
+    }
+    
+    try {
+        const parsed = JSON.parse(message);
+        const response = await fetch(`${RELAY_SERVER_URL}/api/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sessionId,
+                deviceId,
+                deviceType: 'pc',
+                type: parsed.type || 'message',
+                data: parsed,
+            }),
+        });
         
-        try {
-            const command = JSON.parse(messageStr);
-            
-            // Extension으로 메시지 전달
-            if (extensionClient && extensionClient.readyState === WebSocket.OPEN) {
-                extensionClient.send(messageStr);
-            } else {
-                console.warn('Extension not connected. Attempting to connect...');
-                connectToExtension();
-                // Extension 연결 후 메시지 전송 시도
-                setTimeout(() => {
-                    if (extensionClient && extensionClient.readyState === WebSocket.OPEN) {
-                        extensionClient.send(messageStr);
-                    } else {
-                        ws.send(JSON.stringify({
-                            type: 'error',
-                            message: 'Extension not available'
-                        }));
-                    }
-                }, 1000);
-            }
-        } catch (error) {
-            console.error('Error parsing message:', error);
-            ws.send(JSON.stringify({
-                type: 'error',
-                message: 'Invalid message format'
-            }));
+        const data = await response.json() as any;
+        if (data.success) {
+            console.log('✅ Message sent to relay');
+        } else {
+            console.error('❌ Failed to send to relay:', data.error);
         }
-    });
-
-    ws.on('close', () => {
-        console.log('📱 Mobile client disconnected');
-        mobileClients.delete(ws);
-    });
-
-    ws.on('error', (error) => {
-        console.error('Mobile WebSocket error:', error);
-    });
-
-    // 연결 성공 메시지
-    ws.send(JSON.stringify({
-        type: 'connected',
-        message: 'Connected to Cursor Remote server'
-    }));
-});
-
-// 모바일 클라이언트에 브로드캐스트
-function broadcastToMobile(message: string) {
-    mobileClients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-            client.send(message);
-        }
-    });
+    } catch (error) {
+        console.error('Error sending to relay:', error);
+    }
 }
 
-// HTTP 엔드포인트 (Extension에서 사용 가능)
-app.post('/', (req, res) => {
-    const message = JSON.stringify(req.body);
-    console.log('Received from extension (HTTP):', message);
+// 로컬 모바일 클라이언트로 메시지 전송
+function sendToLocalMobile(message: string) {
+    if (localMobileClient && localMobileClient.readyState === WebSocket.OPEN) {
+        localMobileClient.send(message);
+        console.log('✅ Message sent to local mobile client');
+    } else {
+        console.error('❌ Local mobile client not connected');
+    }
+}
+
+// Relay 서버에서 메시지 폴링
+async function pollMessages() {
+    if (!sessionId || !isConnected) {
+        console.log(`⚠️ Polling skipped: sessionId=${sessionId}, isConnected=${isConnected}`);
+        return;
+    }
     
-    broadcastToMobile(message);
+    try {
+        const pollUrl = `${RELAY_SERVER_URL}/api/poll?sessionId=${sessionId}&deviceType=pc`;
+        const response = await fetch(pollUrl);
+        
+        const data = await response.json() as any;
+        if (data.success && data.data?.messages) {
+            const messages = data.data.messages;
+            if (messages.length > 0) {
+                console.log(`📥 Received ${messages.length} message(s) from relay`);
+            }
+            
+            for (const msg of messages) {
+                console.log('📨 Message from relay:', JSON.stringify(msg, null, 2));
+                
+                // Extension으로 전달
+                if (extensionClient && extensionClient.readyState === WebSocket.OPEN) {
+                    const commandData = msg.data || msg;
+                    console.log(`📤 Sending to extension:`, JSON.stringify(commandData, null, 2));
+                    extensionClient.send(JSON.stringify(commandData));
+                } else {
+                    console.error(`❌ Extension not connected! readyState: ${extensionClient?.readyState}`);
+                }
+            }
+        } else if (!data.success) {
+            console.error(`❌ Poll failed:`, data.error);
+        }
+    } catch (error) {
+        console.error('❌ Polling error:', error);
+        if (error instanceof Error) {
+            console.error(`   Error: ${error.message}`);
+        }
+    }
+}
+
+// 세션에 연결
+async function connectToSession(sid: string) {
+    console.log(`\n🔗 Connecting to session ${sid}...`);
+    console.log(`   Relay Server: ${RELAY_SERVER_URL}`);
+    console.log(`   Device ID: ${deviceId}`);
+    
+    try {
+        const response = await fetch(`${RELAY_SERVER_URL}/api/connect`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sessionId: sid,
+                deviceId,
+                deviceType: 'pc',
+            }),
+        });
+        
+        console.log(`   HTTP Status: ${response.status}`);
+        const data = await response.json() as any;
+        console.log(`   Response:`, JSON.stringify(data, null, 2));
+        
+        if (data.success) {
+            sessionId = sid;
+            isConnected = true;
+            isLocalMode = false; // 릴레이 모드로 설정
+            console.log(`\n✅ Connected to session: ${sessionId}`);
+            console.log(`🔄 Starting message polling...`);
+            
+            // 폴링 시작
+            startPolling();
+            console.log(`✅ Message polling started (every ${CONFIG.POLL_INTERVAL / 1000} seconds)`);
+        } else {
+            console.error(`\n❌ Failed to connect: ${data.error}`);
+            if (data.error) {
+                console.error(`   Error details:`, data);
+            }
+        }
+    } catch (error) {
+        console.error('\n❌ Error connecting to session:', error);
+        if (error instanceof Error) {
+            console.error(`   Error message: ${error.message}`);
+            console.error(`   Error stack: ${error.stack}`);
+        }
+    }
+}
+
+// 새 세션 생성
+async function createSession(): Promise<string | null> {
+    console.log('Creating new session...');
+    
+    try {
+        const response = await fetch(`${RELAY_SERVER_URL}/api/session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        });
+        
+        const data = await response.json() as any;
+        if (data.success && data.data?.sessionId) {
+            console.log(`✅ Session created: ${data.data.sessionId}`);
+            return data.data.sessionId;
+        } else {
+            console.error(`❌ Failed to create session: ${data.error}`);
+            return null;
+        }
+    } catch (error) {
+        console.error('Error creating session:', error);
+        return null;
+    }
+}
+
+function startPolling() {
+    if (pollInterval) {
+        clearInterval(pollInterval);
+    }
+    pollInterval = setInterval(pollMessages, CONFIG.POLL_INTERVAL);
+}
+
+function stopPolling() {
+    if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+    }
+}
+
+// HTTP 엔드포인트
+app.get('/status', (req, res) => {
+    res.json({
+        relayServer: RELAY_SERVER_URL,
+        sessionId,
+        isConnected,
+        extensionConnected: extensionClient !== null && extensionClient.readyState === WebSocket.OPEN
+    });
+});
+
+// 세션 생성 엔드포인트
+app.post('/session/create', async (req, res) => {
+    const newSessionId = await createSession();
+    if (newSessionId) {
+        await connectToSession(newSessionId);
+        res.json({ success: true, sessionId: newSessionId });
+    } else {
+        res.status(500).json({ success: false, error: 'Failed to create session' });
+    }
+});
+
+// 세션 연결 엔드포인트
+app.post('/session/connect', async (req, res) => {
+    const { sessionId: sid } = req.body;
+    if (!sid) {
+        res.status(400).json({ success: false, error: 'sessionId is required' });
+        return;
+    }
+    
+    await connectToSession(sid);
+    res.json({ success: true, sessionId: sid, isConnected });
+});
+
+// 연결 해제 엔드포인트
+app.post('/session/disconnect', (req, res) => {
+    stopPolling();
+    sessionId = null;
+    isConnected = false;
     res.json({ success: true });
 });
 
-app.get('/status', (req, res) => {
-    res.json({
-        mobileClients: mobileClients.size,
-        extensionConnected: extensionClient !== null && extensionClient.readyState === WebSocket.OPEN
+// 로컬 WebSocket 서버 (모바일 앱 직접 연결용)
+const localWSServer = new WebSocket.Server({ port: CONFIG.LOCAL_WS_PORT });
+
+localWSServer.on('connection', (ws: WebSocket) => {
+    console.log('📱 Local mobile client connected');
+    localMobileClient = ws;
+    isLocalMode = true;
+    isConnected = true;
+    
+    // 기존 릴레이 연결 정리
+    if (sessionId) {
+        stopPolling();
+        sessionId = null;
+    }
+    
+    ws.on('message', (message: Buffer) => {
+        const messageStr = message.toString();
+        console.log('Received from local mobile:', messageStr);
+        
+        // Extension으로 전달
+        if (extensionClient && extensionClient.readyState === WebSocket.OPEN) {
+            try {
+                const commandData = JSON.parse(messageStr);
+                extensionClient.send(JSON.stringify(commandData));
+            } catch (error) {
+                console.error('Error parsing message from mobile:', error);
+            }
+        }
+    });
+    
+    ws.on('close', () => {
+        console.log('📱 Local mobile client disconnected');
+        localMobileClient = null;
+        isLocalMode = false;
+        isConnected = false;
+    });
+    
+    ws.on('error', (error) => {
+        console.error('Local mobile client error:', error);
     });
 });
 
@@ -137,10 +317,30 @@ app.listen(CONFIG.HTTP_PORT, () => {
 // Extension 연결 시도
 connectToExtension();
 
+// CLI 인자로 세션 ID가 제공되면 해당 세션에 연결
+const args = process.argv.slice(2);
+if (args.length > 0 && args[0]) {
+    const providedSessionId = args[0];
+    console.log(`\n🔗 Session ID provided: ${providedSessionId}`);
+    console.log(`⏳ Connecting to relay server in 2 seconds...`);
+    setTimeout(() => {
+        console.log(`🔄 Starting connection to session: ${providedSessionId}`);
+        connectToSession(providedSessionId).catch((error) => {
+            console.error(`❌ Failed to connect to session: ${error}`);
+        });
+    }, 2000);
+}
+
 // 서버 시작
 const localIP = getLocalIPAddress();
 console.log(`\n✅ Cursor Remote PC Server started!`);
-console.log(`📱 Mobile app should connect to: ${localIP}:${CONFIG.LOCAL_WS_PORT}`);
-console.log(`🔌 WebSocket server (Mobile): ws://${localIP}:${CONFIG.LOCAL_WS_PORT}`);
-console.log(`🌐 HTTP server: http://${localIP}:${CONFIG.HTTP_PORT}`);
-console.log(`🔗 Extension WebSocket: ws://localhost:${CONFIG.EXTENSION_WS_PORT}\n`);
+console.log(`🌐 Relay Server: ${RELAY_SERVER_URL}`);
+console.log(`🌐 Local HTTP: http://${localIP}:${CONFIG.HTTP_PORT}`);
+console.log(`🔗 Extension WebSocket: ws://localhost:${CONFIG.EXTENSION_WS_PORT}`);
+console.log(`📱 Local Mobile WebSocket: ws://${localIP}:${CONFIG.LOCAL_WS_PORT}`);
+console.log(`\n💡 Usage:`);
+console.log(`   - Local mode: Connect mobile app to ws://${localIP}:${CONFIG.LOCAL_WS_PORT}`);
+console.log(`   - Relay mode:`);
+console.log(`     - Create new session: curl -X POST http://localhost:${CONFIG.HTTP_PORT}/session/create`);
+console.log(`     - Connect to session: curl -X POST http://localhost:${CONFIG.HTTP_PORT}/session/connect -H "Content-Type: application/json" -d '{"sessionId": "ABC123"}'`);
+console.log(`   - Check status: curl http://localhost:${CONFIG.HTTP_PORT}/status\n`);

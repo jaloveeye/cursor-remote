@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "api/**/*.ts", "use": "@vercel/node@3.2.0" },
+    { "src": "lib/**/*.ts", "use": "@vercel/node@3.2.0" }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/stream",
+      "destination": "/api/stream.ts"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "/api/:path*.ts"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization, X-Device-Id, X-Device-Type" }
+      ]
+    }
+  ]
+}
