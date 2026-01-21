@@ -38,6 +38,7 @@ Cursor Remote는 개발자가 **모바일 기기에서도 Cursor IDE를 원격�
 ## 🏗️ 아키텍처
 
 ### IDE 모드 (기본)
+
 ```
 ┌─────────────┐     WebSocket      ┌─────────────┐
 │   Mobile    │◄──────────────────►│  PC Server   │
@@ -54,6 +55,7 @@ Cursor Remote는 개발자가 **모바일 기기에서도 Cursor IDE를 원격�
 ```
 
 ### CLI 모드
+
 ```
 ┌─────────────┐     WebSocket      ┌─────────────┐
 │   Mobile    │◄──────────────────►│  PC Server   │
@@ -128,13 +130,21 @@ npm run compile
 ```
 
 **Cursor IDE에서 Extension 활성화:**
+
 1. Cursor IDE 실행
 2. Extension이 자동으로 활성화됨 (상태 표시줄에 구름 아이콘 확인)
 3. 또는 명령 팔레트 (`Cmd+Shift+P` / `Ctrl+Shift+P`) → "Start Cursor Remote Server"
 
 **확인 방법:**
+
 - 상태 표시줄에 "Cursor Remote: Waiting" 또는 "Connected" 표시 확인
 - Output 패널에서 "Cursor Remote extension is now active!" 메시지 확인
+
+**기본 모드: IDE 모드**
+
+- 기본적으로 **IDE 모드**가 활성화되어 있습니다
+- Cursor IDE의 채팅 패널을 통해 AI와 상호작용합니다
+- Cursor IDE가 실행되어 있어야 합니다
 
 #### 3단계: PC 서버 실행
 
@@ -147,17 +157,21 @@ npm start
 ```
 
 **서버 시작 확인:**
+
 - 터미널에 다음과 같은 메시지가 표시됩니다:
+
   ```
   ✅ Cursor Remote PC Server started!
   📱 Mobile app should connect to: 192.168.0.10:8767
   🔌 WebSocket server (Mobile): ws://192.168.0.10:8767
   ```
+
 - 표시된 IP 주소를 메모하세요 (예: `192.168.0.10`)
 
 #### 4단계: 모바일 앱 설정
 
 **Android:**
+
 ```bash
 cd mobile-app
 flutter pub get
@@ -166,6 +180,7 @@ flutter build apk --release
 ```
 
 **iOS:**
+
 ```bash
 cd mobile-app
 flutter pub get
@@ -174,6 +189,7 @@ flutter build ios
 ```
 
 **개발 중 테스트:**
+
 ```bash
 # USB로 연결된 기기에서 직접 실행
 flutter run
@@ -194,27 +210,33 @@ flutter run
 #### 6단계: 사용하기
 
 **기본 사용:**
+
 1. **텍스트 입력**: 모바일 앱의 입력창에 텍스트 입력 후 전송
 2. **터미널 명령**: `terminal: true` 옵션으로 터미널에 명령 전송
 3. **AI 프롬프트**: `prompt: true` 옵션으로 Cursor AI에 질문
 4. **AI 응답 확인**: 모바일 앱에서 실시간으로 AI 응답 확인
 
 **고급 사용:**
+
 - 자세한 사용법은 [빠른 시작 가이드](./docs/guides/QUICK_START.md) 참조
 - CLI 모드 사용법은 [CLI 모드 가이드](./docs/cli/CLI_MODE_HOW_IT_WORKS.md) 참조
 
 ### CLI 모드 사용 (선택사항)
+
+> **기본 모드는 IDE 모드입니다.** CLI 모드는 선택적으로 활성화할 수 있습니다.
 
 CLI 모드를 사용하면 Cursor IDE가 실행되지 않아도 Cursor CLI를 통해 AI와 상호작용할 수 있습니다.
 
 **설정 방법:**
 
 1. **Cursor CLI 설치** (아직 설치하지 않은 경우):
+
    ```bash
    curl https://cursor.com/install -fsS | bash
    ```
 
 2. **CLI 인증** (처음 사용 시):
+
    ```bash
    agent login
    ```
@@ -226,6 +248,7 @@ CLI 모드를 사용하면 Cursor IDE가 실행되지 않아도 Cursor CLI를 �
    - Extension 재시작
 
 **CLI 모드의 장점:**
+
 - Cursor IDE 실행 불필요
 - 자동화 및 스크립트 통합 용이
 - 헤드리스 환경에서 사용 가능
@@ -287,6 +310,7 @@ CLI 모드를 사용하면 Cursor IDE가 실행되지 않아도 Cursor CLI를 �
 모든 문서는 [docs/](./docs/) 폴더에 정리되어 있습니다.
 
 ### 주요 가이드
+
 - [빠른 시작 가이드](./docs/guides/QUICK_START.md) - 빠른 설정 및 실행 방법
 - [Extension 설치 가이드](./docs/guides/EXTENSION_SETUP.md) - Extension 설치 및 활성화
 - [통신 프로토콜](./docs/guides/PROTOCOL.md) - WebSocket 메시지 형식 및 프로토콜
@@ -294,14 +318,17 @@ CLI 모드를 사용하면 Cursor IDE가 실행되지 않아도 Cursor CLI를 �
 - [Cursor 설정 가이드](./docs/guides/CURSOR_SETTINGS_GUIDE.md) - Cursor IDE 설정 방법
 
 ### 테스트
+
 - [Rules 기반 채팅 캡처 테스트](./docs/testing/RULES_BASED_CHAT_TEST_GUIDE.md) - Rules 기반 실시간 채팅 캡처 테스트
 - [CLI 모드 테스트](./docs/testing/CLI_MODE_TEST.md) - CLI 모드 테스트 방법
 
 ### 문제 해결
+
 - [Hook 문제 해결](./docs/troubleshooting/HOOK_TROUBLESHOOTING.md) - Hook 관련 문제 해결
 - [CLI 모드 문제 해결](./docs/troubleshooting/CLI_MODE_NOT_WORKING_FIX.md) - CLI 모드 문제 해결
 
 ### CLI 모드
+
 - [CLI 모드 작동 원리](./docs/cli/CLI_MODE_HOW_IT_WORKS.md) - CLI 모드 동작 방식
 - [Cursor CLI 가이드](./docs/cli/CURSOR_CLI_GUIDE.md) - Cursor CLI 사용법
 
@@ -325,12 +352,13 @@ CLI 모드를 사용하면 Cursor IDE가 실행되지 않아도 Cursor CLI를 �
 | 스크립트 통합 | ⚠️ 어려움 | ✅ 쉬움 |
 
 **권장 사용 사례:**
+
 - **IDE 모드**: 일반적인 개발 작업, IDE 기능 활용
 - **CLI 모드**: 자동화, CI/CD, 스크립트, 헤드리스 환경
 
 ---
 
-**작성자**: 김형진 (jaloveeye@gmail.com)  
-**웹사이트**: https://jaloveeye.com  
+**작성자**: 김형진 (<jaloveeye@gmail.com>)  
+**웹사이트**: <https://jaloveeye.com>  
 **작성 시간**: 2025년 1월 27일  
 **수정 시간**: 2026년 1월 21일
