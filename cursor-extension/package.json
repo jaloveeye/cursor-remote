@@ -3,6 +3,12 @@
   "displayName": "Cursor Remote",
   "description": "Remote control extension for Cursor IDE",
   "version": "0.1.0",
+  "publisher": "jaloveeye",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jaloveeye/cursor-remote.git"
+  },
   "engines": {
     "vscode": "^1.74.0"
   },

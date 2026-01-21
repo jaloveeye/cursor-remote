@@ -1,11 +1,11 @@
 {
-    "name": "cursor_remote",
-    "short_name": "cursor_remote",
+    "name": "Cursor Remote",
+    "short_name": "Cursor Remote",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Control Cursor IDE from your mobile device. Remote control extension for Cursor IDE via WebSocket - Code anywhere, anytime with Cursor CLI.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
