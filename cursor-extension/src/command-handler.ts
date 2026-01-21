@@ -1,14 +1,30 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { CLIHandler } from './cli-handler';
 
 export class CommandHandler {
     private outputChannel: vscode.OutputChannel | null = null;
     private wsServer: any = null; // WebSocketServer 타입
+    private cliHandler: CLIHandler | null = null;
+    private useCLIMode: boolean = false;
 
-    constructor(outputChannel?: vscode.OutputChannel, wsServer?: any) {
+    constructor(outputChannel?: vscode.OutputChannel, wsServer?: any, useCLIMode: boolean = false) {
         this.outputChannel = outputChannel || null;
         this.wsServer = wsServer || null;
+        this.useCLIMode = useCLIMode;
+        
+        // CLI 모드인 경우 CLI 핸들러 초기화
+        if (this.useCLIMode) {
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            const workspaceRoot = workspaceFolders && workspaceFolders.length > 0 
+                ? workspaceFolders[0].uri.fsPath 
+                : process.cwd();
+            this.cliHandler = new CLIHandler(outputChannel, wsServer, workspaceRoot);
+            this.log('[Cursor Remote] CLI mode enabled');
+        } else {
+            this.log('[Cursor Remote] IDE mode enabled');
+        }
     }
 
     private log(message: string) {
@@ -201,6 +217,19 @@ export class CommandHandler {
 
     async insertToPrompt(text: string, execute: boolean = false): Promise<void> {
         this.log(`[Cursor Remote] insertToPrompt called - textLength: ${text.length}, execute: ${execute}`);
+        
+        // CLI 모드인 경우 CLI 핸들러 사용
+        if (this.useCLIMode && this.cliHandler) {
+            this.log('[Cursor Remote] Using CLI mode for prompt');
+            if (execute) {
+                await this.cliHandler.sendPrompt(text, true);
+            } else {
+                // execute가 false인 경우는 CLI에서 지원하지 않으므로 경고만
+                this.log('[Cursor Remote] Warning: CLI mode does not support non-execute mode, executing anyway');
+                await this.cliHandler.sendPrompt(text, true);
+            }
+            return;
+        }
         
         try {
             // Cursor IDE의 채팅 패널 처리
@@ -415,6 +444,13 @@ export class CommandHandler {
 
     async stopPrompt(): Promise<{ success: boolean }> {
         this.log('[Cursor Remote] stopPrompt called');
+        
+        // CLI 모드인 경우 CLI 핸들러 사용
+        if (this.useCLIMode && this.cliHandler) {
+            this.log('[Cursor Remote] Using CLI mode for stop');
+            return await this.cliHandler.stopPrompt();
+        }
+        
         try {
             // Cursor IDE의 프롬프트 중지 명령 시도
             const stopCommands = [
@@ -500,7 +536,11 @@ export class CommandHandler {
     }
 
     dispose() {
-        // 정리 작업이 필요한 경우 여기에 추가
+        // CLI 핸들러 정리
+        if (this.cliHandler) {
+            this.cliHandler.dispose();
+            this.cliHandler = null;
+        }
     }
 
     // 터미널 출력을 자동으로 캡처하기 위한 래퍼 스크립트 생성

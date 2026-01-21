@@ -27,7 +27,17 @@
         "command": "cursorRemote.toggle",
         "title": "Toggle Cursor Remote Server"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Cursor Remote",
+      "properties": {
+        "cursorRemote.useCLIMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use Cursor CLI instead of Cursor IDE for chat interactions. When enabled, prompts will be sent to the 'agent' command instead of the IDE chat panel."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

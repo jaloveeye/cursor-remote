@@ -67,7 +67,16 @@ async function activate(context) {
     context.subscriptions.push(statusBarItem);
     // WebSocket 서버 초기화
     wsServer = new websocket_server_1.WebSocketServer(8766, outputChannel);
-    commandHandler = new command_handler_1.CommandHandler(outputChannel, wsServer);
+    // CLI 모드 설정 확인 (기본값: false, IDE 모드)
+    const config = vscode.workspace.getConfiguration('cursorRemote');
+    const useCLIMode = config.get('useCLIMode', false);
+    commandHandler = new command_handler_1.CommandHandler(outputChannel, wsServer, useCLIMode);
+    if (useCLIMode) {
+        outputChannel.appendLine('[Cursor Remote] CLI mode is enabled - using Cursor CLI instead of IDE');
+    }
+    else {
+        outputChannel.appendLine('[Cursor Remote] IDE mode is enabled - using Cursor IDE extension');
+    }
     // 터미널 출력 모니터링 비활성화 (prompt 사용으로 전환)
     // startTerminalOutputMonitoring(context);
     // 터미널 출력 파일 모니터링 비활성화 (prompt 사용으로 전환)

@@ -14,13 +14,15 @@
 - 📊 **작업 결과 표시**: 파일 편집, 빌드 결과 등을 모바일에서 확인
 - 🔐 **권한 관리**: 파일 접근, 명령 실행 등에 대한 권한 요청 및 응답
 - 🔄 **실시간 통신**: WebSocket 기반 양방향 실시간 통신
+- 🖥️ **CLI 모드 지원**: Cursor IDE 대신 Cursor CLI(`agent` 명령어)와 통신 가능
 
 ## 🏗️ 아키텍처
 
+### IDE 모드 (기본)
 ```
 ┌─────────────┐     WebSocket      ┌─────────────┐
 │   Mobile    │◄──────────────────►│  PC Server   │
-│     App     │     Port 8766       │  (Node.js)   │
+│     App     │     Port 8767       │  (Node.js)   │
 └─────────────┘                    └──────┬──────┘
                                           │
                                           │ Extension API
@@ -32,6 +34,29 @@
                                    └─────────────┘
 ```
 
+### CLI 모드
+```
+┌─────────────┐     WebSocket      ┌─────────────┐
+│   Mobile    │◄──────────────────►│  PC Server   │
+│     App     │     Port 8767       │  (Node.js)   │
+└─────────────┘                    └──────┬──────┘
+                                          │
+                                          │ Extension API
+                                          │ HTTP / WebSocket
+                                          │
+                                   ┌──────┴──────┐
+                                   │  Extension  │
+                                   │  (CLI Mode) │
+                                   └──────┬──────┘
+                                          │
+                                          │ Process
+                                          │
+                                   ┌──────┴──────┐
+                                   │ Cursor CLI  │
+                                   │   (agent)   │
+                                   └─────────────┘
+```
+
 ## 📂 프로젝트 구조
 
 ```
@@ -40,7 +65,8 @@ cursor-remote/
 │   ├── src/
 │   │   ├── extension.ts
 │   │   ├── websocket-server.ts
-│   │   └── command-handler.ts
+│   │   ├── command-handler.ts
+│   │   └── cli-handler.ts      # CLI 모드 핸들러
 │   ├── package.json
 │   └── README.md
 ├── pc-server/          # PC 브릿지 서버 (Node.js)
@@ -73,6 +99,27 @@ npm run compile
 ```
 
 Cursor IDE에서 확장을 로드합니다.
+
+#### CLI 모드 사용 (선택사항)
+
+CLI 모드를 사용하려면:
+
+1. **Cursor CLI 설치** (아직 설치하지 않은 경우):
+   ```bash
+   curl https://cursor.com/install -fsS | bash
+   ```
+
+2. **CLI 모드 활성화**:
+   - Cursor IDE에서 설정 열기 (Cmd/Ctrl + ,)
+   - "Cursor Remote" 검색
+   - "Use CLI Mode" 옵션 활성화
+
+3. **CLI 인증** (처음 사용 시):
+   ```bash
+   agent login
+   ```
+
+CLI 모드를 사용하면 Cursor IDE가 실행되지 않아도 Cursor CLI를 통해 AI와 상호작용할 수 있습니다.
 
 ### 2. PC 서버 실행
 
@@ -166,5 +213,22 @@ flutter build apk
 
 ---
 
+## 🔧 CLI 모드 vs IDE 모드
+
+| 기능 | IDE 모드 | CLI 모드 |
+|------|---------|---------|
+| Cursor IDE 필요 | ✅ 필수 | ❌ 불필요 |
+| Cursor CLI 필요 | ❌ 불필요 | ✅ 필수 |
+| 채팅 패널 사용 | ✅ 사용 | ❌ 미사용 |
+| 프로세스 실행 | ❌ | ✅ |
+| 자동화 친화적 | ⚠️ 제한적 | ✅ 우수 |
+| 스크립트 통합 | ⚠️ 어려움 | ✅ 쉬움 |
+
+**권장 사용 사례:**
+- **IDE 모드**: 일반적인 개발 작업, IDE 기능 활용
+- **CLI 모드**: 자동화, CI/CD, 스크립트, 헤드리스 환경
+
+---
+
 **작성 시간**: 2026년 1월 19일  
-**수정 시간**: 2026년 1월 19일
+**수정 시간**: 2026년 1월 20일
