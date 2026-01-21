@@ -6,6 +6,25 @@
 
 모바일 기기에서 Cursor IDE를 원격으로 제어할 수 있는 시스템입니다. Flutter 앱을 통해 PC의 Cursor IDE에 명령을 전송하고, AI 응답과 작업 결과를 실시간으로 확인할 수 있습니다.
 
+## 🎯 프로젝트 목적
+
+Cursor Remote는 개발자가 **모바일 기기에서도 Cursor IDE를 원격으로 제어**할 수 있도록 하는 오픈소스 프로젝트입니다.
+
+### 해결하는 문제
+
+- 🏠 **집에서 편안하게**: 소파에 누워서도 모바일로 코드를 작성하고 AI와 대화할 수 있습니다
+- 🚇 **이동 중에도**: 지하철이나 버스에서도 모바일로 간단한 코드 수정이나 AI 질문이 가능합니다
+- 💻 **PC 없이도**: Cursor CLI 모드를 사용하면 PC에 Cursor IDE가 실행되지 않아도 AI와 상호작용할 수 있습니다
+- 🔄 **실시간 동기화**: 모바일에서 입력한 내용이 PC의 Cursor IDE에 실시간으로 반영됩니다
+- 🤖 **AI 응답 확인**: Cursor AI의 응답을 모바일에서 실시간으로 확인할 수 있습니다
+
+### 주요 사용 사례
+
+1. **원격 개발**: 집이나 카페에서 모바일로 코드 작성 및 AI 질문
+2. **빠른 수정**: 외출 중에도 긴급한 코드 수정이나 버그 확인
+3. **AI 상호작용**: 모바일에서 Cursor AI와 대화하며 아이디어 구상
+4. **자동화**: CLI 모드를 통한 스크립트 및 CI/CD 통합
+
 ## ✨ 주요 기능
 
 - 📝 **원격 코드 편집**: 모바일에서 Cursor IDE 에디터에 텍스트 입력
@@ -88,64 +107,128 @@ cursor-remote/
 └── package.json
 ```
 
-## 🚀 시작하기
+## 🚀 사용 방법
 
-### 1. Cursor IDE 확장 설치
+### 전체 설치 및 실행 가이드
+
+#### 1단계: 사전 요구사항
+
+- **PC**: Node.js 18+ 설치 필요
+- **모바일**: Android 또는 iOS 기기
+- **Cursor IDE**: Cursor IDE 설치 (IDE 모드 사용 시)
+- **Cursor CLI**: Cursor CLI 설치 (CLI 모드 사용 시, 선택사항)
+
+#### 2단계: Cursor Extension 설치
 
 ```bash
+# 프로젝트 루트에서
 cd cursor-extension
 npm install
 npm run compile
 ```
 
-Cursor IDE에서 확장을 로드합니다.
+**Cursor IDE에서 Extension 활성화:**
+1. Cursor IDE 실행
+2. Extension이 자동으로 활성화됨 (상태 표시줄에 구름 아이콘 확인)
+3. 또는 명령 팔레트 (`Cmd+Shift+P` / `Ctrl+Shift+P`) → "Start Cursor Remote Server"
 
-#### CLI 모드 사용 (선택사항)
+**확인 방법:**
+- 상태 표시줄에 "Cursor Remote: Waiting" 또는 "Connected" 표시 확인
+- Output 패널에서 "Cursor Remote extension is now active!" 메시지 확인
 
-CLI 모드를 사용하려면:
+#### 3단계: PC 서버 실행
+
+```bash
+# 새 터미널에서
+cd pc-server
+npm install
+npm run build
+npm start
+```
+
+**서버 시작 확인:**
+- 터미널에 다음과 같은 메시지가 표시됩니다:
+  ```
+  ✅ Cursor Remote PC Server started!
+  📱 Mobile app should connect to: 192.168.0.10:8767
+  🔌 WebSocket server (Mobile): ws://192.168.0.10:8767
+  ```
+- 표시된 IP 주소를 메모하세요 (예: `192.168.0.10`)
+
+#### 4단계: 모바일 앱 설정
+
+**Android:**
+```bash
+cd mobile-app
+flutter pub get
+flutter build apk --release
+# 생성된 APK 파일을 Android 기기에 설치
+```
+
+**iOS:**
+```bash
+cd mobile-app
+flutter pub get
+flutter build ios
+# Xcode에서 실행 또는 TestFlight 배포
+```
+
+**개발 중 테스트:**
+```bash
+# USB로 연결된 기기에서 직접 실행
+flutter run
+```
+
+#### 5단계: 모바일 앱에서 연결
+
+1. **앱 실행**
+2. **연결 모드 선택**:
+   - **로컬 모드**: PC와 모바일이 같은 Wi-Fi에 연결된 경우
+     - PC 서버 IP 주소 입력 (예: `192.168.0.10`)
+     - "Connect" 버튼 클릭
+   - **릴레이 모드**: 인터넷을 통한 원격 연결 (향후 지원)
+3. **연결 확인**:
+   - 연결 성공 시 녹색 구름 아이콘 표시
+   - PC 서버 터미널에 "📱 Mobile client connected" 메시지 확인
+
+#### 6단계: 사용하기
+
+**기본 사용:**
+1. **텍스트 입력**: 모바일 앱의 입력창에 텍스트 입력 후 전송
+2. **터미널 명령**: `terminal: true` 옵션으로 터미널에 명령 전송
+3. **AI 프롬프트**: `prompt: true` 옵션으로 Cursor AI에 질문
+4. **AI 응답 확인**: 모바일 앱에서 실시간으로 AI 응답 확인
+
+**고급 사용:**
+- 자세한 사용법은 [빠른 시작 가이드](./docs/guides/QUICK_START.md) 참조
+- CLI 모드 사용법은 [CLI 모드 가이드](./docs/cli/CLI_MODE_HOW_IT_WORKS.md) 참조
+
+### CLI 모드 사용 (선택사항)
+
+CLI 모드를 사용하면 Cursor IDE가 실행되지 않아도 Cursor CLI를 통해 AI와 상호작용할 수 있습니다.
+
+**설정 방법:**
 
 1. **Cursor CLI 설치** (아직 설치하지 않은 경우):
    ```bash
    curl https://cursor.com/install -fsS | bash
    ```
 
-2. **CLI 모드 활성화**:
-   - Cursor IDE에서 설정 열기 (Cmd/Ctrl + ,)
-   - "Cursor Remote" 검색
-   - "Use CLI Mode" 옵션 활성화
-
-3. **CLI 인증** (처음 사용 시):
+2. **CLI 인증** (처음 사용 시):
    ```bash
    agent login
    ```
 
-CLI 모드를 사용하면 Cursor IDE가 실행되지 않아도 Cursor CLI를 통해 AI와 상호작용할 수 있습니다.
+3. **CLI 모드 활성화**:
+   - Cursor IDE에서 설정 열기 (`Cmd+,` / `Ctrl+,`)
+   - "Cursor Remote" 검색
+   - "Use CLI Mode" 옵션 활성화
+   - Extension 재시작
 
-### 2. PC 서버 실행
-
-```bash
-cd pc-server
-npm install
-npm start
-```
-
-서버 시작 시 표시되는 IP 주소를 확인하세요.
-
-### 3. 모바일 앱 빌드
-
-```bash
-cd mobile-app
-flutter pub get
-flutter build apk
-```
-
-생성된 APK를 핸드폰에 설치하세요.
-
-### 4. 앱 연결
-
-1. 앱에서 서버 주소 입력 (예: `192.168.0.10`)
-2. Connect 버튼 클릭
-3. 연결 성공 시 녹색 구름 아이콘 표시
+**CLI 모드의 장점:**
+- Cursor IDE 실행 불필요
+- 자동화 및 스크립트 통합 용이
+- 헤드리스 환경에서 사용 가능
 
 ## 📡 통신 프로토콜
 
@@ -250,4 +333,4 @@ flutter build apk
 **작성자**: 김형진 (jaloveeye@gmail.com)  
 **웹사이트**: https://jaloveeye.com  
 **작성 시간**: 2025년 1월 27일  
-**수정 시간**: 2025년 1월 27일
+**수정 시간**: 2026년 1월 21일
