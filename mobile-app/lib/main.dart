@@ -49,6 +49,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final FocusNode _serverAddressFocusNode = FocusNode();
   final FocusNode _commandFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
+  final ExpansionTileController _expansionTileController = ExpansionTileController();
 
   void _connect() {
     // TextField에서 값을 가져오기
@@ -99,11 +100,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         // 명령 실패 시 대기 상태 해제
                         _isWaitingForResponse = false;
                       }
-                    } else if (type == 'connected') {
+                    } else                     if (type == 'connected') {
                       _messages.add(MessageItem('✅ ${decoded['message']}'));
                       // 연결 확인 시 상태 업데이트
                       if (!_isConnected) {
                         _isConnected = true;
+                      }
+                      // 연결 성공 시 connect 화면 자동 닫기
+                      try {
+                        _expansionTileController.collapse();
+                      } catch (e) {
+                        // ExpansionTileController가 아직 연결되지 않은 경우 무시
                       }
                     } else if (type == 'error') {
                       _messages.add(MessageItem('❌ Error: ${decoded['message']}'));
@@ -492,6 +499,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         children: [
           // 최상단: 접었다 폈다 할 수 있는 서버 연결 섹션
           ExpansionTile(
+            controller: _expansionTileController,
             leading: Icon(
               _isConnected ? Icons.cloud_done : Icons.cloud_off,
               color: _isConnected ? Colors.green : Colors.grey,
