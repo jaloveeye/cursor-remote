@@ -1,19 +1,43 @@
 {
-  "name": "cursor-remote-extension",
+  "name": "cursor-remote",
   "displayName": "Cursor Remote",
-  "description": "Remote control extension for Cursor IDE",
+  "description": "Remote control extension for Cursor IDE - Control your Cursor IDE from mobile devices via WebSocket",
   "version": "0.1.0",
+  "publisher": "jaloveeye",
   "author": {
     "name": "김형진",
     "email": "jaloveeye@gmail.com",
     "url": "https://jaloveeye.com"
   },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jaloveeye/cursor-remote"
+  },
+  "homepage": "https://github.com/jaloveeye/cursor-remote#readme",
+  "bugs": {
+    "url": "https://github.com/jaloveeye/cursor-remote/issues"
+  },
+  "keywords": [
+    "cursor",
+    "remote",
+    "mobile",
+    "websocket",
+    "ai",
+    "coding",
+    "remote-control"
+  ],
   "engines": {
     "vscode": "^1.74.0"
   },
   "categories": [
-    "Other"
+    "Other",
+    "Programming Languages"
   ],
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -22,24 +46,37 @@
     "commands": [
       {
         "command": "cursorRemote.start",
-        "title": "Start Cursor Remote Server"
+        "title": "Start Cursor Remote Server",
+        "category": "Cursor Remote"
       },
       {
         "command": "cursorRemote.stop",
-        "title": "Stop Cursor Remote Server"
+        "title": "Stop Cursor Remote Server",
+        "category": "Cursor Remote"
       },
       {
         "command": "cursorRemote.toggle",
-        "title": "Toggle Cursor Remote Server"
+        "title": "Toggle Cursor Remote Server",
+        "category": "Cursor Remote"
       }
     ],
     "configuration": {
       "title": "Cursor Remote",
       "properties": {
-        "cursorRemote.useCLIMode": {
+        "cursorRemote.autoStart": {
           "type": "boolean",
-          "default": false,
-          "description": "Use Cursor CLI instead of Cursor IDE for chat interactions. When enabled, prompts will be sent to the 'agent' command instead of the IDE chat panel."
+          "default": true,
+          "description": "Automatically start the remote server when Cursor opens"
+        },
+        "cursorRemote.port": {
+          "type": "number",
+          "default": 8766,
+          "description": "WebSocket server port"
+        },
+        "cursorRemote.httpPort": {
+          "type": "number",
+          "default": 8767,
+          "description": "HTTP server port for REST API"
         }
       }
     }
@@ -47,12 +84,15 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "publish": "vsce publish"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.74.0",
     "@types/ws": "^8.5.0",
+    "@vscode/vsce": "^2.22.0",
     "typescript": "^5.0.0"
   },
   "dependencies": {

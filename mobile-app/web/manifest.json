@@ -1,23 +1,28 @@
 {
-    "name": "cursor_remote",
-    "short_name": "cursor_remote",
+    "name": "Cursor Remote - Control Cursor AI from Your Mobile Device",
+    "short_name": "Cursor Remote",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#1e1e1e",
+    "theme_color": "#6366f1",
+    "description": "Control Cursor AI from your mobile device. Remote control extension for Cursor IDE - Code anywhere, anytime with Cursor CLI.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
+    "categories": ["developer", "productivity", "utilities"],
+    "lang": "ko",
+    "dir": "ltr",
     "icons": [
         {
             "src": "icons/Icon-192.png",
             "sizes": "192x192",
-            "type": "image/png"
+            "type": "image/png",
+            "purpose": "any"
         },
         {
             "src": "icons/Icon-512.png",
             "sizes": "512x512",
-            "type": "image/png"
+            "type": "image/png",
+            "purpose": "any"
         },
         {
             "src": "icons/Icon-maskable-192.png",

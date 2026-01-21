@@ -1,5 +1,5 @@
 name: cursor_remote
-description: Mobile app for controlling Cursor IDE remotely
+description: Control Cursor AI from your mobile device. Remote control extension for Cursor IDE - Code anywhere, anytime with Cursor CLI.
 publish_to: 'none'
 version: 0.1.0+1
 

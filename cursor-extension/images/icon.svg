@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="128" height="128" rx="24" fill="url(#bgGrad)"/>
+  
+  <!-- Cursor icon -->
+  <path d="M40 30 L40 85 L55 70 L70 95 L80 90 L65 65 L85 65 Z" 
+        fill="white" 
+        stroke="white" 
+        stroke-width="2" 
+        stroke-linejoin="round"/>
+  
+  <!-- WiFi/Remote signal -->
+  <g fill="none" stroke="white" stroke-width="3" stroke-linecap="round">
+    <path d="M88 45 Q98 35 108 45" opacity="0.5"/>
+    <path d="M92 52 Q98 46 104 52" opacity="0.75"/>
+    <circle cx="98" cy="58" r="2" fill="white"/>
+  </g>
+</svg>

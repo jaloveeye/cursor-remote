@@ -9,24 +9,20 @@ export class CommandHandler {
     private outputChannel: vscode.OutputChannel | null = null;
     private wsServer: WebSocketServer | null = null;
     private cliHandler: CLIHandler | null = null;
-    private useCLIMode: boolean = false;
+    private useCLIMode: boolean = true;
 
-    constructor(outputChannel?: vscode.OutputChannel, wsServer?: WebSocketServer, useCLIMode: boolean = false) {
+    constructor(outputChannel?: vscode.OutputChannel, wsServer?: WebSocketServer, useCLIMode: boolean = true) {
         this.outputChannel = outputChannel || null;
         this.wsServer = wsServer || null;
         this.useCLIMode = useCLIMode;
         
-        // CLI 모드인 경우 CLI 핸들러 초기화
-        if (this.useCLIMode) {
-            const workspaceFolders = vscode.workspace.workspaceFolders;
-            const workspaceRoot = workspaceFolders && workspaceFolders.length > 0 
-                ? workspaceFolders[0].uri.fsPath 
-                : process.cwd();
-            this.cliHandler = new CLIHandler(outputChannel, wsServer, workspaceRoot);
-            this.log('[Cursor Remote] CLI mode enabled');
-        } else {
-            this.log('[Cursor Remote] IDE mode enabled');
-        }
+        // CLI 핸들러 초기화 (CLI 모드가 기본)
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        const workspaceRoot = workspaceFolders && workspaceFolders.length > 0 
+            ? workspaceFolders[0].uri.fsPath 
+            : process.cwd();
+        this.cliHandler = new CLIHandler(outputChannel, wsServer, workspaceRoot);
+        this.log('[Cursor Remote] CLI mode enabled');
     }
 
     private log(message: string) {

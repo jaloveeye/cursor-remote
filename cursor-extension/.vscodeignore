@@ -1,0 +1,57 @@
+# Source files (only compiled output is needed)
+src/**
+**/*.ts
+!**/*.d.ts
+
+# Development files
+.vscode/**
+.vscode-test/**
+node_modules/**
+
+# Git files
+.git/**
+.gitignore
+
+# Test files
+**/*.test.ts
+**/*.spec.ts
+test/**
+tests/**
+
+# Build configuration
+tsconfig.json
+.eslintrc*
+.prettierrc*
+
+# Documentation (keep README and CHANGELOG)
+docs/**
+
+# Package manager files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# IDE and editor files
+.idea/**
+*.swp
+*.swo
+.DS_Store
+
+# CI/CD
+.github/**
+.gitlab-ci.yml
+.travis.yml
+azure-pipelines.yml
+
+# Other
+*.vsix
+*.log
+.env
+.env.*
+
+# Parent directory files
+../**
+
+# Cursor specific
+.cursor/**
+.cursor-*

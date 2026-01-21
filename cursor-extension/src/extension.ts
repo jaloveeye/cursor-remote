@@ -33,18 +33,13 @@ export async function activate(context: vscode.ExtensionContext) {
     wsServer = new WebSocketServer(CONFIG.WEBSOCKET_PORT, outputChannel);
     statusBarManager.setWebSocketServer(wsServer);
     
-    // CLI mode configuration check
-    const config = vscode.workspace.getConfiguration('cursorRemote');
-    const useCLIMode = config.get<boolean>('useCLIMode', false);
+    // CLI mode is always enabled (IDE mode is deprecated)
+    const useCLIMode = true;
     
     commandHandler = new CommandHandler(outputChannel, wsServer, useCLIMode);
     commandRouter = new CommandRouter(commandHandler, wsServer, outputChannel);
     
-    if (useCLIMode) {
-        outputChannel.appendLine('[Cursor Remote] CLI mode is enabled - using Cursor CLI instead of IDE');
-    } else {
-        outputChannel.appendLine('[Cursor Remote] IDE mode is enabled - using Cursor IDE extension');
-    }
+    outputChannel.appendLine('[Cursor Remote] CLI mode is enabled - using Cursor CLI');
     
     // HTTP server for hooks
     httpServer = new HttpServer(outputChannel, wsServer);
