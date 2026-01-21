@@ -48,4 +48,4 @@ mobile-app/.android/
 *.tsbuildinfo
 
 # Cursor Remote extension files
-.cursor/CHAT_SUMMARY
+.cursor/

@@ -2,14 +2,17 @@ import * as child_process from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 
+import { WebSocketServer } from './websocket-server';
+import * as vscode from 'vscode';
+
 export class CLIHandler {
-    private outputChannel: any = null;
-    private wsServer: any = null;
+    private outputChannel: vscode.OutputChannel | null = null;
+    private wsServer: WebSocketServer | null = null;
     private currentProcess: child_process.ChildProcess | null = null;
     private workspaceRoot: string | null = null;
     private processingOutput: boolean = false;
 
-    constructor(outputChannel?: any, wsServer?: any, workspaceRoot?: string) {
+    constructor(outputChannel?: vscode.OutputChannel, wsServer?: WebSocketServer, workspaceRoot?: string) {
         this.outputChannel = outputChannel || null;
         this.wsServer = wsServer || null;
         this.workspaceRoot = workspaceRoot || null;

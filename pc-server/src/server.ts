@@ -1,13 +1,10 @@
 import WebSocket from 'ws';
 import express from 'express';
 import { getLocalIPAddress } from './utils';
-
-const MOBILE_PORT = 8767; // 모바일 앱용 포트
-const HTTP_PORT = 8765;
-const EXTENSION_WS_PORT = 8766; // Extension의 WebSocket 포트
+import { CONFIG } from './config';
 
 // WebSocket 서버 (모바일 앱과 통신)
-const wss = new WebSocket.Server({ port: MOBILE_PORT });
+const wss = new WebSocket.Server({ port: CONFIG.LOCAL_WS_PORT });
 
 // HTTP 서버 (Extension과 통신 - 향후 확장용)
 const app = express();
@@ -23,7 +20,7 @@ function connectToExtension() {
         return; // 이미 연결됨
     }
 
-    const extensionUrl = `ws://localhost:${EXTENSION_WS_PORT}`;
+    const extensionUrl = `ws://localhost:${CONFIG.EXTENSION_WS_PORT}`;
     console.log(`Attempting to connect to extension at ${extensionUrl}...`);
 
     extensionClient = new WebSocket(extensionUrl);
@@ -43,13 +40,13 @@ function connectToExtension() {
     extensionClient.on('close', () => {
         console.log('Extension connection closed. Reconnecting in 3 seconds...');
         extensionClient = null;
-        setTimeout(connectToExtension, 3000);
+        setTimeout(connectToExtension, CONFIG.RECONNECT_DELAY);
     });
 
     extensionClient.on('error', (error) => {
         console.error('Extension connection error:', error);
         // Extension이 아직 시작되지 않았을 수 있으므로 재시도
-        setTimeout(connectToExtension, 3000);
+        setTimeout(connectToExtension, CONFIG.RECONNECT_DELAY);
     });
 }
 
@@ -133,8 +130,8 @@ app.get('/status', (req, res) => {
     });
 });
 
-app.listen(HTTP_PORT, () => {
-    console.log(`HTTP server listening on port ${HTTP_PORT}`);
+app.listen(CONFIG.HTTP_PORT, () => {
+    console.log(`HTTP server listening on port ${CONFIG.HTTP_PORT}`);
 });
 
 // Extension 연결 시도
@@ -143,7 +140,7 @@ connectToExtension();
 // 서버 시작
 const localIP = getLocalIPAddress();
 console.log(`\n✅ Cursor Remote PC Server started!`);
-console.log(`📱 Mobile app should connect to: ${localIP}:${MOBILE_PORT}`);
-console.log(`🔌 WebSocket server (Mobile): ws://${localIP}:${MOBILE_PORT}`);
-console.log(`🌐 HTTP server: http://${localIP}:${HTTP_PORT}`);
-console.log(`🔗 Extension WebSocket: ws://localhost:${EXTENSION_WS_PORT}\n`);
+console.log(`📱 Mobile app should connect to: ${localIP}:${CONFIG.LOCAL_WS_PORT}`);
+console.log(`🔌 WebSocket server (Mobile): ws://${localIP}:${CONFIG.LOCAL_WS_PORT}`);
+console.log(`🌐 HTTP server: http://${localIP}:${CONFIG.HTTP_PORT}`);
+console.log(`🔗 Extension WebSocket: ws://localhost:${CONFIG.EXTENSION_WS_PORT}\n`);

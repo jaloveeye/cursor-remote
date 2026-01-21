@@ -201,11 +201,28 @@ flutter build apk
 
 ## 📚 문서
 
-- [빠른 시작 가이드](./QUICK_START.md) - 빠른 설정 및 실행 방법
-- [Extension 설치 가이드](./EXTENSION_SETUP.md) - Extension 설치 및 활성화
-- [일반 테스트 가이드](./TEST_GUIDE.md) - 전체 시스템 테스트 방법
-- [Rules 기반 채팅 캡처 테스트 가이드](./RULES_BASED_CHAT_TEST_GUIDE.md) - Rules 기반 실시간 채팅 캡처 테스트
-- [통신 프로토콜](./PROTOCOL.md) - WebSocket 메시지 형식 및 프로토콜
+모든 문서는 [docs/](./docs/) 폴더에 정리되어 있습니다.
+
+### 주요 가이드
+- [빠른 시작 가이드](./docs/guides/QUICK_START.md) - 빠른 설정 및 실행 방법
+- [Extension 설치 가이드](./docs/guides/EXTENSION_SETUP.md) - Extension 설치 및 활성화
+- [통신 프로토콜](./docs/guides/PROTOCOL.md) - WebSocket 메시지 형식 및 프로토콜
+- [테스트 가이드](./docs/guides/TEST_GUIDE.md) - 전체 시스템 테스트 방법
+- [Cursor 설정 가이드](./docs/guides/CURSOR_SETTINGS_GUIDE.md) - Cursor IDE 설정 방법
+
+### 테스트
+- [Rules 기반 채팅 캡처 테스트](./docs/testing/RULES_BASED_CHAT_TEST_GUIDE.md) - Rules 기반 실시간 채팅 캡처 테스트
+- [CLI 모드 테스트](./docs/testing/CLI_MODE_TEST.md) - CLI 모드 테스트 방법
+
+### 문제 해결
+- [Hook 문제 해결](./docs/troubleshooting/HOOK_TROUBLESHOOTING.md) - Hook 관련 문제 해결
+- [CLI 모드 문제 해결](./docs/troubleshooting/CLI_MODE_NOT_WORKING_FIX.md) - CLI 모드 문제 해결
+
+### CLI 모드
+- [CLI 모드 작동 원리](./docs/cli/CLI_MODE_HOW_IT_WORKS.md) - CLI 모드 동작 방식
+- [Cursor CLI 가이드](./docs/cli/CURSOR_CLI_GUIDE.md) - Cursor CLI 사용법
+
+자세한 문서 목록은 [docs/README.md](./docs/README.md)를 참조하세요.
 
 ## 📄 라이선스
 

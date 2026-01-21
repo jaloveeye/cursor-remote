@@ -38,10 +38,11 @@ const vscode = __importStar(require("vscode"));
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 const cli_handler_1 = require("./cli-handler");
+const config_1 = require("./config");
 class CommandHandler {
     constructor(outputChannel, wsServer, useCLIMode = false) {
         this.outputChannel = null;
-        this.wsServer = null; // WebSocketServer 타입
+        this.wsServer = null;
         this.cliHandler = null;
         this.useCLIMode = false;
         this.outputChannel = outputChannel || null;
@@ -81,31 +82,15 @@ class CommandHandler {
         if (!text || text.length === 0) {
             return false;
         }
-        // 단일 단어만 있는 경우 (공백 없음) - 일반 텍스트로 간주
         if (!text.includes(' ') && !text.includes('\t')) {
-            // 예외: 명령어로 보이는 패턴들
-            const commandPatterns = [
-                /^[a-z]+-[a-z]+/i, // kebab-case (예: gemini-cli, npm-install)
-                /^[a-z]+\.[a-z]+/i, // dot notation (예: npm.test)
-                /^[a-z]+:[a-z]+/i, // colon notation
-            ];
-            // 패턴 매칭 확인
-            for (const pattern of commandPatterns) {
+            for (const pattern of config_1.CONFIG.COMMAND_PATTERNS) {
                 if (pattern.test(text)) {
                     return true;
                 }
             }
-            // 단일 단어는 일반 텍스트로 간주
             return false;
         }
-        // 공백이 있으면 명령어로 간주 (명령어 + 인자 형태)
-        // 하지만 특정 예외 패턴은 제외
-        const plainTextPatterns = [
-            /^hello\s*$/i,
-            /^hi\s*$/i,
-            /^hey\s*$/i,
-        ];
-        for (const pattern of plainTextPatterns) {
+        for (const pattern of config_1.CONFIG.PLAIN_TEXT_PATTERNS) {
             if (pattern.test(text.trim())) {
                 return false;
             }
@@ -134,7 +119,7 @@ class CommandHandler {
             let outputFile = null;
             if (workspaceFolders && workspaceFolders.length > 0) {
                 const workspaceRoot = workspaceFolders[0].uri.fsPath;
-                outputFile = path.join(workspaceRoot, '.cursor-remote-terminal-output.log');
+                outputFile = path.join(workspaceRoot, config_1.CONFIG.TERMINAL_OUTPUT_FILE);
             }
             // 활성 터미널 가져오기
             let terminal = vscode.window.activeTerminal;
@@ -158,7 +143,7 @@ class CommandHandler {
             // VS Code 명령을 사용하여 터미널에 포커스 강제 이동
             this.log('[Cursor Remote] Executing workbench.action.terminal.focus command...');
             await vscode.commands.executeCommand('workbench.action.terminal.focus');
-            await new Promise(resolve => setTimeout(resolve, 300)); // 추가 대기 시간
+            await new Promise(resolve => setTimeout(resolve, config_1.CONFIG.TERMINAL_FOCUS_DELAY));
             // 터미널이 실제로 활성화되었는지 확인
             const activeTerminalAfterWait = vscode.window.activeTerminal;
             if (activeTerminalAfterWait?.name !== terminal.name) {
@@ -180,10 +165,7 @@ class CommandHandler {
                     const trimmedText = text.trim();
                     const isCommand = this.isLikelyCommand(trimmedText);
                     if (isCommand) {
-                        // 명령에 자동으로 출력 캡처 추가 (tee를 사용하여 터미널과 파일에 동시 출력)
-                        // 단, 이미 tee나 리다이렉트가 포함된 명령은 그대로 사용
                         if (!text.includes('| tee') && !text.includes('>>') && !text.includes('>')) {
-                            // 명령을 래핑하여 출력을 자동으로 캡처
                             commandToSend = `(${text}) 2>&1 | tee -a "${outputFile}"`;
                             this.log(`[Cursor Remote] Auto-capturing output to: ${outputFile}`);
                         }
@@ -192,7 +174,6 @@ class CommandHandler {
                         }
                     }
                     else {
-                        // 일반 텍스트는 그대로 전송 (자동 캡처하지 않음)
                         this.log(`[Cursor Remote] Text appears to be plain text, not capturing output`);
                     }
                 }
@@ -202,9 +183,9 @@ class CommandHandler {
                 this.log('[Cursor Remote] Text sent, waiting for execution trigger...');
                 // 충분한 대기 후 줄바꿈을 보내서 이전 텍스트 실행 트리거
                 // 터미널이 텍스트를 완전히 처리할 시간을 줌
-                await new Promise(resolve => setTimeout(resolve, 500));
+                await new Promise(resolve => setTimeout(resolve, config_1.CONFIG.TERMINAL_EXECUTION_DELAY));
                 this.log(`[Cursor Remote] Sending execution trigger (newline)`);
-                terminal.sendText('\n', false); // 줄바꿈 전송으로 이전 텍스트 실행 트리거
+                terminal.sendText('\n', false);
                 this.log('[Cursor Remote] ✅ Text sent to terminal with execution (triggered by newline)');
                 // 사용자 메시지를 모바일 앱으로 전송 (대화 히스토리용)
                 if (this.wsServer) {
@@ -267,9 +248,9 @@ class CommandHandler {
             try {
                 this.log('[Cursor Remote] Attempting clipboard paste');
                 await vscode.env.clipboard.writeText(text);
-                await new Promise(resolve => setTimeout(resolve, 200));
+                await new Promise(resolve => setTimeout(resolve, config_1.CONFIG.CHAT_TEXT_INSERT_DELAY));
                 await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
-                await new Promise(resolve => setTimeout(resolve, 300));
+                await new Promise(resolve => setTimeout(resolve, config_1.CONFIG.CHAT_TEXT_INSERT_DELAY));
                 textInserted = true;
                 this.log('[Cursor Remote] ✅ Text inserted via clipboard paste');
             }
@@ -284,7 +265,7 @@ class CommandHandler {
                     // 하지만 긴 텍스트의 경우 느릴 수 있으므로, 짧은 텍스트만 시도
                     if (text.length < 100) {
                         await vscode.commands.executeCommand('type', { text: text });
-                        await new Promise(resolve => setTimeout(resolve, 300));
+                        await new Promise(resolve => setTimeout(resolve, config_1.CONFIG.CHAT_TEXT_INSERT_DELAY));
                         textInserted = true;
                         this.log('[Cursor Remote] ✅ Text inserted via type command');
                     }
@@ -305,7 +286,7 @@ class CommandHandler {
             if (execute) {
                 this.log('[Cursor Remote] Attempting to execute prompt');
                 // 텍스트 입력 후 충분히 대기 (입력이 완료될 시간 확보)
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                await new Promise(resolve => setTimeout(resolve, config_1.CONFIG.CHAT_EXECUTE_DELAY));
                 // 채팅 입력창에 포커스를 다시 맞추지 않음 (빈 채팅창 생성 방지)
                 // 포커스가 이미 채팅 입력창에 있다고 가정
                 let executed = false;
@@ -340,7 +321,7 @@ class CommandHandler {
                     try {
                         // 채팅 입력창에 포커스가 있다고 가정하고 Enter 키 전송
                         await vscode.commands.executeCommand('type', { text: '\n' });
-                        await new Promise(resolve => setTimeout(resolve, 200));
+                        await new Promise(resolve => setTimeout(resolve, config_1.CONFIG.CHAT_TEXT_INSERT_DELAY));
                         // 추가로 한 번 더 시도 (일부 경우 두 번 필요할 수 있음)
                         await vscode.commands.executeCommand('type', { text: '\n' });
                         executed = true;
@@ -545,7 +526,7 @@ class CommandHandler {
             throw new Error('워크스페이스가 열려있지 않습니다');
         }
         const workspaceRoot = workspaceFolders[0].uri.fsPath;
-        const outputFile = path.join(workspaceRoot, '.cursor-remote-terminal-output.log');
+        const outputFile = path.join(workspaceRoot, config_1.CONFIG.TERMINAL_OUTPUT_FILE);
         const wrapperScript = path.join(workspaceRoot, '.cursor-remote-gemini-wrapper.sh');
         // 래퍼 스크립트 생성 (tee를 사용하여 터미널과 파일에 동시 출력)
         const scriptContent = `#!/bin/bash
