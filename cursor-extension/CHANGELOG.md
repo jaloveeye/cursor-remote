@@ -26,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Chat Capture**: Capture and forward AI assistant responses
 - **Rules Management**: Remote management of Cursor rules files
 
+## [0.1.1] - 2026-01-21
+
+### Fixed
+- Fixed icon display issue in Marketplace
+- Converted icon to proper PNG format (128x128px)
+
+### Changed
+- Updated icon to meet VS Code Extension Marketplace requirements
+
 ## [Unreleased]
 
 ### Planned

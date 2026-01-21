@@ -1,8 +1,8 @@
 {
-  "name": "cursor-remote",
+  "name": "cursor-remote-extension",
   "displayName": "Cursor Remote",
-  "description": "Remote control extension for Cursor IDE - Control your Cursor IDE from mobile devices via WebSocket",
-  "version": "0.1.0",
+  "description": "Control Cursor AI from your mobile device. Remote control extension for Cursor IDE via WebSocket - Code anywhere, anytime with Cursor CLI. Use Cursor AI right from your smartphone or tablet!",
+  "version": "0.1.1",
   "publisher": "jaloveeye",
   "author": {
     "name": "김형진",
