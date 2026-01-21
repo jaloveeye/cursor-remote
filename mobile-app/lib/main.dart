@@ -31,11 +31,51 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
+// 메시지 타입 상수
+class MessageType {
+  static const String normal = 'normal';
+  static const String chatResponse = 'chat_response';
+  static const String chatResponseHeader = 'chat_response_header';
+  static const String chatResponseDivider = 'chat_response_divider';
+  static const String userMessage = 'user_message';
+  static const String userPrompt = 'user_prompt'; // 사용자가 입력한 프롬프트
+  static const String geminiResponse = 'gemini_response';
+  static const String terminalOutput = 'terminal_output';
+  static const String system = 'system'; // Sent, Received, Command succeeded 등
+}
+
+// 필터 카테고리
+enum MessageFilter {
+  aiResponse,   // Cursor AI Response
+  userPrompt,   // 사용자가 입력한 프롬프트
+  system,       // Sent, Received, Command succeeded 등
+}
+
 class MessageItem {
   final String text;
-  final String type; // 'normal', 'chat_response', 'user_message', etc.
+  final String type; // MessageType 상수 사용
+  final DateTime timestamp;
   
-  MessageItem(this.text, {this.type = 'normal'});
+  MessageItem(this.text, {this.type = MessageType.normal}) : timestamp = DateTime.now();
+  
+  // 필터 카테고리 결정
+  MessageFilter? get filterCategory {
+    switch (type) {
+      case MessageType.chatResponse:
+      case MessageType.chatResponseHeader:
+      case MessageType.chatResponseDivider:
+      case MessageType.geminiResponse:
+        return MessageFilter.aiResponse;
+      case MessageType.userPrompt:
+        return MessageFilter.userPrompt;
+      case MessageType.system:
+      case MessageType.normal:
+      case MessageType.terminalOutput:
+        return MessageFilter.system;
+      default:
+        return MessageFilter.system;
+    }
+  }
 }
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
@@ -50,6 +90,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final FocusNode _commandFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
   final ExpansionTileController _expansionTileController = ExpansionTileController();
+  
+  // 필터 상태 (기본값: 모두 활성화)
+  final Map<MessageFilter, bool> _activeFilters = {
+    MessageFilter.aiResponse: true,
+    MessageFilter.userPrompt: true,
+    MessageFilter.system: true,
+  };
+  
+  // 필터링된 메시지 목록
+  List<MessageItem> get _filteredMessages {
+    return _messages.where((msg) {
+      final category = msg.filterCategory;
+      if (category == null) return true;
+      return _activeFilters[category] ?? true;
+    }).toList();
+  }
 
   void _connect() {
     // TextField에서 값을 가져오기
@@ -79,7 +135,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               setState(() {
                 try {
                   final json = message.toString();
-                  _messages.add(MessageItem('Received: $json'));
+                  _messages.add(MessageItem('Received: $json', type: MessageType.system));
                   
                   // JSON 파싱 시도
                   final decoded = jsonDecode(json);
@@ -87,7 +143,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     final type = decoded['type'];
                     if (type == 'command_result') {
                       if (decoded['success'] == true) {
-                        _messages.add(MessageItem('✅ Command succeeded'));
+                        _messages.add(MessageItem('✅ Command succeeded', type: MessageType.system));
                         // command_result는 프롬프트 전송 성공을 의미하지만, 실제 응답은 chat_response로 옴
                         // 따라서 여기서는 대기 상태를 유지
                         // 단, stop_prompt 명령의 경우 대기 상태 해제
@@ -96,12 +152,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           _isWaitingForResponse = false;
                         }
                       } else {
-                        _messages.add(MessageItem('❌ Command failed: ${decoded['error']}'));
+                        _messages.add(MessageItem('❌ Command failed: ${decoded['error']}', type: MessageType.system));
                         // 명령 실패 시 대기 상태 해제
                         _isWaitingForResponse = false;
                       }
                     } else                     if (type == 'connected') {
-                      _messages.add(MessageItem('✅ ${decoded['message']}'));
+                      _messages.add(MessageItem('✅ ${decoded['message']}', type: MessageType.system));
                       // 연결 확인 시 상태 업데이트
                       if (!_isConnected) {
                         _isConnected = true;
@@ -113,35 +169,35 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         // ExpansionTileController가 아직 연결되지 않은 경우 무시
                       }
                     } else if (type == 'error') {
-                      _messages.add(MessageItem('❌ Error: ${decoded['message']}'));
+                      _messages.add(MessageItem('❌ Error: ${decoded['message']}', type: MessageType.system));
                       // 에러 발생 시 대기 상태 해제
                       _isWaitingForResponse = false;
                     } else if (type == 'user_message') {
                       // 사용자 메시지 (대화 히스토리용)
                       final text = decoded['text'] ?? '';
-                      _messages.add(MessageItem('💬 You: $text', type: 'user_message'));
+                      _messages.add(MessageItem('💬 You: $text', type: MessageType.userMessage));
                     } else if (type == 'gemini_response') {
                       // Gemini 응답 (대화 히스토리용)
                       final text = decoded['text'] ?? '';
-                      _messages.add(MessageItem('🤖 Gemini: $text', type: 'gemini_response'));
+                      _messages.add(MessageItem('🤖 Gemini: $text', type: MessageType.geminiResponse));
                     } else if (type == 'terminal_output') {
                       // 터미널 출력
                       final text = decoded['text'] ?? '';
-                      _messages.add(MessageItem('📟 Terminal: $text', type: 'terminal_output'));
+                      _messages.add(MessageItem('📟 Terminal: $text', type: MessageType.terminalOutput));
                     } else if (type == 'chat_response') {
                       // Cursor IDE 채팅 응답 - 구분감 있게 표시
                       final text = decoded['text'] ?? '';
-                      _messages.add(MessageItem('', type: 'chat_response_divider')); // 구분선
-                      _messages.add(MessageItem('🤖 Cursor AI Response', type: 'chat_response_header'));
-                      _messages.add(MessageItem(text, type: 'chat_response'));
-                      _messages.add(MessageItem('', type: 'chat_response_divider')); // 구분선
+                      _messages.add(MessageItem('', type: MessageType.chatResponseDivider)); // 구분선
+                      _messages.add(MessageItem('🤖 Cursor AI Response', type: MessageType.chatResponseHeader));
+                      _messages.add(MessageItem(text, type: MessageType.chatResponse));
+                      _messages.add(MessageItem('', type: MessageType.chatResponseDivider)); // 구분선
                       
                       // 응답을 받았으므로 대기 상태 해제
                       _isWaitingForResponse = false;
                     }
                   }
                 } catch (e) {
-                  _messages.add(MessageItem('Received: $message'));
+                  _messages.add(MessageItem('Received: $message', type: MessageType.system));
                 }
               });
               // 새 메시지 추가 후 자동으로 맨 아래로 스크롤
@@ -151,7 +207,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               if (mounted) {
                 try {
                   setState(() {
-                    _messages.add(MessageItem('Error processing message: $e'));
+                    _messages.add(MessageItem('Error processing message: $e', type: MessageType.system));
                   });
                 } catch (setStateError) {
                   // setState 에러 무시
@@ -165,7 +221,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           try {
             setState(() {
               _isConnected = false;
-              _messages.add(MessageItem('Error: $error'));
+              _messages.add(MessageItem('Error: $error', type: MessageType.system));
             });
           } catch (e) {
             // setState 에러 무시
@@ -176,7 +232,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           try {
             setState(() {
               _isConnected = false;
-              _messages.add(MessageItem('Connection closed'));
+              _messages.add(MessageItem('Connection closed', type: MessageType.system));
             });
           } catch (e) {
             // setState 에러 무시
@@ -188,7 +244,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           _isConnected = true;
-          _messages.add(MessageItem('Connected to $_serverAddress:8767'));
+          _messages.add(MessageItem('Connected to $_serverAddress:8767', type: MessageType.system));
         });
       }
     } catch (e) {
@@ -198,7 +254,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         );
         setState(() {
           _isConnected = false;
-          _messages.add(MessageItem('Connection failed: $e'));
+          _messages.add(MessageItem('Connection failed: $e', type: MessageType.system));
         });
       }
     }
@@ -213,7 +269,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (mounted) {
       setState(() {
         _isConnected = false;
-        _messages.add(MessageItem('Disconnected'));
+        _messages.add(MessageItem('Disconnected', type: MessageType.system));
       });
     }
   }
@@ -244,10 +300,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (action != null) 'action': action,
       };
 
-      // 프롬프트 전송 시 응답 대기 상태 설정
-      if (prompt == true && execute == true) {
+      // 프롬프트 전송 시 사용자 프롬프트를 별도로 기록하고 응답 대기 상태 설정
+      if (prompt == true && execute == true && text != null) {
         setState(() {
           _isWaitingForResponse = true;
+          // 사용자 프롬프트를 별도 타입으로 추가
+          _messages.add(MessageItem(text, type: MessageType.userPrompt));
         });
       }
 
@@ -255,7 +313,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (mounted) {
         try {
           setState(() {
-            _messages.add(MessageItem('Sent: ${message.toString()}'));
+            _messages.add(MessageItem('Sent: ${message.toString()}', type: MessageType.system));
           });
           // 새 메시지 추가 후 자동으로 맨 아래로 스크롤
           _scrollToBottom();
@@ -272,7 +330,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           setState(() {
             _isConnected = false;
             _isWaitingForResponse = false; // 에러 시 대기 상태 해제
-            _messages.add(MessageItem('Send error: $e'));
+            _messages.add(MessageItem('Send error: $e', type: MessageType.system));
           });
         } catch (setStateError) {
           // setState 에러 무시
@@ -301,7 +359,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Widget _buildMessageItem(MessageItem message) {
     // 구분선
-    if (message.type == 'chat_response_divider') {
+    if (message.type == MessageType.chatResponseDivider) {
       return const Divider(
         height: 1,
         thickness: 2,
@@ -310,7 +368,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     
     // 헤더
-    if (message.type == 'chat_response_header') {
+    if (message.type == MessageType.chatResponseHeader) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
         color: Colors.blue.withOpacity(0.1),
@@ -332,7 +390,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     
     // 채팅 응답 본문
-    if (message.type == 'chat_response') {
+    if (message.type == MessageType.chatResponse) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
         color: Colors.blue.withOpacity(0.05),
@@ -371,6 +429,117 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
     }
     
+    // 사용자 프롬프트 (입력한 내용) - 구분감 있게 표시
+    if (message.type == MessageType.userPrompt) {
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+        decoration: BoxDecoration(
+          color: Colors.green.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8.0),
+          border: Border.all(color: Colors.green.withOpacity(0.3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.person, size: 18, color: Colors.green),
+                const SizedBox(width: 8),
+                const Text(
+                  '📝 Your Prompt',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  _formatTime(message.timestamp),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SelectableText(
+              message.text,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.copy, size: 16),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: message.text));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('메시지가 클립보드에 복사되었습니다'),
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+    
+    // 시스템 메시지 스타일
+    if (message.type == MessageType.system) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
+        child: Row(
+          children: [
+            Icon(
+              _getSystemMessageIcon(message.text),
+              size: 14,
+              color: Colors.grey[600],
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message.text,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.copy, size: 14),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              iconSize: 14,
+              color: Colors.grey[400],
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: message.text));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('메시지가 클립보드에 복사되었습니다'),
+                    duration: Duration(seconds: 1),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      );
+    }
+    
     // 일반 메시지
     return ListTile(
       title: Text(
@@ -397,6 +566,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         },
       ),
     );
+  }
+  
+  // 시스템 메시지 아이콘 결정
+  IconData _getSystemMessageIcon(String text) {
+    if (text.startsWith('✅')) return Icons.check_circle;
+    if (text.startsWith('❌')) return Icons.error;
+    if (text.startsWith('⚠️')) return Icons.warning;
+    if (text.startsWith('Sent:')) return Icons.send;
+    if (text.startsWith('Received:')) return Icons.download;
+    if (text.contains('Connected')) return Icons.link;
+    if (text.contains('Disconnected') || text.contains('Connection')) return Icons.link_off;
+    return Icons.info_outline;
+  }
+  
+  // 시간 포맷팅
+  String _formatTime(DateTime time) {
+    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -434,7 +620,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           _isConnected = false;
-          _messages.add(MessageItem('⚠️ Connection lost, please reconnect'));
+          _messages.add(MessageItem('⚠️ Connection lost, please reconnect', type: MessageType.system));
         });
       }
     } else if (_channel != null && !_isConnected) {
@@ -587,35 +773,127 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Padding(
-                    padding: EdgeInsets.all(12.0),
-                    child: Text(
-                      'Messages',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  // Messages 헤더 및 필터
+                  Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Messages',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            // 메시지 개수 표시
+                            Text(
+                              '${_filteredMessages.length}/${_messages.length}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        // 필터 칩들
+                        Wrap(
+                          spacing: 8.0,
+                          runSpacing: 4.0,
+                          children: [
+                            FilterChip(
+                              label: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.smart_toy, size: 14),
+                                  SizedBox(width: 4),
+                                  Text('AI Response', style: TextStyle(fontSize: 12)),
+                                ],
+                              ),
+                              selected: _activeFilters[MessageFilter.aiResponse] ?? true,
+                              selectedColor: Colors.blue.withOpacity(0.2),
+                              checkmarkColor: Colors.blue,
+                              onSelected: (selected) {
+                                setState(() {
+                                  _activeFilters[MessageFilter.aiResponse] = selected;
+                                });
+                              },
+                            ),
+                            FilterChip(
+                              label: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.person, size: 14),
+                                  SizedBox(width: 4),
+                                  Text('User Prompt', style: TextStyle(fontSize: 12)),
+                                ],
+                              ),
+                              selected: _activeFilters[MessageFilter.userPrompt] ?? true,
+                              selectedColor: Colors.green.withOpacity(0.2),
+                              checkmarkColor: Colors.green,
+                              onSelected: (selected) {
+                                setState(() {
+                                  _activeFilters[MessageFilter.userPrompt] = selected;
+                                });
+                              },
+                            ),
+                            FilterChip(
+                              label: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.info_outline, size: 14),
+                                  SizedBox(width: 4),
+                                  Text('System', style: TextStyle(fontSize: 12)),
+                                ],
+                              ),
+                              selected: _activeFilters[MessageFilter.system] ?? true,
+                              selectedColor: Colors.grey.withOpacity(0.2),
+                              checkmarkColor: Colors.grey,
+                              onSelected: (selected) {
+                                setState(() {
+                                  _activeFilters[MessageFilter.system] = selected;
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
                   const Divider(height: 1),
                   Expanded(
-                    child: _messages.isEmpty && !_isWaitingForResponse
-                        ? const Center(
-                            child: Text(
-                              'No messages yet',
-                              style: TextStyle(
-                                color: Colors.grey,
-                                fontSize: 14,
-                              ),
+                    child: _filteredMessages.isEmpty && !_isWaitingForResponse
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  _messages.isEmpty ? Icons.chat_bubble_outline : Icons.filter_alt,
+                                  size: 48,
+                                  color: Colors.grey[400],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  _messages.isEmpty ? 'No messages yet' : 'No messages match the filter',
+                                  style: TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
                             ),
                           )
                         : ListView.builder(
                             controller: _scrollController,
-                            itemCount: _messages.length + (_isWaitingForResponse ? 1 : 0),
+                            itemCount: _filteredMessages.length + (_isWaitingForResponse ? 1 : 0),
                             padding: const EdgeInsets.symmetric(vertical: 4),
                             itemBuilder: (context, index) {
                               // 마지막에 로딩 메시지 추가
-                              if (index == _messages.length && _isWaitingForResponse) {
+                              if (index == _filteredMessages.length && _isWaitingForResponse) {
                                 return Container(
                                   padding: const EdgeInsets.all(16.0),
                                   child: Row(
@@ -641,9 +919,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                   ),
                                 );
                               }
+                              final message = _filteredMessages[index];
                               return GestureDetector(
                                 onLongPress: () {
-                                  Clipboard.setData(ClipboardData(text: _messages[index].text));
+                                  Clipboard.setData(ClipboardData(text: message.text));
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
                                       content: Text('메시지가 클립보드에 복사되었습니다'),
@@ -651,7 +930,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                     ),
                                   );
                                 },
-                                child: _buildMessageItem(_messages[index]),
+                                child: _buildMessageItem(message),
                               );
                             },
                           ),

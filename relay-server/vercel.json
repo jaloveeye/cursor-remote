@@ -1,0 +1,29 @@
+{
+  "version": 2,
+  "buildCommand": "npm run type-check",
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/node@3.0.0"
+    }
+  },
+  "routes": [
+    {
+      "src": "/api/stream",
+      "dest": "/api/stream.ts"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1.ts"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization, X-Device-Id, X-Device-Type" }
+      ]
+    }
+  ]
+}
