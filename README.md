@@ -189,6 +189,7 @@ agent status
 ```
 
 인증이 완료되면:
+
 ```
 ✅ Authenticated as: your-email@example.com
 ```
@@ -314,16 +315,19 @@ PC와 모바일이 같은 Wi-Fi에 연결된 경우 사용합니다.
 #### PC IP 주소 확인 방법
 
 **macOS:**
+
 ```bash
 ifconfig | grep "inet " | grep -v 127.0.0.1
 ```
 
 **Windows:**
+
 ```cmd
 ipconfig | findstr IPv4
 ```
 
 **Linux:**
+
 ```bash
 hostname -I
 ```
@@ -341,6 +345,7 @@ PC와 모바일이 다른 네트워크에 있을 때 릴레이 서버를 통해 
    - 환경 변수로 변경 가능: `RELAY_SERVER_URL`
 
 2. **PC 서버 설정**
+
    ```bash
    # 환경 변수로 릴레이 서버 URL 설정 (선택사항)
    export RELAY_SERVER_URL=https://relay.jaloveeye.com
@@ -382,9 +387,11 @@ PC와 모바일이 다른 네트워크에 있을 때 릴레이 서버를 통해 
 프롬프트를 전송하면:
 
 1. **Extension이 `agent` 명령어 실행**:
+
    ```bash
    agent -p --output-format json --force "프롬프트"
    ```
+
 2. **CLI가 응답 생성**
 3. **Extension이 응답 파싱 후 모바일 앱으로 전송**
 4. **프로세스 종료**
@@ -565,9 +572,9 @@ lsof -i :8766
 
 ## 📞 문의 및 지원
 
-- **Author**: 김형진 (jaloveeye@gmail.com)
-- **Website**: https://jaloveeye.com
-- **GitHub**: https://github.com/jaloveeye/cursor-remote
+- **Author**: 김형진 (<jaloveeye@gmail.com>)
+- **Website**: <https://jaloveeye.com>
+- **GitHub**: <https://github.com/jaloveeye/cursor-remote>
 - **Issues**: [GitHub Issues](https://github.com/jaloveeye/cursor-remote/issues)
 
 ---
