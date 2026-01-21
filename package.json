@@ -2,8 +2,11 @@
   "name": "cursor-remote",
   "version": "0.1.0",
   "description": "Control Cursor IDE from Your Mobile Device",
-  "author": "Cursor Remote Team",
-  "private": true,
+  "author": {
+    "name": "김형진",
+    "email": "jaloveeye@gmail.com",
+    "url": "https://jaloveeye.com"
+  },
   "workspaces": [
     "cursor-extension",
     "pc-server"

@@ -3,6 +3,11 @@
   "displayName": "Cursor Remote",
   "description": "Remote control extension for Cursor IDE",
   "version": "0.1.0",
+  "author": {
+    "name": "김형진",
+    "email": "jaloveeye@gmail.com",
+    "url": "https://jaloveeye.com"
+  },
   "engines": {
     "vscode": "^1.74.0"
   },

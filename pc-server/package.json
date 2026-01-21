@@ -2,6 +2,11 @@
   "name": "cursor-remote-server",
   "version": "0.1.0",
   "description": "PC Bridge Server for Cursor Remote",
+  "author": {
+    "name": "김형진",
+    "email": "jaloveeye@gmail.com",
+    "url": "https://jaloveeye.com"
+  },
   "main": "dist/server.js",
   "scripts": {
     "start": "node dist/server.js",
