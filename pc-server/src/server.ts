@@ -271,6 +271,19 @@ app.post('/session/disconnect', (req, res) => {
 // 로컬 WebSocket 서버 (모바일 앱 직접 연결용)
 const localWSServer = new WebSocket.Server({ port: CONFIG.LOCAL_WS_PORT });
 
+localWSServer.on('error', (error: Error & { code?: string }) => {
+    if (error.code === 'EADDRINUSE' || error.code === 'EPERM') {
+        console.error(`\n❌ Port ${CONFIG.LOCAL_WS_PORT} is already in use or permission denied.`);
+        console.error(`   This port is required for mobile app connection.`);
+        console.error(`   Port ${CONFIG.LOCAL_WS_PORT} is currently used by Cursor Extension.`);
+        console.error(`   Please restart Cursor IDE or disable the extension temporarily.`);
+        console.error(`   To find the process: lsof -i :${CONFIG.LOCAL_WS_PORT}\n`);
+        // 서버는 계속 실행하되, 로컬 모드는 사용 불가
+    } else {
+        console.error('Local WebSocket server error:', error);
+    }
+});
+
 localWSServer.on('connection', (ws: WebSocket) => {
     console.log('📱 Local mobile client connected');
     localMobileClient = ws;
@@ -310,8 +323,19 @@ localWSServer.on('connection', (ws: WebSocket) => {
     });
 });
 
-app.listen(CONFIG.HTTP_PORT, () => {
+const httpServer = app.listen(CONFIG.HTTP_PORT, () => {
     console.log(`HTTP server listening on port ${CONFIG.HTTP_PORT}`);
+});
+
+httpServer.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code === 'EADDRINUSE' || error.code === 'EPERM') {
+        console.error(`\n❌ Port ${CONFIG.HTTP_PORT} is already in use or permission denied.`);
+        console.error(`   This port is required for HTTP API.`);
+        console.error(`   To find the process: lsof -i :${CONFIG.HTTP_PORT}\n`);
+        // 서버는 계속 실행하되, HTTP API는 사용 불가
+    } else {
+        console.error('HTTP server error:', error);
+    }
 });
 
 // Extension 연결 시도
