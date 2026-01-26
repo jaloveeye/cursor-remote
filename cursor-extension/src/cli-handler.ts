@@ -165,6 +165,7 @@ export class CLIHandler {
         if (clientId) {
             const currentSessionId = newSession ? null : (this.clientSessions.get(clientId) || null);
             const pendingId = `pending-${Date.now()}-${Math.random().toString(36).substring(7)}`; // 고유한 임시 ID 사용
+            this.log(`💾 Saving user message - sessionId: ${currentSessionId || pendingId}, clientId: ${clientId}, newSession: ${newSession}`);
             this.saveChatHistoryEntry({
                 sessionId: currentSessionId || pendingId,
                 clientId: clientId,
@@ -174,6 +175,7 @@ export class CLIHandler {
             // pending ID를 저장하여 나중에 실제 sessionId로 업데이트할 수 있도록
             if (!currentSessionId) {
                 this.pendingHistoryIds.set(clientId, pendingId);
+                this.log(`💾 Saved pending history ID: ${pendingId} for client ${clientId}`);
             }
         }
 
@@ -463,6 +465,7 @@ export class CLIHandler {
                 if (clientId) {
                     // sessionId가 있으면 사용, 없으면 pending ID 사용
                     const sessionIdToUse = currentSessionId || this.pendingHistoryIds.get(clientId) || 'unknown';
+                    this.log(`💾 Saving assistant response - sessionId: ${sessionIdToUse}, clientId: ${clientId}, hasPendingId: ${this.pendingHistoryIds.has(clientId)}`);
                     this.saveChatHistoryEntry({
                         sessionId: sessionIdToUse,
                         clientId: clientId,
@@ -472,8 +475,10 @@ export class CLIHandler {
                     
                     // pending ID가 있었고 실제 sessionId를 받았으면 업데이트
                     if (extractedSessionId && this.pendingHistoryIds.has(clientId)) {
+                        const pendingId = this.pendingHistoryIds.get(clientId)!;
+                        this.log(`💾 Updating pending sessionId ${pendingId} to ${extractedSessionId}`);
                         // 히스토리 파일에서 pending ID를 실제 sessionId로 업데이트
-                        this.updatePendingSessionId(clientId, this.pendingHistoryIds.get(clientId)!, extractedSessionId);
+                        this.updatePendingSessionId(clientId, pendingId, extractedSessionId);
                         this.pendingHistoryIds.delete(clientId);
                     }
                 }
@@ -603,10 +608,6 @@ export class CLIHandler {
                 timestamp: entry.timestamp
             };
             
-            // 마지막 엔트리 업데이트 또는 새로 추가
-            const lastEntry = history.entries[history.entries.length - 1];
-            const timeDiff = lastEntry ? Math.abs(new Date(lastEntry.timestamp).getTime() - new Date(newEntry.timestamp).getTime()) : Infinity;
-            
             // pending sessionId를 실제 sessionId로 업데이트
             if (newEntry.sessionId.startsWith('pending-') && entry.clientId) {
                 const actualSessionId = this.clientSessions.get(entry.clientId);
@@ -617,12 +618,41 @@ export class CLIHandler {
                 }
             }
             
-            if (lastEntry && 
-                (lastEntry.sessionId === newEntry.sessionId || 
-                 (lastEntry.sessionId.startsWith('pending-') && newEntry.sessionId.startsWith('pending-') && lastEntry.clientId === newEntry.clientId)) &&
-                lastEntry.clientId === newEntry.clientId &&
-                timeDiff < 10000) { // 10초 이내면 업데이트
-                // 사용자 메시지 후 응답 받은 경우 업데이트
+            // 마지막 엔트리 찾기 (같은 clientId, 사용자 메시지가 있고 응답이 없는 경우)
+            // 또는 pending ID가 실제 sessionId로 업데이트되는 경우
+            let lastEntry: ChatHistoryEntry | undefined = undefined;
+            let lastEntryIndex = -1;
+            
+            // 역순으로 검색하여 가장 최근 엔트리 찾기
+            for (let i = history.entries.length - 1; i >= 0; i--) {
+                const entry = history.entries[i];
+                if (entry.clientId === newEntry.clientId) {
+                    // 사용자 메시지가 있고 응답이 없는 경우 (응답을 추가해야 함)
+                    if (entry.userMessage && !entry.assistantResponse && 
+                        Math.abs(new Date(entry.timestamp).getTime() - new Date(newEntry.timestamp).getTime()) < 30000) {
+                        lastEntry = entry;
+                        lastEntryIndex = i;
+                        break;
+                    }
+                    // pending ID가 실제 sessionId로 업데이트되는 경우
+                    if (entry.sessionId.startsWith('pending-') && !newEntry.sessionId.startsWith('pending-') &&
+                        Math.abs(new Date(entry.timestamp).getTime() - new Date(newEntry.timestamp).getTime()) < 30000) {
+                        lastEntry = entry;
+                        lastEntryIndex = i;
+                        break;
+                    }
+                    // 같은 sessionId인 경우 (이미 완성된 엔트리 업데이트)
+                    if (entry.sessionId === newEntry.sessionId &&
+                        Math.abs(new Date(entry.timestamp).getTime() - new Date(newEntry.timestamp).getTime()) < 30000) {
+                        lastEntry = entry;
+                        lastEntryIndex = i;
+                        break;
+                    }
+                }
+            }
+            
+            if (lastEntry) {
+                // 기존 엔트리 업데이트
                 if (newEntry.userMessage) {
                     lastEntry.userMessage = newEntry.userMessage;
                 }
@@ -630,9 +660,11 @@ export class CLIHandler {
                     lastEntry.assistantResponse = newEntry.assistantResponse;
                 }
                 // sessionId도 업데이트 (pending -> actual)
-                if (!lastEntry.sessionId.startsWith('pending-') && newEntry.sessionId !== lastEntry.sessionId) {
+                if (lastEntry.sessionId.startsWith('pending-') && !newEntry.sessionId.startsWith('pending-')) {
                     lastEntry.sessionId = newEntry.sessionId;
                 }
+                // 타임스탬프 업데이트
+                lastEntry.timestamp = newEntry.timestamp;
             } else {
                 // 새 엔트리 추가
                 history.entries.push(newEntry);
