@@ -411,17 +411,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       
       if (type == 'command_result') {
         if (messageData['success'] == true) {
+          final commandType = messageData['command_type'] as String? ?? '';
+          
           // 세션 정보 조회 결과 처리
-          if (messageData['command_type'] == 'get_session_info' && messageData['data'] != null) {
+          if (commandType == 'get_session_info' && messageData['data'] != null) {
             setState(() {
               _sessionInfo = messageData['data'] as Map<String, dynamic>;
               if (_sessionInfo!['currentSessionId'] != null) {
                 _currentCursorSessionId = _sessionInfo!['currentSessionId'] as String;
               }
+              if (_sessionInfo!['clientId'] != null) {
+                _currentClientId = _sessionInfo!['clientId'] as String;
+              }
             });
           }
           // 대화 히스토리 조회 결과 처리
-          else if (messageData['command_type'] == 'get_chat_history' && messageData['data'] != null) {
+          else if (commandType == 'get_chat_history' && messageData['data'] != null) {
             final historyData = messageData['data'] as Map<String, dynamic>;
             if (historyData['entries'] != null) {
               setState(() {
@@ -436,8 +441,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             }
           }
           
-          _messages.add(MessageItem('✅ Command succeeded', type: MessageType.system));
-          final commandType = messageData['command_type'] ?? '';
+          // 일반 명령 성공 메시지는 세션/히스토리 조회 시에는 표시하지 않음
+          if (commandType != 'get_session_info' && commandType != 'get_chat_history') {
+            _messages.add(MessageItem('✅ Command succeeded', type: MessageType.system));
+          }
           if (commandType == 'stop_prompt') {
             _isWaitingForResponse = false;
           }
@@ -871,6 +878,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _loadSessionInfo() async {
     if (!_isConnected) return;
     
+    // clientId가 아직 없으면 잠시 대기 후 재시도
+    if (_currentClientId == null) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (_isConnected) _loadSessionInfo();
+      });
+      return;
+    }
+    
     try {
       await _sendCommand('get_session_info', clientId: _currentClientId);
     } catch (e) {
@@ -881,6 +896,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // 대화 히스토리 조회
   Future<void> _loadChatHistory({String? sessionId, int limit = 50}) async {
     if (!_isConnected) return;
+    
+    // clientId가 아직 없으면 잠시 대기 후 재시도
+    if (_currentClientId == null) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (_isConnected) _loadChatHistory(sessionId: sessionId, limit: limit);
+      });
+      return;
+    }
     
     try {
       await _sendCommand('get_chat_history', 
