@@ -99,7 +99,7 @@ Connect from the mobile app using the PC server's IP address. See the [project R
 |---------|---------|-------------|
 | `cursorRemote.autoStart` | `true` | Automatically start server when Cursor launches |
 | `cursorRemote.port` | `8766` | WebSocket server port |
-| `cursorRemote.httpPort` | `8767` | HTTP server port |
+| `cursorRemote.httpPort` | `8768` | HTTP server port (for hooks) |
 
 ### API
 

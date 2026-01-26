@@ -76,8 +76,8 @@
         },
         "cursorRemote.httpPort": {
           "type": "number",
-          "default": 8767,
-          "description": "HTTP server port for REST API"
+          "default": 8768,
+          "description": "HTTP server port for hooks (not used, Extension uses CONFIG.HTTP_PORT)"
         }
       }
     }
