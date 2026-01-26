@@ -895,10 +895,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            subtitle: _isConnected && _sessionId != null
+            subtitle: _isConnected
                 ? Text(
-                    'Session: $_sessionId',
-                    style: const TextStyle(fontSize: 12),
+                    _connectionType == ConnectionType.local
+                        ? 'Local Mode'
+                        : (_sessionId != null ? 'Relay Mode (Session: $_sessionId)' : 'Relay Mode'),
+                    style: TextStyle(
+                      color: _isConnected ? Colors.green : Colors.grey,
+                      fontSize: 12,
+                    ),
                   )
                 : const Text(
                     'relay.jaloveeye.com',
