@@ -380,9 +380,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _loadSessionInfo();
         _loadChatHistory();
       } else {
+        final error = data['error'] ?? 'Unknown error';
         setState(() {
-          _messages.add(MessageItem('❌ Failed to connect: ${data['error'] ?? 'Unknown error'}', type: MessageType.system));
+          _messages.add(MessageItem('❌ Failed to connect: $error', type: MessageType.system));
         });
+        
+        // 세션이 없으면 자동으로 새 세션 생성 시도
+        if (error == 'Session not found' || error.toString().contains('Session not found')) {
+          setState(() {
+            _messages.add(MessageItem('🔄 Session not found. Creating new session...', type: MessageType.system));
+          });
+          // 세션 ID를 비우고 새 세션 생성
+          _sessionIdController.clear();
+          await _createSession();
+        }
       }
     } catch (e) {
       setState(() {
