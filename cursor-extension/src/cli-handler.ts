@@ -591,7 +591,34 @@ export class CLIHandler {
             if (fs.existsSync(this.chatHistoryFile)) {
                 const content = fs.readFileSync(this.chatHistoryFile, 'utf8');
                 try {
-                    history = JSON.parse(content);
+                    const parsed = JSON.parse(content);
+                    // 기존 형식(배열)을 새 형식으로 변환
+                    if (Array.isArray(parsed)) {
+                        this.log('🔄 Converting old chat history format to new format');
+                        history = {
+                            entries: parsed.map((oldEntry: any, index: number) => ({
+                                id: `${Date.now()}-${index}-${Math.random().toString(36).substring(7)}`,
+                                sessionId: 'unknown',
+                                clientId: 'legacy',
+                                userMessage: oldEntry.user || oldEntry.userMessage || '',
+                                assistantResponse: oldEntry.assistant || oldEntry.assistantResponse || '',
+                                timestamp: oldEntry.timestamp || new Date().toISOString()
+                            })),
+                            lastUpdated: new Date().toISOString()
+                        };
+                    } else if (parsed.entries && Array.isArray(parsed.entries)) {
+                        // 새 형식
+                        history = parsed;
+                    } else {
+                        // 알 수 없는 형식
+                        this.log('⚠️ Unknown chat history format, resetting');
+                        history = { entries: [], lastUpdated: new Date().toISOString() };
+                    }
+                    // entries가 배열인지 확인
+                    if (!Array.isArray(history.entries)) {
+                        this.log('⚠️ history.entries is not an array, resetting');
+                        history.entries = [];
+                    }
                 } catch (e) {
                     this.logError('Failed to parse chat history', e);
                     history = { entries: [], lastUpdated: new Date().toISOString() };
@@ -695,7 +722,34 @@ export class CLIHandler {
         
         try {
             const content = fs.readFileSync(this.chatHistoryFile, 'utf8');
-            const history: ChatHistory = JSON.parse(content);
+            const parsed = JSON.parse(content);
+            
+            // 기존 형식(배열)을 새 형식으로 변환
+            let history: ChatHistory;
+            if (Array.isArray(parsed)) {
+                history = {
+                    entries: parsed.map((oldEntry: any, index: number) => ({
+                        id: `${Date.now()}-${index}-${Math.random().toString(36).substring(7)}`,
+                        sessionId: 'unknown',
+                        clientId: 'legacy',
+                        userMessage: oldEntry.user || oldEntry.userMessage || '',
+                        assistantResponse: oldEntry.assistant || oldEntry.assistantResponse || '',
+                        timestamp: oldEntry.timestamp || new Date().toISOString()
+                    })),
+                    lastUpdated: new Date().toISOString()
+                };
+            } else if (parsed.entries && Array.isArray(parsed.entries)) {
+                history = parsed;
+            } else {
+                this.log('⚠️ Unknown chat history format in updatePendingSessionId');
+                return;
+            }
+            
+            // entries가 배열인지 확인
+            if (!Array.isArray(history.entries)) {
+                this.log('⚠️ history.entries is not an array in updatePendingSessionId');
+                return;
+            }
             
             // pending ID를 가진 엔트리를 찾아서 실제 sessionId로 업데이트
             history.entries.forEach(entry => {
