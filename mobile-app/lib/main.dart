@@ -266,8 +266,41 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _isWaitingForResponse = false;
         } else if (type == 'command_result') {
           if (data['success'] == true) {
-            _messages.add(MessageItem('✅ Command succeeded', type: MessageType.system));
-            if (data['command_type'] == 'stop_prompt') {
+            final commandType = data['command_type'] as String? ?? '';
+            
+            // 세션 정보 조회 결과 처리
+            if (commandType == 'get_session_info' && data['data'] != null) {
+              setState(() {
+                _sessionInfo = data['data'] as Map<String, dynamic>;
+                if (_sessionInfo!['currentSessionId'] != null) {
+                  _currentCursorSessionId = _sessionInfo!['currentSessionId'] as String;
+                }
+                if (_sessionInfo!['clientId'] != null) {
+                  _currentClientId = _sessionInfo!['clientId'] as String;
+                }
+              });
+            }
+            // 대화 히스토리 조회 결과 처리
+            else if (commandType == 'get_chat_history' && data['data'] != null) {
+              final historyData = data['data'] as Map<String, dynamic>;
+              if (historyData['entries'] != null) {
+                setState(() {
+                  _chatHistory = List<Map<String, dynamic>>.from(historyData['entries'] as List);
+                  // 세션 목록 추출
+                  _availableSessions = _chatHistory
+                      .map((entry) => entry['sessionId'] as String? ?? '')
+                      .where((id) => id.isNotEmpty)
+                      .toSet()
+                      .toList();
+                });
+              }
+            }
+            
+            // 일반 명령 성공 메시지는 세션/히스토리 조회 시에는 표시하지 않음
+            if (commandType != 'get_session_info' && commandType != 'get_chat_history') {
+              _messages.add(MessageItem('✅ Command succeeded', type: MessageType.system));
+            }
+            if (commandType == 'stop_prompt') {
               _isWaitingForResponse = false;
             }
           } else {
