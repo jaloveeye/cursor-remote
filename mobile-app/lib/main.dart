@@ -104,6 +104,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String? _currentClientId; // 현재 클라이언트 ID
   Timer? _pollTimer;
   
+  // 세션 및 대화 히스토리
+  Map<String, dynamic>? _sessionInfo; // 현재 세션 정보
+  List<Map<String, dynamic>> _chatHistory = []; // 대화 히스토리 목록
+  List<String> _availableSessions = []; // 사용 가능한 세션 목록
+  
   // 로컬 서버 관련
   WebSocketChannel? _localWebSocket;
   final TextEditingController _localIpController = TextEditingController();
@@ -221,6 +226,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } catch (e) {
         // ExpansionTileController가 아직 연결되지 않은 경우 무시
       }
+      
+      // 연결 성공 시 세션 정보 및 대화 히스토리 조회
+      _loadSessionInfo();
+      _loadChatHistory();
     } catch (e) {
       setState(() {
         _messages.add(MessageItem('❌ Error connecting to local server: $e', type: MessageType.system));
@@ -325,6 +334,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         
         // 폴링 시작
         _startPolling();
+        
+        // 연결 성공 시 세션 정보 및 대화 히스토리 조회
+        _loadSessionInfo();
+        _loadChatHistory();
       } else {
         setState(() {
           _messages.add(MessageItem('❌ Failed to connect: ${data['error'] ?? 'Unknown error'}', type: MessageType.system));
@@ -398,6 +411,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       
       if (type == 'command_result') {
         if (messageData['success'] == true) {
+          // 세션 정보 조회 결과 처리
+          if (messageData['command_type'] == 'get_session_info' && messageData['data'] != null) {
+            setState(() {
+              _sessionInfo = messageData['data'] as Map<String, dynamic>;
+              if (_sessionInfo!['currentSessionId'] != null) {
+                _currentCursorSessionId = _sessionInfo!['currentSessionId'] as String;
+              }
+            });
+          }
+          // 대화 히스토리 조회 결과 처리
+          else if (messageData['command_type'] == 'get_chat_history' && messageData['data'] != null) {
+            final historyData = messageData['data'] as Map<String, dynamic>;
+            if (historyData['entries'] != null) {
+              setState(() {
+                _chatHistory = List<Map<String, dynamic>>.from(historyData['entries'] as List);
+                // 세션 목록 추출
+                _availableSessions = _chatHistory
+                    .map((entry) => entry['sessionId'] as String? ?? '')
+                    .where((id) => id.isNotEmpty)
+                    .toSet()
+                    .toList();
+              });
+            }
+          }
+          
           _messages.add(MessageItem('✅ Command succeeded', type: MessageType.system));
           final commandType = messageData['command_type'] ?? '';
           if (commandType == 'stop_prompt') {
@@ -458,7 +496,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt, bool? terminal, bool? execute, String? action, bool? newSession}) async {
+  Future<void> _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt, bool? terminal, bool? execute, String? action, bool? newSession, String? clientId, String? sessionId, int? limit}) async {
     // 연결 상태 재확인
     _checkConnectionState();
     
@@ -483,6 +521,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (execute != null) 'execute': execute,
         if (action != null) 'action': action,
         if (newSession != null) 'newSession': newSession,
+        if (clientId != null) 'clientId': clientId,
+        if (sessionId != null) 'sessionId': sessionId,
+        if (limit != null) 'limit': limit,
       };
 
       // 프롬프트 전송 시 사용자 프롬프트를 별도로 기록하고 응답 대기 상태 설정
@@ -826,6 +867,32 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  // 세션 정보 조회
+  Future<void> _loadSessionInfo() async {
+    if (!_isConnected) return;
+    
+    try {
+      await _sendCommand('get_session_info', clientId: _currentClientId);
+    } catch (e) {
+      // 에러는 조용히 무시
+    }
+  }
+  
+  // 대화 히스토리 조회
+  Future<void> _loadChatHistory({String? sessionId, int limit = 50}) async {
+    if (!_isConnected) return;
+    
+    try {
+      await _sendCommand('get_chat_history', 
+        clientId: _currentClientId,
+        sessionId: sessionId ?? _currentCursorSessionId,
+        limit: limit
+      );
+    } catch (e) {
+      // 에러는 조용히 무시
+    }
+  }
+  
   // 연결 상태 확인 및 필요시 재연결
   void _checkConnectionState() {
     if (_connectionType == ConnectionType.local) {
@@ -1469,29 +1536,136 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    // 세션 정보 표시
-                    if (_currentCursorSessionId != null)
-                      Container(
-                        padding: const EdgeInsets.all(8.0),
-                        margin: const EdgeInsets.only(bottom: 8.0),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8.0),
-                          border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                    // 세션 정보 및 대화 히스토리 표시
+                    if (_isConnected) ...[
+                      // 현재 세션 정보
+                      if (_currentCursorSessionId != null)
+                        Container(
+                          padding: const EdgeInsets.all(8.0),
+                          margin: const EdgeInsets.only(bottom: 8.0),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8.0),
+                            border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.chat_bubble_outline, size: 16, color: Colors.blue),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  '현재 세션: ${_currentCursorSessionId!.substring(0, 8)}...',
+                                  style: const TextStyle(fontSize: 12, color: Colors.blue),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.chat_bubble_outline, size: 16, color: Colors.blue),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                '현재 세션: ${_currentCursorSessionId!.substring(0, 8)}...',
-                                style: const TextStyle(fontSize: 12, color: Colors.blue),
+                      
+                      // 세션 목록 및 대화 히스토리
+                      ExpansionTile(
+                        title: const Text('세션 및 대화 히스토리', style: TextStyle(fontSize: 14)),
+                        leading: const Icon(Icons.history, size: 20),
+                        children: [
+                          // 세션 목록
+                          if (_availableSessions.isNotEmpty) ...[
+                            const Padding(
+                              padding: EdgeInsets.all(8.0),
+                              child: Text('사용 가능한 세션:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            ),
+                            ..._availableSessions.map((sessionId) => ListTile(
+                              dense: true,
+                              leading: const Icon(Icons.chat, size: 16),
+                              title: Text(
+                                sessionId.length > 20 ? '${sessionId.substring(0, 20)}...' : sessionId,
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.refresh, size: 16),
+                                onPressed: () => _loadChatHistory(sessionId: sessionId),
+                                tooltip: '이 세션의 대화 히스토리 조회',
+                              ),
+                            )),
+                            const Divider(),
+                          ],
+                          
+                          // 대화 히스토리
+                          if (_chatHistory.isNotEmpty) ...[
+                            const Padding(
+                              padding: EdgeInsets.all(8.0),
+                              child: Text('대화 히스토리:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            ),
+                            SizedBox(
+                              height: 200,
+                              child: ListView.builder(
+                                shrinkWrap: true,
+                                itemCount: _chatHistory.length,
+                                itemBuilder: (context, index) {
+                                  final entry = _chatHistory[index];
+                                  final userMsg = entry['userMessage'] as String? ?? '';
+                                  final assistantMsg = entry['assistantResponse'] as String? ?? '';
+                                  final timestamp = entry['timestamp'] as String? ?? '';
+                                  
+                                  return Card(
+                                    margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(8.0),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          if (userMsg.isNotEmpty)
+                                            Padding(
+                                              padding: const EdgeInsets.only(bottom: 4.0),
+                                              child: Text(
+                                                '👤 $userMsg',
+                                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                              ),
+                                            ),
+                                          if (assistantMsg.isNotEmpty)
+                                            Padding(
+                                              padding: const EdgeInsets.only(bottom: 4.0),
+                                              child: Text(
+                                                '🤖 ${assistantMsg.length > 50 ? "${assistantMsg.substring(0, 50)}..." : assistantMsg}',
+                                                style: const TextStyle(fontSize: 11),
+                                              ),
+                                            ),
+                                          if (timestamp.isNotEmpty)
+                                            Text(
+                                              _formatTime(DateTime.parse(timestamp)),
+                                              style: TextStyle(fontSize: 9, color: Colors.grey[600]),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
                             ),
+                          ] else ...[
+                            const Padding(
+                              padding: EdgeInsets.all(16.0),
+                              child: Text('대화 히스토리가 없습니다.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                            ),
                           ],
-                        ),
+                          
+                          // 새로고침 버튼
+                          Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                _loadSessionInfo();
+                                _loadChatHistory();
+                              },
+                              icon: const Icon(Icons.refresh, size: 16),
+                              label: const Text('새로고침'),
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
+                    ],
                     Row(
                       children: [
                         Expanded(
