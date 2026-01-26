@@ -421,14 +421,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _messages.add(MessageItem('📟 Terminal: $text', type: MessageType.terminalOutput));
       } else if (type == 'chat_response') {
         // 세션 ID 추출 및 저장
-        if (data['sessionId'] != null) {
+        if (messageData['sessionId'] != null) {
           setState(() {
-            _currentCursorSessionId = data['sessionId'] as String;
+            _currentCursorSessionId = messageData['sessionId'] as String;
           });
         }
-        if (data['clientId'] != null) {
+        if (messageData['clientId'] != null) {
           setState(() {
-            _currentClientId = data['clientId'] as String;
+            _currentClientId = messageData['clientId'] as String;
           });
         }
         final text = messageData['text'] ?? '';
