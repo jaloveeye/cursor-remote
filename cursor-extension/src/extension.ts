@@ -80,7 +80,7 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         
         if (connected) {
-            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Client connected - Rules-based chat capture is active`);
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Client connected - Ready to receive commands`);
         } else {
             outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Client disconnected`);
         }

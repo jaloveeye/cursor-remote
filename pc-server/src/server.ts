@@ -48,6 +48,17 @@ function connectToExtension() {
         const messageStr = message.toString();
         console.log('Received from extension:', messageStr);
         
+        // 연결 메시지는 무시 (타이밍 문제로 인한 경고 방지)
+        try {
+            const parsed = JSON.parse(messageStr);
+            if (parsed.type === 'connected' || parsed.message === 'Connected to Cursor Remote') {
+                console.log('📥 Extension connection message received (ignored)');
+                return;
+            }
+        } catch (e) {
+            // JSON 파싱 실패 시 계속 진행
+        }
+        
         // 로컬 모바일 클라이언트가 연결되어 있으면 로컬 모드로 전달
         if (localMobileClient && localMobileClient.readyState === WebSocket.OPEN) {
             console.log('📤 Sending to local mobile client (local mode)');
@@ -58,6 +69,7 @@ function connectToExtension() {
             console.log('📤 Sending to relay server (relay mode)');
             await sendToRelay(messageStr);
         } else {
+            // 연결 메시지가 아닌 경우에만 경고
             console.log('⚠️ No destination for message - local client:', !!localMobileClient, 'relay session:', !!sessionId);
         }
     });
