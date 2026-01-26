@@ -98,6 +98,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String _deviceId = '';
   bool _isConnected = false;
   bool _isWaitingForResponse = false; // 응답 대기 중 상태
+  
+  // Cursor CLI 세션 관련
+  String? _currentCursorSessionId; // 현재 Cursor CLI 세션 ID
+  String? _currentClientId; // 현재 클라이언트 ID
   Timer? _pollTimer;
   
   // 로컬 서버 관련
@@ -234,6 +238,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       
       setState(() {
         if (type == 'chat_response') {
+          // 세션 ID 추출 및 저장
+          if (data['sessionId'] != null) {
+            setState(() {
+              _currentCursorSessionId = data['sessionId'] as String;
+            });
+          }
+          if (data['clientId'] != null) {
+            setState(() {
+              _currentClientId = data['clientId'] as String;
+            });
+          }
           final text = data['text'] ?? '';
           _messages.add(MessageItem('', type: MessageType.chatResponseDivider));
           _messages.add(MessageItem('🤖 Cursor AI Response', type: MessageType.chatResponseHeader));
@@ -405,6 +420,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final text = messageData['text'] ?? '';
         _messages.add(MessageItem('📟 Terminal: $text', type: MessageType.terminalOutput));
       } else if (type == 'chat_response') {
+        // 세션 ID 추출 및 저장
+        if (data['sessionId'] != null) {
+          setState(() {
+            _currentCursorSessionId = data['sessionId'] as String;
+          });
+        }
+        if (data['clientId'] != null) {
+          setState(() {
+            _currentClientId = data['clientId'] as String;
+          });
+        }
         final text = messageData['text'] ?? '';
         _messages.add(MessageItem('', type: MessageType.chatResponseDivider));
         _messages.add(MessageItem('🤖 Cursor AI Response', type: MessageType.chatResponseHeader));
@@ -432,7 +458,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt, bool? terminal, bool? execute, String? action}) async {
+  Future<void> _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt, bool? terminal, bool? execute, String? action, bool? newSession}) async {
     // 연결 상태 재확인
     _checkConnectionState();
     
@@ -456,6 +482,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (terminal != null) 'terminal': terminal,
         if (execute != null) 'execute': execute,
         if (action != null) 'action': action,
+        if (newSession != null) 'newSession': newSession,
       };
 
       // 프롬프트 전송 시 사용자 프롬프트를 별도로 기록하고 응답 대기 상태 설정
@@ -1329,7 +1356,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             setState(() {
                               // 버튼 클릭 상태 업데이트
                             });
-                            _sendCommand('insert_text', text: text, prompt: true, execute: true);
+                            _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false);
                             // 텍스트 클리어 후 UI 업데이트
                             _commandController.clear();
                             if (mounted) {
@@ -1385,7 +1412,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 setState(() {
                                   // 버튼 클릭 상태 업데이트
                                 });
-                                _sendCommand('insert_text', text: text, prompt: true, execute: true);
+                                _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false);
                                 // 텍스트 클리어 후 UI 업데이트
                                 _commandController.clear();
                                 if (mounted) {
@@ -1437,6 +1464,85 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               padding: const EdgeInsets.symmetric(vertical: 14),
                             ),
                             child: const Text('Stop'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // 세션 정보 표시
+                    if (_currentCursorSessionId != null)
+                      Container(
+                        padding: const EdgeInsets.all(8.0),
+                        margin: const EdgeInsets.only(bottom: 8.0),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8.0),
+                          border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.chat_bubble_outline, size: 16, color: Colors.blue),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '현재 세션: ${_currentCursorSessionId!.substring(0, 8)}...',
+                                style: const TextStyle(fontSize: 12, color: Colors.blue),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isConnected ? () {
+                              if (!mounted) return;
+                              final text = _commandController.text;
+                              if (text.isNotEmpty) {
+                                setState(() {
+                                  // 버튼 클릭 상태 업데이트
+                                });
+                                _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: true);
+                                _commandController.clear();
+                                if (mounted) {
+                                  setState(() {
+                                    // TextField 클리어 후 UI 업데이트
+                                  });
+                                }
+                              }
+                            } : null,
+                            icon: const Icon(Icons.refresh, size: 18),
+                            label: const Text('새 대화'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isConnected && _currentCursorSessionId != null ? () {
+                              if (!mounted) return;
+                              final text = _commandController.text;
+                              if (text.isNotEmpty) {
+                                setState(() {
+                                  // 버튼 클릭 상태 업데이트
+                                });
+                                _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false);
+                                _commandController.clear();
+                                if (mounted) {
+                                  setState(() {
+                                    // TextField 클리어 후 UI 업데이트
+                                  });
+                                }
+                              }
+                            } : null,
+                            icon: const Icon(Icons.replay, size: 18),
+                            label: const Text('이어가기'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
                           ),
                         ),
                       ],
