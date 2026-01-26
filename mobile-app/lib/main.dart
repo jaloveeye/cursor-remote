@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Relay 서버 URL
 const String RELAY_SERVER_URL = 'https://relay.jaloveeye.com';
@@ -227,9 +228,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // ExpansionTileController가 아직 연결되지 않은 경우 무시
       }
       
-      // 연결 성공 시 세션 정보 및 대화 히스토리 조회
-      _loadSessionInfo();
-      _loadChatHistory();
+      // 연결 성공 시 즉시 최근 히스토리 조회 (clientId 없이도 가능)
+      // clientId는 첫 메시지 응답에서 받을 수 있으므로, 일단 모든 최근 히스토리 조회
+      Future.delayed(const Duration(milliseconds: 300), () {
+        _loadChatHistory(); // clientId 없이 최근 히스토리 조회
+      });
     } catch (e) {
       setState(() {
         _messages.add(MessageItem('❌ Error connecting to local server: $e', type: MessageType.system));
@@ -254,11 +257,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             });
           }
           if (data['clientId'] != null) {
+            final newClientId = data['clientId'] as String;
             setState(() {
-              _currentClientId = data['clientId'] as String;
-              // clientId가 설정되면 세션 정보 및 히스토리 조회
-              _loadSessionInfo();
-              _loadChatHistory();
+              // clientId가 처음 설정되면 세션 정보 및 히스토리 조회
+              if (_currentClientId == null) {
+                _currentClientId = newClientId;
+                _loadSessionInfo();
+                _loadChatHistory();
+              } else if (_currentClientId != newClientId) {
+                // clientId가 변경된 경우
+                _currentClientId = newClientId;
+                _loadSessionInfo();
+                _loadChatHistory();
+              } else {
+                // 같은 clientId면 히스토리만 새로고침
+                Future.delayed(const Duration(milliseconds: 500), () {
+                  _loadChatHistory();
+                });
+              }
             });
           } else if (_currentClientId != null) {
             // clientId가 이미 있으면 응답 수신 후 히스토리만 새로고침
@@ -376,9 +392,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // 폴링 시작
         _startPolling();
         
-        // 연결 성공 시 세션 정보 및 대화 히스토리 조회
-        _loadSessionInfo();
-        _loadChatHistory();
+        // 연결 성공 시 즉시 최근 히스토리 조회 (clientId 없이도 가능)
+        // clientId는 첫 메시지 응답에서 받을 수 있으므로, 일단 모든 최근 히스토리 조회
+        Future.delayed(const Duration(milliseconds: 300), () {
+          _loadChatHistory(); // clientId 없이 최근 히스토리 조회
+        });
       } else {
         final error = data['error'] ?? 'Unknown error';
         setState(() {
@@ -524,11 +542,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           });
         }
         if (messageData['clientId'] != null) {
+          final newClientId = messageData['clientId'] as String;
           setState(() {
-            _currentClientId = messageData['clientId'] as String;
-            // clientId가 설정되면 세션 정보 및 히스토리 조회
-            _loadSessionInfo();
-            _loadChatHistory();
+            // clientId가 처음 설정되면 세션 정보 및 히스토리 조회
+            if (_currentClientId == null) {
+              _currentClientId = newClientId;
+              _loadSessionInfo();
+              _loadChatHistory();
+            } else if (_currentClientId != newClientId) {
+              // clientId가 변경된 경우
+              _currentClientId = newClientId;
+              _loadSessionInfo();
+              _loadChatHistory();
+            } else {
+              // 같은 clientId면 히스토리만 새로고침
+              Future.delayed(const Duration(milliseconds: 500), () {
+                _loadChatHistory();
+              });
+            }
           });
         } else if (_currentClientId != null) {
           // clientId가 이미 있으면 응답 수신 후 히스토리만 새로고침
@@ -957,17 +988,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _loadChatHistory({String? sessionId, int limit = 50}) async {
     if (!_isConnected) return;
     
-    // clientId가 아직 없으면 잠시 대기 후 재시도
-    if (_currentClientId == null) {
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (_isConnected) _loadChatHistory(sessionId: sessionId, limit: limit);
-      });
-      return;
-    }
-    
+    // clientId가 없어도 최근 히스토리를 조회할 수 있도록 수정
+    // clientId가 있으면 해당 클라이언트의 히스토리만, 없으면 모든 최근 히스토리 조회
     try {
       await _sendCommand('get_chat_history', 
-        clientId: _currentClientId,
+        clientId: _currentClientId, // null이어도 됨 (Extension에서 모든 히스토리 반환)
         sessionId: sessionId ?? _currentCursorSessionId,
         limit: limit
       );

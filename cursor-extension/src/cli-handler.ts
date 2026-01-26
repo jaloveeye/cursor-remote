@@ -806,10 +806,11 @@ export class CLIHandler {
             
             let filtered = history.entries;
             
-            // 클라이언트 ID로 필터링
+            // 클라이언트 ID로 필터링 (clientId가 제공된 경우만)
             if (clientId) {
                 filtered = filtered.filter(entry => entry.clientId === clientId);
             }
+            // clientId가 없으면 모든 히스토리 반환 (최근 히스토리 조회용)
             
             // 세션 ID로 필터링
             if (sessionId) {
