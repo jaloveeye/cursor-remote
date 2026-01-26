@@ -205,18 +205,18 @@ class CommandHandler {
             throw new Error(`터미널 입력 실패: ${errorMsg}`);
         }
     }
-    async insertToPrompt(text, execute = false) {
-        this.log(`[Cursor Remote] insertToPrompt called - textLength: ${text.length}, execute: ${execute}`);
+    async insertToPrompt(text, execute = false, clientId, newSession = false) {
+        this.log(`[Cursor Remote] insertToPrompt called - textLength: ${text.length}, execute: ${execute}, clientId: ${clientId || 'none'}, newSession: ${newSession}`);
         // CLI 모드인 경우 CLI 핸들러 사용
         if (this.useCLIMode && this.cliHandler) {
             this.log('[Cursor Remote] Using CLI mode for prompt');
             if (execute) {
-                await this.cliHandler.sendPrompt(text, true);
+                await this.cliHandler.sendPrompt(text, true, clientId, newSession);
             }
             else {
                 // execute가 false인 경우는 CLI에서 지원하지 않으므로 경고만
                 this.log('[Cursor Remote] Warning: CLI mode does not support non-execute mode, executing anyway');
-                await this.cliHandler.sendPrompt(text, true);
+                await this.cliHandler.sendPrompt(text, true, clientId, newSession);
             }
             return;
         }
@@ -414,6 +414,48 @@ class CommandHandler {
         // TODO: Cursor AI API 연동
         // 현재는 채팅 히스토리나 최근 AI 응답을 가져오는 방식으로 구현 가능
         return 'AI response placeholder - Cursor AI API integration needed';
+    }
+    /**
+     * 클라이언트의 세션 정보 가져오기
+     */
+    async getSessionInfo(clientId) {
+        if (!this.cliHandler) {
+            return { currentSessionId: null, clientId: clientId || null };
+        }
+        // CLIHandler의 clientSessions에 접근하기 위해 타입 캐스팅
+        const cliHandlerAny = this.cliHandler;
+        const clientSessions = cliHandlerAny.clientSessions;
+        const lastChatId = cliHandlerAny.lastChatId;
+        if (clientId && clientSessions) {
+            const sessionId = clientSessions.get(clientId);
+            return {
+                clientId: clientId,
+                currentSessionId: sessionId || null,
+                hasSession: !!sessionId
+            };
+        }
+        else {
+            return {
+                clientId: clientId || null,
+                currentSessionId: lastChatId || null,
+                hasSession: !!lastChatId
+            };
+        }
+    }
+    /**
+     * 대화 히스토리 조회
+     */
+    async getChatHistory(clientId, sessionId, limit = 50) {
+        if (!this.cliHandler) {
+            return { entries: [] };
+        }
+        const cliHandlerAny = this.cliHandler;
+        const getChatHistory = cliHandlerAny.getChatHistory;
+        if (getChatHistory) {
+            const entries = getChatHistory.call(this.cliHandler, clientId, sessionId, limit);
+            return { entries };
+        }
+        return { entries: [] };
     }
     async stopPrompt() {
         this.log('[Cursor Remote] stopPrompt called');

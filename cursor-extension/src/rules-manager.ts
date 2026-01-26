@@ -34,76 +34,9 @@ export class RulesManager {
     }
 
     /**
-     * Ensure rules file exists
+     * CHAT_SUMMARY 규칙 파일 생성 제거됨
+     * 이제 stdout 응답만 사용하므로 규칙 파일이 더 이상 필요하지 않음
      */
-    ensureRulesFile(workspaceRoot: string): void {
-        const rulesDir = path.join(workspaceRoot, CONFIG.RULES_DIR);
-        const rulesFile = path.join(rulesDir, path.basename(CONFIG.RULES_FILE));
-
-        try {
-            // Create .cursor/rules directory
-            if (!fs.existsSync(rulesDir)) {
-                fs.mkdirSync(rulesDir, { recursive: true });
-                this.log(`Created ${CONFIG.RULES_DIR} directory`);
-            }
-
-            // Rules file content
-            const rulesContent = `---
-description: MANDATORY - Write chat summary JSON after EVERY response
-alwaysApply: true
----
-
-# ⚠️ MANDATORY: Chat Summary Rule
-
-**CRITICAL**: After completing EVERY chat response, you MUST write a JSON summary file. This is NOT optional.
-
-## Required Steps (Execute Immediately After Each Response):
-
-1. **Extract your complete response text** from this chat turn
-
-2. **Create the JSON file** using Cursor's file creation syntax:
-
-\`\`\`json: ${CONFIG.CHAT_SUMMARY_FILE}
-{
-  "timestamp": "2024-01-01T00:00:00.000Z",
-  "text": "YOUR_COMPLETE_RESPONSE_TEXT_HERE",
-  "summary": "Brief summary of this chat turn"
-}
-\`\`\`
-
-**IMPORTANT**:
-- Replace \`YOUR_COMPLETE_RESPONSE_TEXT_HERE\` with your actual response text
-- Replace the timestamp with the current ISO timestamp
-- Replace the summary with a brief recap
-- Do this SILENTLY - no confirmation, no explanation
-- This file MUST be created after EVERY response
-
-## Why This Rule Exists
-
-This rule enables real-time chat capture for the Cursor Remote extension. Without this file, the extension cannot detect your responses.
-
-**You must follow this rule without exception.**
-`;
-
-            // Check if file needs update
-            let needsUpdate = true;
-            if (fs.existsSync(rulesFile)) {
-                const existingContent = fs.readFileSync(rulesFile, 'utf8');
-                if (existingContent === rulesContent) {
-                    needsUpdate = false;
-                }
-            }
-
-            if (needsUpdate) {
-                fs.writeFileSync(rulesFile, rulesContent, 'utf8');
-                this.log(`✅ Created/updated rules file: ${rulesFile}`);
-            } else {
-                this.log(`Rules file already exists and is up to date: ${rulesFile}`);
-            }
-        } catch (error) {
-            this.logError('Error ensuring rules file', error);
-        }
-    }
 
     /**
      * Ensure hooks.json file exists
@@ -193,75 +126,7 @@ This rule enables real-time chat capture for the Cursor Remote extension. Withou
     }
 
     /**
-     * Start watching CHAT_SUMMARY file
+     * CHAT_SUMMARY 파일 감시 제거됨
+     * 이제 stdout 응답만 사용하므로 hook 기반 응답 전송은 더 이상 필요하지 않음
      */
-    startChatFileWatcher(context: vscode.ExtensionContext, workspaceRoot: string, wsServer: WebSocketServer): void {
-        const cursorDir = path.join(workspaceRoot, '.cursor');
-        const chatSummaryFile = path.join(cursorDir, 'CHAT_SUMMARY');
-
-        // Create .cursor directory
-        if (!fs.existsSync(cursorDir)) {
-            fs.mkdirSync(cursorDir, { recursive: true });
-            this.log(`Created .cursor directory: ${cursorDir}`);
-        }
-
-        // File pattern: .cursor/CHAT_SUMMARY
-        const pattern = new vscode.RelativePattern(cursorDir, 'CHAT_SUMMARY');
-        const watcher = vscode.workspace.createFileSystemWatcher(pattern);
-
-        let lastProcessedTime = 0;
-
-        const safeRead = (uri: vscode.Uri) => {
-            try {
-                setTimeout(() => {
-                    if (!fs.existsSync(uri.fsPath)) {
-                        this.log(`⚠️ File not found: ${uri.fsPath}`);
-                        return;
-                    }
-
-                    const stats = fs.statSync(uri.fsPath);
-                    if (stats.mtimeMs <= lastProcessedTime + 1000) {
-                        return;
-                    }
-
-                    const content = fs.readFileSync(uri.fsPath, 'utf8').trim();
-                    if (!content) {
-                        this.log(`⚠️ Empty file: ${uri.fsPath}`);
-                        return;
-                    }
-
-                    this.log('📥 Reading CHAT_SUMMARY file...');
-
-                    const data = JSON.parse(content);
-                    const text = data.text || data.summary || '';
-                    if (!text) {
-                        this.log('⚠️ No text found in CHAT_SUMMARY');
-                        return;
-                    }
-
-                    lastProcessedTime = stats.mtimeMs;
-                    this.log(`📥 Received chat response: ${text.length} bytes`);
-
-                    // Send to WebSocket client
-                    if (wsServer) {
-                        wsServer.sendFromHook({
-                            type: 'chat_response',
-                            text: text,
-                            timestamp: data.timestamp || new Date().toISOString()
-                        });
-                        this.log('✅ Chat response sent to mobile app via WebSocket');
-                    }
-                }, CONFIG.FILE_WATCH_DELAY);
-            } catch (error) {
-                const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-                this.logError('Error reading/parsing CHAT_SUMMARY', error);
-            }
-        };
-
-        watcher.onDidCreate(safeRead);
-        watcher.onDidChange(safeRead);
-
-        context.subscriptions.push(watcher);
-        this.log(`✅ Started watching: ${chatSummaryFile}`);
-    }
 }

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Relay 서버 URL
 const String RELAY_SERVER_URL = 'https://relay.jaloveeye.com';
@@ -98,7 +99,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String _deviceId = '';
   bool _isConnected = false;
   bool _isWaitingForResponse = false; // 응답 대기 중 상태
+  
+  // Cursor CLI 세션 관련
+  String? _currentCursorSessionId; // 현재 Cursor CLI 세션 ID
+  String? _currentClientId; // 현재 클라이언트 ID
   Timer? _pollTimer;
+  
+  // 세션 및 대화 히스토리
+  Map<String, dynamic>? _sessionInfo; // 현재 세션 정보
+  List<Map<String, dynamic>> _chatHistory = []; // 대화 히스토리 목록
+  List<String> _availableSessions = []; // 사용 가능한 세션 목록
   
   // 로컬 서버 관련
   WebSocketChannel? _localWebSocket;
@@ -217,6 +227,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } catch (e) {
         // ExpansionTileController가 아직 연결되지 않은 경우 무시
       }
+      
+      // 연결 성공 시 즉시 최근 히스토리 조회 (clientId 없이도 가능)
+      // clientId는 첫 메시지 응답에서 받을 수 있으므로, 일단 모든 최근 히스토리 조회
+      Future.delayed(const Duration(milliseconds: 300), () {
+        _loadChatHistory(); // clientId 없이 최근 히스토리 조회
+      });
     } catch (e) {
       setState(() {
         _messages.add(MessageItem('❌ Error connecting to local server: $e', type: MessageType.system));
@@ -234,6 +250,38 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       
       setState(() {
         if (type == 'chat_response') {
+          // 세션 ID 추출 및 저장
+          if (data['sessionId'] != null) {
+            setState(() {
+              _currentCursorSessionId = data['sessionId'] as String;
+            });
+          }
+          if (data['clientId'] != null) {
+            final newClientId = data['clientId'] as String;
+            setState(() {
+              // clientId가 처음 설정되면 세션 정보 및 히스토리 조회
+              if (_currentClientId == null) {
+                _currentClientId = newClientId;
+                _loadSessionInfo();
+                _loadChatHistory();
+              } else if (_currentClientId != newClientId) {
+                // clientId가 변경된 경우
+                _currentClientId = newClientId;
+                _loadSessionInfo();
+                _loadChatHistory();
+              } else {
+                // 같은 clientId면 히스토리만 새로고침
+                Future.delayed(const Duration(milliseconds: 500), () {
+                  _loadChatHistory();
+                });
+              }
+            });
+          } else if (_currentClientId != null) {
+            // clientId가 이미 있으면 응답 수신 후 히스토리만 새로고침
+            Future.delayed(const Duration(milliseconds: 500), () {
+              _loadChatHistory();
+            });
+          }
           final text = data['text'] ?? '';
           _messages.add(MessageItem('', type: MessageType.chatResponseDivider));
           _messages.add(MessageItem('🤖 Cursor AI Response', type: MessageType.chatResponseHeader));
@@ -242,8 +290,41 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _isWaitingForResponse = false;
         } else if (type == 'command_result') {
           if (data['success'] == true) {
-            _messages.add(MessageItem('✅ Command succeeded', type: MessageType.system));
-            if (data['command_type'] == 'stop_prompt') {
+            final commandType = data['command_type'] as String? ?? '';
+            
+            // 세션 정보 조회 결과 처리
+            if (commandType == 'get_session_info' && data['data'] != null) {
+              setState(() {
+                _sessionInfo = data['data'] as Map<String, dynamic>;
+                if (_sessionInfo!['currentSessionId'] != null) {
+                  _currentCursorSessionId = _sessionInfo!['currentSessionId'] as String;
+                }
+                if (_sessionInfo!['clientId'] != null) {
+                  _currentClientId = _sessionInfo!['clientId'] as String;
+                }
+              });
+            }
+            // 대화 히스토리 조회 결과 처리
+            else if (commandType == 'get_chat_history' && data['data'] != null) {
+              final historyData = data['data'] as Map<String, dynamic>;
+              if (historyData['entries'] != null) {
+                setState(() {
+                  _chatHistory = List<Map<String, dynamic>>.from(historyData['entries'] as List);
+                  // 세션 목록 추출
+                  _availableSessions = _chatHistory
+                      .map((entry) => entry['sessionId'] as String? ?? '')
+                      .where((id) => id.isNotEmpty)
+                      .toSet()
+                      .toList();
+                });
+              }
+            }
+            
+            // 일반 명령 성공 메시지는 세션/히스토리 조회 시에는 표시하지 않음
+            if (commandType != 'get_session_info' && commandType != 'get_chat_history') {
+              _messages.add(MessageItem('✅ Command succeeded', type: MessageType.system));
+            }
+            if (commandType == 'stop_prompt') {
               _isWaitingForResponse = false;
             }
           } else {
@@ -310,10 +391,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         
         // 폴링 시작
         _startPolling();
-      } else {
-        setState(() {
-          _messages.add(MessageItem('❌ Failed to connect: ${data['error'] ?? 'Unknown error'}', type: MessageType.system));
+        
+        // 연결 성공 시 즉시 최근 히스토리 조회 (clientId 없이도 가능)
+        // clientId는 첫 메시지 응답에서 받을 수 있으므로, 일단 모든 최근 히스토리 조회
+        Future.delayed(const Duration(milliseconds: 300), () {
+          _loadChatHistory(); // clientId 없이 최근 히스토리 조회
         });
+      } else {
+        final error = data['error'] ?? 'Unknown error';
+        setState(() {
+          _messages.add(MessageItem('❌ Failed to connect: $error', type: MessageType.system));
+        });
+        
+        // 세션이 없으면 자동으로 새 세션 생성 시도
+        if (error == 'Session not found' || error.toString().contains('Session not found')) {
+          setState(() {
+            _messages.add(MessageItem('🔄 Session not found. Creating new session...', type: MessageType.system));
+          });
+          // 세션 ID를 비우고 새 세션 생성
+          _sessionIdController.clear();
+          await _createSession();
+        }
       }
     } catch (e) {
       setState(() {
@@ -383,8 +481,40 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       
       if (type == 'command_result') {
         if (messageData['success'] == true) {
-          _messages.add(MessageItem('✅ Command succeeded', type: MessageType.system));
-          final commandType = messageData['command_type'] ?? '';
+          final commandType = messageData['command_type'] as String? ?? '';
+          
+          // 세션 정보 조회 결과 처리
+          if (commandType == 'get_session_info' && messageData['data'] != null) {
+            setState(() {
+              _sessionInfo = messageData['data'] as Map<String, dynamic>;
+              if (_sessionInfo!['currentSessionId'] != null) {
+                _currentCursorSessionId = _sessionInfo!['currentSessionId'] as String;
+              }
+              if (_sessionInfo!['clientId'] != null) {
+                _currentClientId = _sessionInfo!['clientId'] as String;
+              }
+            });
+          }
+          // 대화 히스토리 조회 결과 처리
+          else if (commandType == 'get_chat_history' && messageData['data'] != null) {
+            final historyData = messageData['data'] as Map<String, dynamic>;
+            if (historyData['entries'] != null) {
+              setState(() {
+                _chatHistory = List<Map<String, dynamic>>.from(historyData['entries'] as List);
+                // 세션 목록 추출
+                _availableSessions = _chatHistory
+                    .map((entry) => entry['sessionId'] as String? ?? '')
+                    .where((id) => id.isNotEmpty)
+                    .toSet()
+                    .toList();
+              });
+            }
+          }
+          
+          // 일반 명령 성공 메시지는 세션/히스토리 조회 시에는 표시하지 않음
+          if (commandType != 'get_session_info' && commandType != 'get_chat_history') {
+            _messages.add(MessageItem('✅ Command succeeded', type: MessageType.system));
+          }
           if (commandType == 'stop_prompt') {
             _isWaitingForResponse = false;
           }
@@ -405,6 +535,38 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final text = messageData['text'] ?? '';
         _messages.add(MessageItem('📟 Terminal: $text', type: MessageType.terminalOutput));
       } else if (type == 'chat_response') {
+        // 세션 ID 추출 및 저장
+        if (messageData['sessionId'] != null) {
+          setState(() {
+            _currentCursorSessionId = messageData['sessionId'] as String;
+          });
+        }
+        if (messageData['clientId'] != null) {
+          final newClientId = messageData['clientId'] as String;
+          setState(() {
+            // clientId가 처음 설정되면 세션 정보 및 히스토리 조회
+            if (_currentClientId == null) {
+              _currentClientId = newClientId;
+              _loadSessionInfo();
+              _loadChatHistory();
+            } else if (_currentClientId != newClientId) {
+              // clientId가 변경된 경우
+              _currentClientId = newClientId;
+              _loadSessionInfo();
+              _loadChatHistory();
+            } else {
+              // 같은 clientId면 히스토리만 새로고침
+              Future.delayed(const Duration(milliseconds: 500), () {
+                _loadChatHistory();
+              });
+            }
+          });
+        } else if (_currentClientId != null) {
+          // clientId가 이미 있으면 응답 수신 후 히스토리만 새로고침
+          Future.delayed(const Duration(milliseconds: 500), () {
+            _loadChatHistory();
+          });
+        }
         final text = messageData['text'] ?? '';
         _messages.add(MessageItem('', type: MessageType.chatResponseDivider));
         _messages.add(MessageItem('🤖 Cursor AI Response', type: MessageType.chatResponseHeader));
@@ -432,7 +594,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt, bool? terminal, bool? execute, String? action}) async {
+  Future<void> _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt, bool? terminal, bool? execute, String? action, bool? newSession, String? clientId, String? sessionId, int? limit}) async {
     // 연결 상태 재확인
     _checkConnectionState();
     
@@ -456,6 +618,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (terminal != null) 'terminal': terminal,
         if (execute != null) 'execute': execute,
         if (action != null) 'action': action,
+        if (newSession != null) 'newSession': newSession,
+        if (clientId != null) 'clientId': clientId,
+        if (sessionId != null) 'sessionId': sessionId,
+        if (limit != null) 'limit': limit,
       };
 
       // 프롬프트 전송 시 사용자 프롬프트를 별도로 기록하고 응답 대기 상태 설정
@@ -799,6 +965,42 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  // 세션 정보 조회
+  Future<void> _loadSessionInfo() async {
+    if (!_isConnected) return;
+    
+    // clientId가 아직 없으면 잠시 대기 후 재시도
+    if (_currentClientId == null) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (_isConnected) _loadSessionInfo();
+      });
+      return;
+    }
+    
+    try {
+      await _sendCommand('get_session_info', clientId: _currentClientId);
+    } catch (e) {
+      // 에러는 조용히 무시
+    }
+  }
+  
+  // 대화 히스토리 조회
+  Future<void> _loadChatHistory({String? sessionId, int limit = 50}) async {
+    if (!_isConnected) return;
+    
+    // clientId가 없어도 최근 히스토리를 조회할 수 있도록 수정
+    // clientId가 있으면 해당 클라이언트의 히스토리만, 없으면 모든 최근 히스토리 조회
+    try {
+      await _sendCommand('get_chat_history', 
+        clientId: _currentClientId, // null이어도 됨 (Extension에서 모든 히스토리 반환)
+        sessionId: sessionId ?? _currentCursorSessionId,
+        limit: limit
+      );
+    } catch (e) {
+      // 에러는 조용히 무시
+    }
+  }
+  
   // 연결 상태 확인 및 필요시 재연결
   void _checkConnectionState() {
     if (_connectionType == ConnectionType.local) {
@@ -1329,7 +1531,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             setState(() {
                               // 버튼 클릭 상태 업데이트
                             });
-                            _sendCommand('insert_text', text: text, prompt: true, execute: true);
+                            _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false);
                             // 텍스트 클리어 후 UI 업데이트
                             _commandController.clear();
                             if (mounted) {
@@ -1385,7 +1587,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 setState(() {
                                   // 버튼 클릭 상태 업데이트
                                 });
-                                _sendCommand('insert_text', text: text, prompt: true, execute: true);
+                                _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false);
                                 // 텍스트 클리어 후 UI 업데이트
                                 _commandController.clear();
                                 if (mounted) {
@@ -1437,6 +1639,192 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               padding: const EdgeInsets.symmetric(vertical: 14),
                             ),
                             child: const Text('Stop'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // 세션 정보 및 대화 히스토리 표시
+                    if (_isConnected) ...[
+                      // 현재 세션 정보
+                      if (_currentCursorSessionId != null)
+                        Container(
+                          padding: const EdgeInsets.all(8.0),
+                          margin: const EdgeInsets.only(bottom: 8.0),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8.0),
+                            border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.chat_bubble_outline, size: 16, color: Colors.blue),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  '현재 세션: ${_currentCursorSessionId!.substring(0, 8)}...',
+                                  style: const TextStyle(fontSize: 12, color: Colors.blue),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      
+                      // 세션 목록 및 대화 히스토리
+                      ExpansionTile(
+                        title: const Text('세션 및 대화 히스토리', style: TextStyle(fontSize: 14)),
+                        leading: const Icon(Icons.history, size: 20),
+                        children: [
+                          // 세션 목록
+                          if (_availableSessions.isNotEmpty) ...[
+                            const Padding(
+                              padding: EdgeInsets.all(8.0),
+                              child: Text('사용 가능한 세션:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            ),
+                            ..._availableSessions.map((sessionId) => ListTile(
+                              dense: true,
+                              leading: const Icon(Icons.chat, size: 16),
+                              title: Text(
+                                sessionId.length > 20 ? '${sessionId.substring(0, 20)}...' : sessionId,
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.refresh, size: 16),
+                                onPressed: () => _loadChatHistory(sessionId: sessionId),
+                                tooltip: '이 세션의 대화 히스토리 조회',
+                              ),
+                            )),
+                            const Divider(),
+                          ],
+                          
+                          // 대화 히스토리
+                          if (_chatHistory.isNotEmpty) ...[
+                            const Padding(
+                              padding: EdgeInsets.all(8.0),
+                              child: Text('대화 히스토리:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            ),
+                            SizedBox(
+                              height: 200,
+                              child: ListView.builder(
+                                shrinkWrap: true,
+                                itemCount: _chatHistory.length,
+                                itemBuilder: (context, index) {
+                                  final entry = _chatHistory[index];
+                                  final userMsg = entry['userMessage'] as String? ?? '';
+                                  final assistantMsg = entry['assistantResponse'] as String? ?? '';
+                                  final timestamp = entry['timestamp'] as String? ?? '';
+                                  
+                                  return Card(
+                                    margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(8.0),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          if (userMsg.isNotEmpty)
+                                            Padding(
+                                              padding: const EdgeInsets.only(bottom: 4.0),
+                                              child: Text(
+                                                '👤 $userMsg',
+                                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                              ),
+                                            ),
+                                          if (assistantMsg.isNotEmpty)
+                                            Padding(
+                                              padding: const EdgeInsets.only(bottom: 4.0),
+                                              child: Text(
+                                                '🤖 ${assistantMsg.length > 50 ? "${assistantMsg.substring(0, 50)}..." : assistantMsg}',
+                                                style: const TextStyle(fontSize: 11),
+                                              ),
+                                            ),
+                                          if (timestamp.isNotEmpty)
+                                            Text(
+                                              _formatTime(DateTime.parse(timestamp)),
+                                              style: TextStyle(fontSize: 9, color: Colors.grey[600]),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ] else ...[
+                            const Padding(
+                              padding: EdgeInsets.all(16.0),
+                              child: Text('대화 히스토리가 없습니다.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                            ),
+                          ],
+                          
+                          // 새로고침 버튼
+                          Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                _loadSessionInfo();
+                                _loadChatHistory();
+                              },
+                              icon: const Icon(Icons.refresh, size: 16),
+                              label: const Text('새로고침'),
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: (_isConnected && _commandController.text.trim().isNotEmpty) ? () {
+                              if (!mounted) return;
+                              final text = _commandController.text.trim();
+                              if (text.isNotEmpty) {
+                                setState(() {
+                                  // 버튼 클릭 상태 업데이트
+                                });
+                                _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: true);
+                                _commandController.clear();
+                                if (mounted) {
+                                  setState(() {
+                                    // TextField 클리어 후 UI 업데이트
+                                  });
+                                }
+                              }
+                            } : null,
+                            icon: const Icon(Icons.refresh, size: 18),
+                            label: const Text('새 대화'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isConnected && _currentCursorSessionId != null ? () {
+                              if (!mounted) return;
+                              final text = _commandController.text;
+                              if (text.isNotEmpty) {
+                                setState(() {
+                                  // 버튼 클릭 상태 업데이트
+                                });
+                                _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false);
+                                _commandController.clear();
+                                if (mounted) {
+                                  setState(() {
+                                    // TextField 클리어 후 UI 업데이트
+                                  });
+                                }
+                              }
+                            } : null,
+                            icon: const Icon(Icons.replay, size: 18),
+                            label: const Text('이어가기'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
                           ),
                         ),
                       ],

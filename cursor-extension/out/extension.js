@@ -76,14 +76,9 @@ async function activate(context) {
         outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ❌ Failed to start HTTP server: ${errorMsg}`);
         vscode.window.showErrorMessage(`Cursor Remote: HTTP server start failed - ${errorMsg}`);
     });
-    // Rules manager
+    // Rules manager (CHAT_SUMMARY hook 제거됨 - stdout 응답만 사용)
+    // rulesManager는 hooks.json 관리를 위해 유지하지만, CHAT_SUMMARY 감시는 제거
     rulesManager = new rules_manager_1.RulesManager(outputChannel, httpServer);
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (workspaceFolders && workspaceFolders.length > 0) {
-        const workspaceRoot = workspaceFolders[0].uri.fsPath;
-        rulesManager.ensureRulesFile(workspaceRoot);
-        rulesManager.startChatFileWatcher(context, workspaceRoot, wsServer);
-    }
     // Chat capture
     chatCapture = new chat_capture_1.ChatCapture(outputChannel, wsServer);
     chatCapture.setup(context);
@@ -91,7 +86,8 @@ async function activate(context) {
     wsServer.onMessage((message) => {
         try {
             const command = JSON.parse(message);
-            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Received command: ${command.type}`);
+            const clientId = command.clientId || 'none';
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Received command: ${command.type} from client: ${clientId}`);
             if (commandRouter) {
                 commandRouter.handleCommand(command);
             }

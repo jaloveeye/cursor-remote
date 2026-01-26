@@ -16,6 +16,10 @@ export interface CommandMessage {
     command?: string;
     args?: any[];
     action?: string;
+    clientId?: string; // 클라이언트 식별자 (세션 격리용)
+    newSession?: boolean; // 새 세션 시작 여부 (클라이언트에서 결정)
+    sessionId?: string; // 세션 ID (대화 히스토리 조회용)
+    limit?: number; // 조회 제한 (대화 히스토리 조회용)
 }
 
 export interface CommandResult {
@@ -33,6 +37,8 @@ export interface ChatResponseMessage {
     text: string;
     timestamp: string;
     source?: 'ide' | 'cli' | 'hook';
+    sessionId?: string; // 현재 세션 ID (클라이언트가 추적 가능)
+    clientId?: string; // 클라이언트 ID (어떤 클라이언트의 세션인지)
 }
 
 export interface TerminalOutputMessage {

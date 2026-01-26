@@ -56,6 +56,12 @@ export class CommandRouter {
                 case 'get_ai_response':
                     result = await this.handleGetAIResponse();
                     break;
+                case 'get_session_info':
+                    result = await this.handleGetSessionInfo(command);
+                    break;
+                case 'get_chat_history':
+                    result = await this.handleGetChatHistory(command);
+                    break;
                 case 'get_active_file':
                     result = await this.handleGetActiveFile();
                     break;
@@ -113,7 +119,7 @@ export class CommandRouter {
      */
     private async handleInsertText(command: CommandMessage): Promise<CommandResult> {
         try {
-            this.log(`insert_text command - terminal: ${command.terminal}, prompt: ${command.prompt}, text length: ${command.text?.length || 0}`);
+            this.log(`insert_text command - terminal: ${command.terminal}, prompt: ${command.prompt}, text length: ${command.text?.length || 0}, clientId: ${command.clientId || 'none'}`);
 
             const isTerminal = command.terminal === true || command.terminal === 'true';
             const isPrompt = command.prompt === true || command.prompt === 'true';
@@ -125,7 +131,8 @@ export class CommandRouter {
                 return { success: true, message: execute ? 'Text sent to terminal and executed' : 'Text sent to terminal' };
             } else if (isPrompt) {
                 this.log('Routing to prompt');
-                await this.commandHandler.insertToPrompt(command.text || '', execute);
+                const newSession = command.newSession === true;
+                await this.commandHandler.insertToPrompt(command.text || '', execute, command.clientId, newSession);
                 return { success: true, message: execute ? 'Text inserted to prompt and executed' : 'Text inserted to prompt' };
             } else {
                 this.log('Routing to editor (fallback)');
@@ -153,6 +160,26 @@ export class CommandRouter {
     private async handleGetAIResponse(): Promise<CommandResult> {
         const response = await this.commandHandler.getAIResponse();
         return { success: true, data: response };
+    }
+
+    /**
+     * Handle get_session_info
+     */
+    private async handleGetSessionInfo(command: CommandMessage): Promise<CommandResult> {
+        const clientId = command.clientId;
+        const sessionInfo = await this.commandHandler.getSessionInfo(clientId);
+        return { success: true, data: sessionInfo };
+    }
+
+    /**
+     * Handle get_chat_history
+     */
+    private async handleGetChatHistory(command: CommandMessage): Promise<CommandResult> {
+        const clientId = command.clientId;
+        const sessionId = (command as any).sessionId as string | undefined;
+        const limit = (command as any).limit as number | undefined || 50;
+        const history = await this.commandHandler.getChatHistory(clientId, sessionId, limit);
+        return { success: true, data: history };
     }
 
     /**

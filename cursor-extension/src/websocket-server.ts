@@ -96,26 +96,47 @@ export class WebSocketServer {
         // Promise로 서버 시작 완료 대기
         return new Promise((resolve, reject) => {
             this.wss!.on('connection', (ws: WebSocketClient) => {
+                // 클라이언트 ID 생성 (연결 시점)
+                const clientId = `client-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+                (ws as any).clientId = clientId; // WebSocket 객체에 clientId 저장
+                
                 this.clients.add(ws);
-                this.log('Client connected to Cursor Remote');
+                this.log(`Client connected to Cursor Remote (ID: ${clientId})`);
                 this.notifyClientChange(true);
 
                 ws.on('message', (message: Buffer) => {
                     const messageStr = message.toString();
-                    this.log(`Received message: ${messageStr.substring(0, 100)}${messageStr.length > 100 ? '...' : ''}`);
+                    this.log(`Received message from ${clientId}: ${messageStr.substring(0, 100)}${messageStr.length > 100 ? '...' : ''}`);
                     
-                    // 모든 핸들러에 메시지 전달
-                    this.messageHandlers.forEach(handler => {
-                        try {
-                            handler(messageStr);
-                        } catch (error) {
-                            this.logError('Error in message handler', error);
-                        }
-                    });
+                    // 메시지에 clientId 추가
+                    try {
+                        const parsed = JSON.parse(messageStr);
+                        parsed.clientId = clientId;
+                        const messageWithClientId = JSON.stringify(parsed);
+                        
+                        // 모든 핸들러에 clientId가 포함된 메시지 전달
+                        this.messageHandlers.forEach(handler => {
+                            try {
+                                handler(messageWithClientId);
+                            } catch (error) {
+                                this.logError('Error in message handler', error);
+                            }
+                        });
+                    } catch (error) {
+                        // JSON 파싱 실패 시 원본 메시지 전달
+                        this.messageHandlers.forEach(handler => {
+                            try {
+                                handler(messageStr);
+                            } catch (err) {
+                                this.logError('Error in message handler', err);
+                            }
+                        });
+                    }
                 });
 
                 ws.on('close', () => {
-                    this.log('Client disconnected from Cursor Remote');
+                    const disconnectedClientId = (ws as any).clientId || 'unknown';
+                    this.log(`Client disconnected from Cursor Remote (ID: ${disconnectedClientId})`);
                     this.clients.delete(ws);
                     this.notifyClientChange(this.clients.size > 0);
                 });

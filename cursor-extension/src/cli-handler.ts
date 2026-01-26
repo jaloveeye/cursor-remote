@@ -4,6 +4,21 @@ import * as fs from 'fs';
 
 import { WebSocketServer } from './websocket-server';
 import * as vscode from 'vscode';
+import { CONFIG } from './config';
+
+interface ChatHistoryEntry {
+    id: string;
+    sessionId: string;
+    clientId: string;
+    userMessage: string;
+    assistantResponse: string;
+    timestamp: string;
+}
+
+interface ChatHistory {
+    entries: ChatHistoryEntry[];
+    lastUpdated: string;
+}
 
 export class CLIHandler {
     private outputChannel: vscode.OutputChannel | null = null;
@@ -11,11 +26,24 @@ export class CLIHandler {
     private currentProcess: child_process.ChildProcess | null = null;
     private workspaceRoot: string | null = null;
     private processingOutput: boolean = false;
+    private lastChatId: string | null = null; // 마지막 채팅 세션 ID (대화형 모드 테스트용)
+    private clientSessions: Map<string, string> = new Map(); // 클라이언트별 세션 ID 관리
+    private chatHistoryFile: string | null = null; // 대화 히스토리 파일 경로
+    private pendingHistoryIds: Map<string, string> = new Map(); // clientId -> pending sessionId (실제 sessionId로 업데이트용)
 
     constructor(outputChannel?: vscode.OutputChannel, wsServer?: WebSocketServer, workspaceRoot?: string) {
         this.outputChannel = outputChannel || null;
         this.wsServer = wsServer || null;
         this.workspaceRoot = workspaceRoot || null;
+        
+        // 대화 히스토리 파일 경로 설정
+        if (workspaceRoot) {
+            const cursorDir = path.join(workspaceRoot, '.cursor');
+            if (!fs.existsSync(cursorDir)) {
+                fs.mkdirSync(cursorDir, { recursive: true });
+            }
+            this.chatHistoryFile = path.join(cursorDir, 'CHAT_HISTORY.json');
+        }
     }
 
     private log(message: string) {
@@ -35,6 +63,7 @@ export class CLIHandler {
         }
         console.error(logMessage);
     }
+    
 
     /**
      * Cursor CLI가 설치되어 있는지 확인
@@ -122,9 +151,33 @@ export class CLIHandler {
 
     /**
      * Cursor CLI에 프롬프트 전송
+     * @param text 프롬프트 텍스트
+     * @param execute 실행 여부
+     * @param clientId 클라이언트 ID (세션 격리용, 선택사항)
+     * @param newSession 새 세션 시작 여부 (클라이언트에서 결정, 기본값: false)
      */
-    async sendPrompt(text: string, execute: boolean = true): Promise<void> {
-        this.log(`sendPrompt called - textLength: ${text.length}, execute: ${execute}`);
+    async sendPrompt(text: string, execute: boolean = true, clientId?: string, newSession: boolean = false): Promise<void> {
+        this.log(`sendPrompt called - textLength: ${text.length}, execute: ${execute}, clientId: ${clientId || 'none'}, newSession: ${newSession}`);
+        
+        // 대화 히스토리 저장 (사용자 메시지 전송 시)
+        // 세션 ID는 나중에 응답에서 받을 수 있으므로, 임시로 저장
+        // 주의: newSession이 true면 기존 세션을 무시하므로 히스토리도 새로 시작
+        if (clientId) {
+            const currentSessionId = newSession ? null : (this.clientSessions.get(clientId) || null);
+            const pendingId = `pending-${Date.now()}-${Math.random().toString(36).substring(7)}`; // 고유한 임시 ID 사용
+            this.log(`💾 Saving user message - sessionId: ${currentSessionId || pendingId}, clientId: ${clientId}, newSession: ${newSession}`);
+            this.saveChatHistoryEntry({
+                sessionId: currentSessionId || pendingId,
+                clientId: clientId,
+                userMessage: text,
+                timestamp: new Date().toISOString()
+            });
+            // pending ID를 저장하여 나중에 실제 sessionId로 업데이트할 수 있도록
+            if (!currentSessionId) {
+                this.pendingHistoryIds.set(clientId, pendingId);
+                this.log(`💾 Saved pending history ID: ${pendingId} for client ${clientId}`);
+            }
+        }
 
         try {
             // CLI 설치 확인
@@ -136,7 +189,8 @@ export class CLIHandler {
             const cliCommand = await this.findCLICommand();
             this.log(`Using CLI command: ${cliCommand}`);
 
-            // 실행 중인 프로세스가 있으면 종료 (하지만 새 프로세스 시작 전에 완전히 종료될 때까지 기다림)
+            // 테스트: 대화형 모드에서는 프로세스를 유지하거나 --continue 옵션 사용
+            // 현재는 기존 프로세스 종료 로직 유지 (대화형 모드 테스트 후 결정)
             if (this.currentProcess) {
                 this.log('Stopping previous CLI process');
                 const previousProcess = this.currentProcess;
@@ -165,10 +219,42 @@ export class CLIHandler {
             }
 
             // Cursor CLI 실행
-            // -p: 비대화형 모드 (스크립트용)
-            // --output-format json: JSON 형식으로 출력
+            // 테스트: 대화형 모드 (--print 없이)
+            // --output-format json: JSON 형식으로 출력 (대화형 모드에서도 작동하는지 테스트)
             // --force: 자동 실행 (승인 없이)
-            const args = ['-p', '--output-format', 'json', '--force', text];
+            // --continue: 이전 세션 재개 (대화 컨텍스트 유지)
+            // 주의: -p 없이 실행하면 대화형 모드가 되지만, JSON 출력이 제대로 작동하는지 확인 필요
+            const args: string[] = [];
+            
+            // 클라이언트에서 새 세션 시작 여부 결정
+            if (newSession) {
+                // 클라이언트가 명시적으로 새 세션을 요청한 경우
+                this.log(`Starting new session (client requested) for client ${clientId || 'global'}`);
+                // 기존 세션 ID는 무시하고 새로 시작
+                if (clientId) {
+                    // 클라이언트별 세션 맵에서 제거 (선택사항 - 나중에 재사용할 수도 있으므로 유지)
+                    // this.clientSessions.delete(clientId);
+                }
+            } else {
+                // 기존 세션 재개 시도
+                let sessionId: string | null = null;
+                if (clientId) {
+                    sessionId = this.clientSessions.get(clientId) || null;
+                } else {
+                    // clientId가 없으면 전역 세션 사용 (하위 호환성)
+                    sessionId = this.lastChatId;
+                }
+                
+                if (sessionId) {
+                    args.push('--resume', sessionId);
+                    this.log(`Resuming chat session for client ${clientId || 'global'}: ${sessionId}`);
+                } else {
+                    // 세션이 없으면 새로 시작 (--continue 없이)
+                    this.log(`Starting new chat session for client ${clientId || 'global'} (no existing session)`);
+                }
+            }
+            
+            args.push('--output-format', 'json', '--force', text);
             
             this.log(`Executing: ${cliCommand} ${args.join(' ')}`);
 
@@ -191,6 +277,22 @@ export class CLIHandler {
             let stdoutEnded = false;
             let stderrEnded = false;
             let processClosed = false;
+            
+            // 현재 프롬프트의 clientId를 클로저로 저장 (checkAndProcessOutput에서 사용)
+            const currentClientId = clientId;
+            
+            // 디버깅: clientId가 제대로 전달되는지 로그
+            if (clientId) {
+                this.log(`🔑 Using clientId: ${clientId} for this prompt`);
+                const existingSession = this.clientSessions.get(clientId);
+                if (existingSession) {
+                    this.log(`🔑 Found existing session for client ${clientId}: ${existingSession}`);
+                } else {
+                    this.log(`🔑 No existing session for client ${clientId}, will create new session`);
+                }
+            } else {
+                this.log(`⚠️ No clientId provided, using global session (lastChatId: ${this.lastChatId || 'none'})`);
+            }
 
             // stdout 수집
             if (this.currentProcess.stdout) {
@@ -201,6 +303,11 @@ export class CLIHandler {
                     const chunk = typeof data === 'string' ? data : data.toString();
                     stdout += chunk;
                     this.log(`CLI stdout chunk (${chunk.length} bytes): ${chunk.substring(0, 200)}${chunk.length > 200 ? '...' : ''}`);
+                    
+                    // 실시간으로 session_id 추출 시도 (대화형 모드)
+                    // 주의: clientId는 sendPrompt 호출 시점에만 알 수 있으므로 여기서는 전역 저장하지 않음
+                    // 클라이언트별 세션은 checkAndProcessOutput에서 처리
+                    // 이 부분은 제거하거나 주석 처리 (클라이언트별 세션 관리로 인해 불필요)
                 });
                 
                 this.currentProcess.stdout.on('end', () => {
@@ -208,7 +315,7 @@ export class CLIHandler {
                     stdoutEnded = true;
                     // 프로세스가 종료된 후에만 처리 (중복 방지)
                     if (processClosed) {
-                        this.checkAndProcessOutput(stdout, stderr);
+                        this.checkAndProcessOutput(stdout, stderr, currentClientId);
                     }
                 });
                 
@@ -235,7 +342,7 @@ export class CLIHandler {
                     stderrEnded = true;
                     // 프로세스가 종료된 후에만 처리 (중복 방지)
                     if (processClosed) {
-                        this.checkAndProcessOutput(stdout, stderr);
+                        this.checkAndProcessOutput(stdout, stderr, currentClientId);
                     }
                 });
                 
@@ -275,7 +382,7 @@ export class CLIHandler {
                 
                 // 프로세스가 종료되었으므로 출력 처리 (한 번만)
                 // 스트림이 아직 끝나지 않았어도 프로세스가 종료되었으므로 처리
-                this.checkAndProcessOutput(stdout, stderr);
+                this.checkAndProcessOutput(stdout, stderr, currentClientId);
                 
                 this.currentProcess = null;
             });
@@ -302,8 +409,9 @@ export class CLIHandler {
 
     /**
      * CLI 출력 처리 및 WebSocket으로 전송
+     * @param clientId 클라이언트 ID (세션 격리용, 선택사항)
      */
-    private checkAndProcessOutput(stdout: string, stderr: string) {
+    private checkAndProcessOutput(stdout: string, stderr: string, clientId?: string) {
         // 중복 처리 방지
         if (this.processingOutput) {
             this.log('⚠️ Output processing already in progress, skipping duplicate call');
@@ -330,7 +438,50 @@ export class CLIHandler {
                 // 또는 {"response":"응답 텍스트",...}
                 const responseText = jsonData.result || jsonData.text || jsonData.response || jsonData.message || stdout;
                 
+                // 대화형 모드: session_id 추출 및 저장
+                const extractedSessionId = jsonData.session_id || jsonData.sessionId || jsonData.chatId || jsonData.chat_id;
+                if (extractedSessionId) {
+                    // 클라이언트별 세션 저장
+                    if (clientId) {
+                        this.clientSessions.set(clientId, extractedSessionId);
+                        this.log(`💾 Saved session ID for client ${clientId}: ${extractedSessionId}`);
+                        this.log(`💾 Total clients with sessions: ${this.clientSessions.size}`);
+                        // 디버깅: 모든 클라이언트 세션 출력
+                        this.clientSessions.forEach((session, cid) => {
+                            this.log(`   - Client ${cid}: Session ${session}`);
+                        });
+                    } else {
+                        // 전역 세션 (하위 호환성) - 경고 로그
+                        this.log(`⚠️ No clientId provided, saving to global session (this may cause session sharing!)`);
+                        this.lastChatId = extractedSessionId;
+                        this.log(`💾 Saved global session ID: ${extractedSessionId}`);
+                    }
+                }
+                
                 this.log(`Extracted response text length: ${responseText.length}`);
+                
+                // 대화 히스토리 저장 (응답 수신 시)
+                const currentSessionId = extractedSessionId || (clientId ? this.clientSessions.get(clientId) : this.lastChatId);
+                if (clientId) {
+                    // sessionId가 있으면 사용, 없으면 pending ID 사용
+                    const sessionIdToUse = currentSessionId || this.pendingHistoryIds.get(clientId) || 'unknown';
+                    this.log(`💾 Saving assistant response - sessionId: ${sessionIdToUse}, clientId: ${clientId}, hasPendingId: ${this.pendingHistoryIds.has(clientId)}`);
+                    this.saveChatHistoryEntry({
+                        sessionId: sessionIdToUse,
+                        clientId: clientId,
+                        assistantResponse: responseText,
+                        timestamp: new Date().toISOString()
+                    });
+                    
+                    // pending ID가 있었고 실제 sessionId를 받았으면 업데이트
+                    if (extractedSessionId && this.pendingHistoryIds.has(clientId)) {
+                        const pendingId = this.pendingHistoryIds.get(clientId)!;
+                        this.log(`💾 Updating pending sessionId ${pendingId} to ${extractedSessionId}`);
+                        // 히스토리 파일에서 pending ID를 실제 sessionId로 업데이트
+                        this.updatePendingSessionId(clientId, pendingId, extractedSessionId);
+                        this.pendingHistoryIds.delete(clientId);
+                    }
+                }
                 
                 // WebSocket으로 응답 전송
                 if (this.wsServer && responseText) {
@@ -338,10 +489,15 @@ export class CLIHandler {
                         type: 'chat_response',
                         text: responseText,
                         timestamp: new Date().toISOString(),
-                        source: 'cli'
+                        source: 'cli',
+                        sessionId: currentSessionId || undefined,
+                        clientId: clientId || undefined
                     };
                     
                     this.log(`Sending chat_response: ${JSON.stringify(responseMessage).substring(0, 200)}`);
+                    if (currentSessionId) {
+                        this.log(`   Session ID: ${currentSessionId}, Client ID: ${clientId || 'none'}`);
+                    }
                     this.wsServer.send(JSON.stringify(responseMessage));
                     this.log('✅ Chat response sent to WebSocket');
                 } else {
@@ -417,6 +573,257 @@ export class CLIHandler {
         if (this.currentProcess) {
             this.currentProcess.kill();
             this.currentProcess = null;
+        }
+    }
+    
+    /**
+     * 대화 히스토리 저장
+     */
+    private saveChatHistoryEntry(entry: Partial<ChatHistoryEntry> & { clientId: string; timestamp: string }): void {
+        if (!this.chatHistoryFile) {
+            return;
+        }
+        
+        try {
+            let history: ChatHistory = { entries: [], lastUpdated: new Date().toISOString() };
+            
+            // 기존 히스토리 로드
+            if (fs.existsSync(this.chatHistoryFile)) {
+                const content = fs.readFileSync(this.chatHistoryFile, 'utf8');
+                try {
+                    const parsed = JSON.parse(content);
+                    // 기존 형식(배열)을 새 형식으로 변환
+                    if (Array.isArray(parsed)) {
+                        this.log('🔄 Converting old chat history format to new format');
+                        history = {
+                            entries: parsed.map((oldEntry: any, index: number) => ({
+                                id: `${Date.now()}-${index}-${Math.random().toString(36).substring(7)}`,
+                                sessionId: 'unknown',
+                                clientId: 'legacy',
+                                userMessage: oldEntry.user || oldEntry.userMessage || '',
+                                assistantResponse: oldEntry.assistant || oldEntry.assistantResponse || '',
+                                timestamp: oldEntry.timestamp || new Date().toISOString()
+                            })),
+                            lastUpdated: new Date().toISOString()
+                        };
+                    } else if (parsed.entries && Array.isArray(parsed.entries)) {
+                        // 새 형식
+                        history = parsed;
+                    } else {
+                        // 알 수 없는 형식
+                        this.log('⚠️ Unknown chat history format, resetting');
+                        history = { entries: [], lastUpdated: new Date().toISOString() };
+                    }
+                    // entries가 배열인지 확인
+                    if (!Array.isArray(history.entries)) {
+                        this.log('⚠️ history.entries is not an array, resetting');
+                        history.entries = [];
+                    }
+                } catch (e) {
+                    this.logError('Failed to parse chat history', e);
+                    history = { entries: [], lastUpdated: new Date().toISOString() };
+                }
+            }
+            
+            // 새 엔트리 생성
+            const newEntry: ChatHistoryEntry = {
+                id: `${Date.now()}-${Math.random().toString(36).substring(7)}`,
+                sessionId: entry.sessionId || 'unknown',
+                clientId: entry.clientId,
+                userMessage: entry.userMessage || '',
+                assistantResponse: entry.assistantResponse || '',
+                timestamp: entry.timestamp
+            };
+            
+            // pending sessionId를 실제 sessionId로 업데이트
+            if (newEntry.sessionId.startsWith('pending-') && entry.clientId) {
+                const actualSessionId = this.clientSessions.get(entry.clientId);
+                if (actualSessionId) {
+                    newEntry.sessionId = actualSessionId;
+                    // pending ID 제거
+                    this.pendingHistoryIds.delete(entry.clientId);
+                }
+            }
+            
+            // 마지막 엔트리 찾기 (같은 clientId, 사용자 메시지가 있고 응답이 없는 경우)
+            // 또는 pending ID가 실제 sessionId로 업데이트되는 경우
+            let lastEntry: ChatHistoryEntry | undefined = undefined;
+            let lastEntryIndex = -1;
+            
+            // 역순으로 검색하여 가장 최근 엔트리 찾기
+            for (let i = history.entries.length - 1; i >= 0; i--) {
+                const entry = history.entries[i];
+                if (entry.clientId === newEntry.clientId) {
+                    // 사용자 메시지가 있고 응답이 없는 경우 (응답을 추가해야 함)
+                    if (entry.userMessage && !entry.assistantResponse && 
+                        Math.abs(new Date(entry.timestamp).getTime() - new Date(newEntry.timestamp).getTime()) < 30000) {
+                        lastEntry = entry;
+                        lastEntryIndex = i;
+                        break;
+                    }
+                    // pending ID가 실제 sessionId로 업데이트되는 경우
+                    if (entry.sessionId.startsWith('pending-') && !newEntry.sessionId.startsWith('pending-') &&
+                        Math.abs(new Date(entry.timestamp).getTime() - new Date(newEntry.timestamp).getTime()) < 30000) {
+                        lastEntry = entry;
+                        lastEntryIndex = i;
+                        break;
+                    }
+                    // 같은 sessionId인 경우 (이미 완성된 엔트리 업데이트)
+                    if (entry.sessionId === newEntry.sessionId &&
+                        Math.abs(new Date(entry.timestamp).getTime() - new Date(newEntry.timestamp).getTime()) < 30000) {
+                        lastEntry = entry;
+                        lastEntryIndex = i;
+                        break;
+                    }
+                }
+            }
+            
+            if (lastEntry) {
+                // 기존 엔트리 업데이트
+                if (newEntry.userMessage) {
+                    lastEntry.userMessage = newEntry.userMessage;
+                }
+                if (newEntry.assistantResponse) {
+                    lastEntry.assistantResponse = newEntry.assistantResponse;
+                }
+                // sessionId도 업데이트 (pending -> actual)
+                if (lastEntry.sessionId.startsWith('pending-') && !newEntry.sessionId.startsWith('pending-')) {
+                    lastEntry.sessionId = newEntry.sessionId;
+                }
+                // 타임스탬프 업데이트
+                lastEntry.timestamp = newEntry.timestamp;
+            } else {
+                // 새 엔트리 추가
+                history.entries.push(newEntry);
+            }
+            
+            // 최대 100개만 유지
+            if (history.entries.length > 100) {
+                history.entries = history.entries.slice(-100);
+            }
+            
+            history.lastUpdated = new Date().toISOString();
+            
+            // 파일 저장
+            fs.writeFileSync(this.chatHistoryFile, JSON.stringify(history, null, 2), 'utf8');
+            this.log(`💾 Chat history saved (${history.entries.length} entries)`);
+        } catch (error) {
+            this.logError('Failed to save chat history', error);
+        }
+    }
+    
+    /**
+     * pending sessionId를 실제 sessionId로 업데이트
+     */
+    private updatePendingSessionId(clientId: string, pendingId: string, actualSessionId: string): void {
+        if (!this.chatHistoryFile || !fs.existsSync(this.chatHistoryFile)) {
+            return;
+        }
+        
+        try {
+            const content = fs.readFileSync(this.chatHistoryFile, 'utf8');
+            const parsed = JSON.parse(content);
+            
+            // 기존 형식(배열)을 새 형식으로 변환
+            let history: ChatHistory;
+            if (Array.isArray(parsed)) {
+                history = {
+                    entries: parsed.map((oldEntry: any, index: number) => ({
+                        id: `${Date.now()}-${index}-${Math.random().toString(36).substring(7)}`,
+                        sessionId: 'unknown',
+                        clientId: 'legacy',
+                        userMessage: oldEntry.user || oldEntry.userMessage || '',
+                        assistantResponse: oldEntry.assistant || oldEntry.assistantResponse || '',
+                        timestamp: oldEntry.timestamp || new Date().toISOString()
+                    })),
+                    lastUpdated: new Date().toISOString()
+                };
+            } else if (parsed.entries && Array.isArray(parsed.entries)) {
+                history = parsed;
+            } else {
+                this.log('⚠️ Unknown chat history format in updatePendingSessionId');
+                return;
+            }
+            
+            // entries가 배열인지 확인
+            if (!Array.isArray(history.entries)) {
+                this.log('⚠️ history.entries is not an array in updatePendingSessionId');
+                return;
+            }
+            
+            // pending ID를 가진 엔트리를 찾아서 실제 sessionId로 업데이트
+            history.entries.forEach(entry => {
+                if (entry.clientId === clientId && entry.sessionId === pendingId) {
+                    entry.sessionId = actualSessionId;
+                }
+            });
+            
+            fs.writeFileSync(this.chatHistoryFile, JSON.stringify(history, null, 2), 'utf8');
+            this.log(`💾 Updated pending sessionId ${pendingId} to ${actualSessionId} in history`);
+        } catch (error) {
+            this.logError('Failed to update pending sessionId', error);
+        }
+    }
+    
+    /**
+     * 대화 히스토리 조회
+     */
+    getChatHistory(clientId?: string, sessionId?: string, limit: number = 50): ChatHistoryEntry[] {
+        if (!this.chatHistoryFile || !fs.existsSync(this.chatHistoryFile)) {
+            return [];
+        }
+        
+        try {
+            const content = fs.readFileSync(this.chatHistoryFile, 'utf8');
+            const parsed = JSON.parse(content);
+            
+            // 기존 형식(배열)을 새 형식으로 변환
+            let history: ChatHistory;
+            if (Array.isArray(parsed)) {
+                history = {
+                    entries: parsed.map((oldEntry: any, index: number) => ({
+                        id: `${Date.now()}-${index}-${Math.random().toString(36).substring(7)}`,
+                        sessionId: 'unknown',
+                        clientId: 'legacy',
+                        userMessage: oldEntry.user || oldEntry.userMessage || '',
+                        assistantResponse: oldEntry.assistant || oldEntry.assistantResponse || '',
+                        timestamp: oldEntry.timestamp || new Date().toISOString()
+                    })),
+                    lastUpdated: new Date().toISOString()
+                };
+            } else if (parsed.entries && Array.isArray(parsed.entries)) {
+                history = parsed;
+            } else {
+                this.log('⚠️ Unknown chat history format in getChatHistory');
+                return [];
+            }
+            
+            // entries가 배열인지 확인
+            if (!Array.isArray(history.entries)) {
+                this.log('⚠️ history.entries is not an array in getChatHistory');
+                return [];
+            }
+            
+            let filtered = history.entries;
+            
+            // 클라이언트 ID로 필터링 (clientId가 제공된 경우만)
+            if (clientId) {
+                filtered = filtered.filter(entry => entry.clientId === clientId);
+            }
+            // clientId가 없으면 모든 히스토리 반환 (최근 히스토리 조회용)
+            
+            // 세션 ID로 필터링
+            if (sessionId) {
+                filtered = filtered.filter(entry => entry.sessionId === sessionId);
+            }
+            
+            // 최신순으로 정렬하고 제한
+            filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+            
+            return filtered.slice(0, limit);
+        } catch (error) {
+            this.logError('Failed to load chat history', error);
+            return [];
         }
     }
 }

@@ -43,6 +43,12 @@ class CommandRouter {
                 case 'get_ai_response':
                     result = await this.handleGetAIResponse();
                     break;
+                case 'get_session_info':
+                    result = await this.handleGetSessionInfo(command);
+                    break;
+                case 'get_chat_history':
+                    result = await this.handleGetChatHistory(command);
+                    break;
                 case 'get_active_file':
                     result = await this.handleGetActiveFile();
                     break;
@@ -97,7 +103,7 @@ class CommandRouter {
      */
     async handleInsertText(command) {
         try {
-            this.log(`insert_text command - terminal: ${command.terminal}, prompt: ${command.prompt}, text length: ${command.text?.length || 0}`);
+            this.log(`insert_text command - terminal: ${command.terminal}, prompt: ${command.prompt}, text length: ${command.text?.length || 0}, clientId: ${command.clientId || 'none'}`);
             const isTerminal = command.terminal === true || command.terminal === 'true';
             const isPrompt = command.prompt === true || command.prompt === 'true';
             const execute = command.execute === true;
@@ -108,7 +114,8 @@ class CommandRouter {
             }
             else if (isPrompt) {
                 this.log('Routing to prompt');
-                await this.commandHandler.insertToPrompt(command.text || '', execute);
+                const newSession = command.newSession === true;
+                await this.commandHandler.insertToPrompt(command.text || '', execute, command.clientId, newSession);
                 return { success: true, message: execute ? 'Text inserted to prompt and executed' : 'Text inserted to prompt' };
             }
             else {
@@ -136,6 +143,24 @@ class CommandRouter {
     async handleGetAIResponse() {
         const response = await this.commandHandler.getAIResponse();
         return { success: true, data: response };
+    }
+    /**
+     * Handle get_session_info
+     */
+    async handleGetSessionInfo(command) {
+        const clientId = command.clientId;
+        const sessionInfo = await this.commandHandler.getSessionInfo(clientId);
+        return { success: true, data: sessionInfo };
+    }
+    /**
+     * Handle get_chat_history
+     */
+    async handleGetChatHistory(command) {
+        const clientId = command.clientId;
+        const sessionId = command.sessionId;
+        const limit = command.limit || 50;
+        const history = await this.commandHandler.getChatHistory(clientId, sessionId, limit);
+        return { success: true, data: history };
     }
     /**
      * Handle get_active_file
