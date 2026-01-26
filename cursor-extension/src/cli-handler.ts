@@ -29,6 +29,7 @@ export class CLIHandler {
     private lastChatId: string | null = null; // 마지막 채팅 세션 ID (대화형 모드 테스트용)
     private clientSessions: Map<string, string> = new Map(); // 클라이언트별 세션 ID 관리
     private chatHistoryFile: string | null = null; // 대화 히스토리 파일 경로
+    private pendingHistoryIds: Map<string, string> = new Map(); // clientId -> pending sessionId (실제 sessionId로 업데이트용)
 
     constructor(outputChannel?: vscode.OutputChannel, wsServer?: WebSocketServer, workspaceRoot?: string) {
         this.outputChannel = outputChannel || null;
@@ -160,14 +161,20 @@ export class CLIHandler {
         
         // 대화 히스토리 저장 (사용자 메시지 전송 시)
         // 세션 ID는 나중에 응답에서 받을 수 있으므로, 임시로 저장
+        // 주의: newSession이 true면 기존 세션을 무시하므로 히스토리도 새로 시작
         if (clientId) {
-            const currentSessionId = this.clientSessions.get(clientId) || null;
+            const currentSessionId = newSession ? null : (this.clientSessions.get(clientId) || null);
+            const pendingId = `pending-${Date.now()}-${Math.random().toString(36).substring(7)}`; // 고유한 임시 ID 사용
             this.saveChatHistoryEntry({
-                sessionId: currentSessionId || 'pending',
+                sessionId: currentSessionId || pendingId,
                 clientId: clientId,
                 userMessage: text,
                 timestamp: new Date().toISOString()
             });
+            // pending ID를 저장하여 나중에 실제 sessionId로 업데이트할 수 있도록
+            if (!currentSessionId) {
+                this.pendingHistoryIds.set(clientId, pendingId);
+            }
         }
 
         try {
@@ -453,15 +460,22 @@ export class CLIHandler {
                 
                 // 대화 히스토리 저장 (응답 수신 시)
                 const currentSessionId = extractedSessionId || (clientId ? this.clientSessions.get(clientId) : this.lastChatId);
-                if (currentSessionId && clientId) {
-                    // 마지막 사용자 메시지를 찾아서 히스토리에 저장
-                    // (사용자 메시지는 sendPrompt에서 저장되어야 함)
+                if (clientId) {
+                    // sessionId가 있으면 사용, 없으면 pending ID 사용
+                    const sessionIdToUse = currentSessionId || this.pendingHistoryIds.get(clientId) || 'unknown';
                     this.saveChatHistoryEntry({
-                        sessionId: currentSessionId,
+                        sessionId: sessionIdToUse,
                         clientId: clientId,
                         assistantResponse: responseText,
                         timestamp: new Date().toISOString()
                     });
+                    
+                    // pending ID가 있었고 실제 sessionId를 받았으면 업데이트
+                    if (extractedSessionId && this.pendingHistoryIds.has(clientId)) {
+                        // 히스토리 파일에서 pending ID를 실제 sessionId로 업데이트
+                        this.updatePendingSessionId(clientId, this.pendingHistoryIds.get(clientId)!, extractedSessionId);
+                        this.pendingHistoryIds.delete(clientId);
+                    }
                 }
                 
                 // WebSocket으로 응답 전송
@@ -591,13 +605,34 @@ export class CLIHandler {
             
             // 마지막 엔트리 업데이트 또는 새로 추가
             const lastEntry = history.entries[history.entries.length - 1];
+            const timeDiff = lastEntry ? Math.abs(new Date(lastEntry.timestamp).getTime() - new Date(newEntry.timestamp).getTime()) : Infinity;
+            
+            // pending sessionId를 실제 sessionId로 업데이트
+            if (newEntry.sessionId.startsWith('pending-') && entry.clientId) {
+                const actualSessionId = this.clientSessions.get(entry.clientId);
+                if (actualSessionId) {
+                    newEntry.sessionId = actualSessionId;
+                    // pending ID 제거
+                    this.pendingHistoryIds.delete(entry.clientId);
+                }
+            }
+            
             if (lastEntry && 
-                lastEntry.sessionId === newEntry.sessionId && 
+                (lastEntry.sessionId === newEntry.sessionId || 
+                 (lastEntry.sessionId.startsWith('pending-') && newEntry.sessionId.startsWith('pending-') && lastEntry.clientId === newEntry.clientId)) &&
                 lastEntry.clientId === newEntry.clientId &&
-                Math.abs(new Date(lastEntry.timestamp).getTime() - new Date(newEntry.timestamp).getTime()) < 5000) {
-                // 5초 이내면 업데이트 (사용자 메시지 후 응답 받은 경우)
-                lastEntry.userMessage = newEntry.userMessage || lastEntry.userMessage;
-                lastEntry.assistantResponse = newEntry.assistantResponse || lastEntry.assistantResponse;
+                timeDiff < 10000) { // 10초 이내면 업데이트
+                // 사용자 메시지 후 응답 받은 경우 업데이트
+                if (newEntry.userMessage) {
+                    lastEntry.userMessage = newEntry.userMessage;
+                }
+                if (newEntry.assistantResponse) {
+                    lastEntry.assistantResponse = newEntry.assistantResponse;
+                }
+                // sessionId도 업데이트 (pending -> actual)
+                if (!lastEntry.sessionId.startsWith('pending-') && newEntry.sessionId !== lastEntry.sessionId) {
+                    lastEntry.sessionId = newEntry.sessionId;
+                }
             } else {
                 // 새 엔트리 추가
                 history.entries.push(newEntry);
@@ -615,6 +650,32 @@ export class CLIHandler {
             this.log(`💾 Chat history saved (${history.entries.length} entries)`);
         } catch (error) {
             this.logError('Failed to save chat history', error);
+        }
+    }
+    
+    /**
+     * pending sessionId를 실제 sessionId로 업데이트
+     */
+    private updatePendingSessionId(clientId: string, pendingId: string, actualSessionId: string): void {
+        if (!this.chatHistoryFile || !fs.existsSync(this.chatHistoryFile)) {
+            return;
+        }
+        
+        try {
+            const content = fs.readFileSync(this.chatHistoryFile, 'utf8');
+            const history: ChatHistory = JSON.parse(content);
+            
+            // pending ID를 가진 엔트리를 찾아서 실제 sessionId로 업데이트
+            history.entries.forEach(entry => {
+                if (entry.clientId === clientId && entry.sessionId === pendingId) {
+                    entry.sessionId = actualSessionId;
+                }
+            });
+            
+            fs.writeFileSync(this.chatHistoryFile, JSON.stringify(history, null, 2), 'utf8');
+            this.log(`💾 Updated pending sessionId ${pendingId} to ${actualSessionId} in history`);
+        } catch (error) {
+            this.logError('Failed to update pending sessionId', error);
         }
     }
     

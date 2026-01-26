@@ -1732,9 +1732,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       children: [
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed: _isConnected ? () {
+                            onPressed: (_isConnected && _commandController.text.trim().isNotEmpty) ? () {
                               if (!mounted) return;
-                              final text = _commandController.text;
+                              final text = _commandController.text.trim();
                               if (text.isNotEmpty) {
                                 setState(() {
                                   // 버튼 클릭 상태 업데이트
