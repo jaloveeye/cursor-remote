@@ -256,6 +256,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (data['clientId'] != null) {
             setState(() {
               _currentClientId = data['clientId'] as String;
+              // clientId가 설정되면 세션 정보 및 히스토리 조회
+              _loadSessionInfo();
+              _loadChatHistory();
             });
           }
           final text = data['text'] ?? '';
@@ -507,6 +510,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (messageData['clientId'] != null) {
           setState(() {
             _currentClientId = messageData['clientId'] as String;
+            // clientId가 설정되면 세션 정보 및 히스토리 조회
+            _loadSessionInfo();
+            _loadChatHistory();
           });
         }
         final text = messageData['text'] ?? '';
