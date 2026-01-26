@@ -260,6 +260,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               _loadSessionInfo();
               _loadChatHistory();
             });
+          } else if (_currentClientId != null) {
+            // clientId가 이미 있으면 응답 수신 후 히스토리만 새로고침
+            Future.delayed(const Duration(milliseconds: 500), () {
+              _loadChatHistory();
+            });
           }
           final text = data['text'] ?? '';
           _messages.add(MessageItem('', type: MessageType.chatResponseDivider));
@@ -512,6 +517,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _currentClientId = messageData['clientId'] as String;
             // clientId가 설정되면 세션 정보 및 히스토리 조회
             _loadSessionInfo();
+            _loadChatHistory();
+          });
+        } else if (_currentClientId != null) {
+          // clientId가 이미 있으면 응답 수신 후 히스토리만 새로고침
+          Future.delayed(const Duration(milliseconds: 500), () {
             _loadChatHistory();
           });
         }
