@@ -16,8 +16,11 @@ export const CONFIG = {
     // Polling interval (in milliseconds)
     POLL_INTERVAL: 2000,
     
-    // Connection retry delay (in milliseconds)
-    RECONNECT_DELAY: 3000,
+    // Connection retry configuration
+    RECONNECT_DELAY: 3000,        // Initial retry delay (in milliseconds)
+    RECONNECT_MAX_DELAY: 30000,   // Maximum retry delay (in milliseconds)
+    RECONNECT_MAX_ATTEMPTS: 10,   // Maximum retry attempts (0 = infinite)
+    RECONNECT_BACKOFF_MULTIPLIER: 1.5, // Exponential backoff multiplier
     
     // Device ID prefix
     DEVICE_ID_PREFIX: 'pc-',

@@ -125,6 +125,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   WebSocketChannel? _localWebSocket;
   final TextEditingController _localIpController = TextEditingController();
   
+  // 재연결 관련
+  Timer? _reconnectTimer;
+  int _reconnectAttempts = 0;
+  bool _isReconnecting = false;
+  String? _lastConnectionError;
+  
   final List<MessageItem> _messages = [];
   final TextEditingController _commandController = TextEditingController();
   final TextEditingController _sessionIdController = TextEditingController();
@@ -213,9 +219,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         onError: (error) {
           if (mounted) {
             setState(() {
+              _lastConnectionError = error.toString();
               _messages.add(MessageItem('❌ Local connection error: $error', type: MessageType.system));
               _isConnected = false;
             });
+            // 자동 재연결 시도
+            _scheduleReconnect();
           }
         },
         onDone: () {
@@ -224,12 +233,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               _messages.add(MessageItem('Local connection closed', type: MessageType.system));
               _isConnected = false;
             });
+            // 자동 재연결 시도
+            _scheduleReconnect();
           }
         },
       );
       
       setState(() {
         _isConnected = true;
+        _isReconnecting = false;
+        _reconnectAttempts = 0;
+        _lastConnectionError = null;
+        _stopReconnect();
         _messages.add(MessageItem('✅ Connected to local server at $ip', type: MessageType.system));
       });
       
@@ -368,6 +383,44 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
           
           _messages.add(MessageItem(logText, type: MessageType.log));
+        } else if (type == 'connection_status') {
+          // 연결 상태 메시지 처리
+          final status = data['status'] ?? 'unknown';
+          final source = data['source'] ?? 'unknown';
+          final message = data['message'] ?? '';
+          final errorCode = data['errorCode'];
+          final errorType = data['errorType'];
+          
+          String statusText = '';
+          switch (status) {
+            case 'connected':
+              statusText = '✅ $message';
+              setState(() {
+                _isReconnecting = false;
+                _reconnectAttempts = 0;
+                _stopReconnect();
+              });
+              break;
+            case 'disconnected':
+              statusText = '⚠️ $message';
+              setState(() {
+                _isConnected = false;
+              });
+              _scheduleReconnect();
+              break;
+            case 'error':
+              statusText = '❌ $message';
+              setState(() {
+                _isConnected = false;
+                _lastConnectionError = message;
+              });
+              _scheduleReconnect();
+              break;
+          }
+          
+          if (statusText.isNotEmpty) {
+            _messages.add(MessageItem(statusText, type: MessageType.system));
+          }
         }
       });
       _scrollToBottom();
@@ -723,6 +776,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   void _disconnect() {
     _stopPolling();
+    _stopReconnect(); // 재연결 중지
     
     // 로컬 WebSocket 연결 종료
     _localWebSocket?.sink.close();
@@ -732,9 +786,66 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       setState(() {
         _isConnected = false;
         _sessionId = null;
+        _isReconnecting = false;
+        _reconnectAttempts = 0;
         _messages.add(MessageItem('Disconnected', type: MessageType.system));
       });
     }
+  }
+  
+  // 재연결 스케줄링
+  void _scheduleReconnect() {
+    if (_isReconnecting || _isConnected) return;
+    
+    const maxAttempts = 5;
+    if (_reconnectAttempts >= maxAttempts) {
+      setState(() {
+        _isReconnecting = false;
+        _messages.add(MessageItem('❌ 재연결 시도 횟수 초과 (${maxAttempts}회). 수동으로 연결해주세요.', type: MessageType.system));
+      });
+      return;
+    }
+    
+    setState(() {
+      _isReconnecting = true;
+      _reconnectAttempts++;
+    });
+    
+    // 지수 백오프: 2초, 4초, 8초, 16초, 32초
+    final delay = Duration(seconds: 2 * (1 << (_reconnectAttempts - 1)));
+    
+    setState(() {
+      _messages.add(MessageItem('🔄 ${delay.inSeconds}초 후 재연결 시도... (${_reconnectAttempts}/$maxAttempts)', type: MessageType.system));
+    });
+    
+    _reconnectTimer = Timer(delay, () {
+      if (mounted && !_isConnected) {
+        if (_connectionType == ConnectionType.local) {
+          _connectToLocal();
+        } else {
+          final sessionId = _sessionIdController.text.trim();
+          if (sessionId.isNotEmpty) {
+            _connectToSession(sessionId);
+          } else {
+            _createSession();
+          }
+        }
+      }
+    });
+  }
+  
+  // 재연결 중지
+  void _stopReconnect() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _isReconnecting = false;
+  }
+  
+  // 수동 재연결
+  void _manualReconnect() {
+    _stopReconnect();
+    _reconnectAttempts = 0;
+    _connect();
   }
 
   Future<void> _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt, bool? terminal, bool? execute, String? action, bool? newSession, String? clientId, String? sessionId, int? limit}) async {
@@ -1505,12 +1616,74 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ),
                     ],
                     const SizedBox(height: 12),
+                    // 재연결 중 상태 표시
+                    if (_isReconnecting) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                '재연결 시도 중... (${_reconnectAttempts}회)',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.orange[900],
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: _stopReconnect,
+                              child: const Text('취소', style: TextStyle(fontSize: 12)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    // 연결 에러 표시
+                    if (_lastConnectionError != null && !_isConnected && !_isReconnecting) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline, size: 18, color: Colors.red),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '연결 실패: ${_lastConnectionError!.length > 50 ? _lastConnectionError!.substring(0, 50) + '...' : _lastConnectionError}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.red[900],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: _isConnected ? null : _connect,
+                            onPressed: _isConnected || _isReconnecting ? null : _connect,
                             style: ElevatedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               backgroundColor: Colors.green,
@@ -1524,6 +1697,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           ),
                         ),
                         const SizedBox(width: 8),
+                        if (!_isConnected && _lastConnectionError != null) ...[
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _isReconnecting ? null : _manualReconnect,
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                backgroundColor: Colors.orange,
+                                foregroundColor: Colors.white,
+                              ),
+                              icon: const Icon(Icons.refresh, size: 18),
+                              label: const Text('재연결'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
                         Expanded(
                           child: ElevatedButton(
                             onPressed: _isConnected ? _disconnect : null,
