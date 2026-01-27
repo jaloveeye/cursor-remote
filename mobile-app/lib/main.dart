@@ -469,6 +469,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         setState(() {
           _sessionId = sessionId;
           _isConnected = true;
+          _isReconnecting = false;
+          _reconnectAttempts = 0;
+          _lastConnectionError = null;
+          _stopReconnect();
           _messages.add(MessageItem('✅ Connected to session $sessionId', type: MessageType.system));
         });
         
@@ -490,6 +494,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } else {
         final error = data['error'] ?? 'Unknown error';
         setState(() {
+          _lastConnectionError = error.toString();
           _messages.add(MessageItem('❌ Failed to connect: $error', type: MessageType.system));
         });
         
@@ -501,12 +506,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // 세션 ID를 비우고 새 세션 생성
           _sessionIdController.clear();
           await _createSession();
+        } else {
+          // 다른 에러는 재연결 시도
+          _scheduleReconnect();
         }
       }
     } catch (e) {
       setState(() {
+        _lastConnectionError = e.toString();
         _messages.add(MessageItem('❌ Error connecting to session: $e', type: MessageType.system));
       });
+      _scheduleReconnect();
     }
   }
 
@@ -1723,37 +1733,92 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ),
                       ],
                     ),
-                    if (_isConnected && _connectionType == ConnectionType.relay && _sessionId != null) ...[
+                    // 연결 상태 표시
+                    if (_isConnected) ...[
                       const SizedBox(height: 12),
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
+                          color: Colors.green.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.green.withOpacity(0.3)),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.info_outline, size: 18, color: Colors.blue),
+                            const Icon(Icons.check_circle, size: 18, color: Colors.green),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _connectionType == ConnectionType.local
+                                        ? '✅ 로컬 서버에 연결됨'
+                                        : '✅ 릴레이 서버에 연결됨',
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.green,
+                                    ),
+                                  ),
+                                  if (_connectionType == ConnectionType.relay && _sessionId != null) ...[
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            '세션 ID: $_sessionId',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.grey[700],
+                                              fontFamily: 'monospace',
+                                            ),
+                                          ),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(Icons.copy, size: 16),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          onPressed: () {
+                                            Clipboard.setData(ClipboardData(text: _sessionId!));
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(
+                                                content: Text('세션 ID가 클립보드에 복사되었습니다'),
+                                                duration: Duration(seconds: 1),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ] else if (!_isConnected && !_isReconnecting) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey.withOpacity(0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.cloud_off, size: 18, color: Colors.grey),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'PC에서 같은 세션 ID로 연결하세요: $_sessionId',
-                                style: const TextStyle(fontSize: 12),
+                                '연결되지 않음',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey[700],
+                                ),
                               ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.copy, size: 18),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              onPressed: () {
-                                Clipboard.setData(ClipboardData(text: _sessionId!));
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('세션 ID가 클립보드에 복사되었습니다'),
-                                    duration: Duration(seconds: 1),
-                                  ),
-                                );
-                              },
                             ),
                           ],
                         ),

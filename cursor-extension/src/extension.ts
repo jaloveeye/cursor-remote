@@ -99,8 +99,16 @@ export async function activate(context: vscode.ExtensionContext) {
         
         if (connected) {
             outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Client connected - Ready to receive commands`);
+            // 연결 상태 전송
+            if (wsServer) {
+                wsServer.sendConnectionStatus();
+            }
         } else {
             outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Client disconnected`);
+            // 연결 상태 전송
+            if (wsServer) {
+                wsServer.sendConnectionStatus();
+            }
         }
     });
 

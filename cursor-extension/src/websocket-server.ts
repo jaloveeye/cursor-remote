@@ -252,6 +252,33 @@ export class WebSocketServer {
     getClientCount(): number {
         return this.clients.size;
     }
+    
+    getConnectionStatus(): {
+        isRunning: boolean;
+        clientCount: number;
+        port: number | null;
+    } {
+        return {
+            isRunning: this.isRunning(),
+            clientCount: this.clients.size,
+            port: this.getActualPort()
+        };
+    }
+    
+    // 연결 상태를 클라이언트에 전송
+    sendConnectionStatus() {
+        const status = this.getConnectionStatus();
+        const statusMessage = JSON.stringify({
+            type: 'connection_status',
+            status: status.isRunning ? 'connected' : 'disconnected',
+            source: 'extension',
+            message: status.isRunning 
+                ? `WebSocket server running on port ${status.port} (${status.clientCount} client(s))`
+                : 'WebSocket server not running',
+            data: status
+        });
+        this.send(statusMessage);
+    }
 
     send(message: string) {
         if (!this.wss) {

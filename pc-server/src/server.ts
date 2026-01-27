@@ -417,14 +417,34 @@ function stopPolling() {
 
 // HTTP 엔드포인트
 app.get('/status', (req, res) => {
+    const extensionStatus = activeExtensionId !== null && extensionClients.has(activeExtensionId) 
+        ? extensionClients.get(activeExtensionId)?.readyState === WebSocket.OPEN 
+        : false;
+    
     res.json({
         relayServer: RELAY_SERVER_URL,
         sessionId,
         isConnected,
         isLocalMode,
         localMobileConnected: localMobileClient !== null && localMobileClient.readyState === WebSocket.OPEN,
-        extensionConnected: activeExtensionId !== null && extensionClients.has(activeExtensionId) && extensionClients.get(activeExtensionId)?.readyState === WebSocket.OPEN,
-        activeExtensionCount: extensionClients.size
+        extensionConnected: extensionStatus,
+        activeExtensionCount: extensionClients.size,
+        reconnectAttempts: reconnectAttempts,
+        isReconnecting: reconnectTimer !== null,
+        connections: {
+            extension: {
+                connected: extensionStatus,
+                activeCount: extensionClients.size,
+                activeExtensionId: activeExtensionId
+            },
+            mobile: {
+                connected: localMobileClient !== null && localMobileClient.readyState === WebSocket.OPEN
+            },
+            relay: {
+                connected: isConnected && !isLocalMode,
+                sessionId: sessionId
+            }
+        }
     });
 });
 
