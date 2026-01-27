@@ -429,6 +429,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 
                 if (!found) {
                   print('⚠️ Could not find User Prompt to update');
+                } else {
+                  // UI 강제 업데이트를 위해 스크롤
+                  Future.microtask(() {
+                    if (mounted) {
+                      _scrollToBottom();
+                    }
+                  });
                 }
               }
             });
@@ -850,6 +857,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               
               if (!found) {
                 print('⚠️ Could not find User Prompt to update (relay)');
+              } else {
+                // UI 강제 업데이트를 위해 스크롤
+                Future.microtask(() {
+                  if (mounted) {
+                    _scrollToBottom();
+                  }
+                });
               }
             }
           });
