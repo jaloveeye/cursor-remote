@@ -410,11 +410,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   if (_messages[i].type == MessageType.userPrompt) {
                     // agentMode가 null인 경우 (자동 모드로 전송된 경우) 업데이트
                     if (_messages[i].agentMode == null) {
-                      _messages[i] = MessageItem(
+                      final updatedItem = MessageItem(
                         _messages[i].text,
                         type: _messages[i].type,
                         agentMode: actualMode,
                       );
+                      _messages[i] = updatedItem;
+                      // _lastUserPrompt도 업데이트
+                      if (_lastUserPrompt != null && _lastUserPrompt!.text == _messages[i].text) {
+                        _lastUserPrompt = updatedItem;
+                      }
                       print('🤖 Updated User Prompt mode to: $actualMode (text: ${_messages[i].text.substring(0, _messages[i].text.length > 30 ? 30 : _messages[i].text.length)}...)');
                       found = true;
                       break;
@@ -826,11 +831,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 if (_messages[i].type == MessageType.userPrompt) {
                   // agentMode가 null인 경우 (자동 모드로 전송된 경우) 업데이트
                   if (_messages[i].agentMode == null) {
-                    _messages[i] = MessageItem(
+                    final updatedItem = MessageItem(
                       _messages[i].text,
                       type: _messages[i].type,
                       agentMode: actualMode,
                     );
+                    _messages[i] = updatedItem;
+                    // _lastUserPrompt도 업데이트
+                    if (_lastUserPrompt != null && _lastUserPrompt!.text == _messages[i].text) {
+                      _lastUserPrompt = updatedItem;
+                    }
                     print('🤖 Updated User Prompt mode to: $actualMode (relay, text: ${_messages[i].text.substring(0, _messages[i].text.length > 30 ? 30 : _messages[i].text.length)}...)');
                     found = true;
                     break;
@@ -1274,8 +1284,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     color: Colors.green,
                   ),
                 ),
-                // 에이전트 모드 표시
-                if (message.agentMode != null) ...[
+                // 에이전트 모드 표시 (auto가 아닌 모든 경우)
+                if (message.agentMode != null && message.agentMode!.isNotEmpty && message.agentMode != 'auto') ...[
                   const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -2541,8 +2551,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                                       style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                                                     ),
                                                   ),
-                                                  // 에이전트 모드 표시
-                                                  if (agentMode != null && agentMode != 'auto') ...[
+                                                  // 에이전트 모드 표시 (auto가 아닌 모든 경우)
+                                                  if (agentMode != null && agentMode.isNotEmpty && agentMode != 'auto') ...[
                                                     const SizedBox(width: 4),
                                                     Container(
                                                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
