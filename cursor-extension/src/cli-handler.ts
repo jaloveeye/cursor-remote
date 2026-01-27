@@ -456,28 +456,46 @@ export class CLIHandler {
                 this.log(`CLI stdout content: ${stdout.substring(0, 500)}`);
             }
             
-            // stdout에서 JSON 추출 시도 (하위 호환성: 혹시 JSON이 포함된 경우)
-            const jsonMatch = stdout.match(/\{[\s\S]*\}/);
-            let responseText = stdout.trim();
+            // stream-json 형식: 여러 JSON 라인이 있을 수 있음
+            // 각 라인을 파싱하여 result 타입의 최종 결과 추출
+            let responseText = '';
             let extractedSessionId: string | null = null;
             
-            if (jsonMatch) {
+            // 각 라인을 파싱하여 result 타입 찾기
+            const lines = stdout.split('\n').filter(line => line.trim().length > 0);
+            
+            for (const line of lines) {
                 try {
-                    const jsonData = JSON.parse(jsonMatch[0]);
-                    this.log(`Parsed JSON data: ${JSON.stringify(jsonData).substring(0, 200)}`);
+                    const jsonData = JSON.parse(line.trim());
                     
-                    // JSON에서 텍스트 추출 시도
-                    const jsonText = jsonData.result || jsonData.text || jsonData.response || jsonData.message;
-                    if (jsonText && typeof jsonText === 'string') {
-                        responseText = jsonText;
+                    // session_id 추출
+                    const sessionId = jsonData.session_id || jsonData.sessionId || jsonData.chatId || jsonData.chat_id;
+                    if (sessionId && !extractedSessionId) {
+                        extractedSessionId = sessionId;
                     }
                     
-                    // session_id 추출 시도
-                    extractedSessionId = jsonData.session_id || jsonData.sessionId || jsonData.chatId || jsonData.chat_id || null;
+                    // result 타입: 최종 결과
+                    if (jsonData.type === 'result' && jsonData.result) {
+                        if (typeof jsonData.result === 'string') {
+                            responseText = jsonData.result;
+                        }
+                    }
+                    // assistant 타입: 스트리밍이 이미 완료되었으므로 무시
+                    // (스트리밍이 작동했다면 이미 전송됨)
                 } catch (e) {
-                    // JSON 파싱 실패 시 일반 텍스트 사용
-                    this.log('JSON parsing failed, using stdout as text');
+                    // JSON 파싱 실패 시 해당 라인 무시
+                    continue;
                 }
+            }
+            
+            // result 타입을 찾지 못한 경우, 스트리밍된 텍스트 사용
+            if (!responseText && clientId) {
+                responseText = this.lastStreamedText.get(clientId) || '';
+            }
+            
+            // 여전히 없으면 전체 stdout 사용 (하위 호환성)
+            if (!responseText) {
+                responseText = stdout.trim();
             }
             
             // session_id 저장 (JSON에서 추출한 경우)
@@ -571,7 +589,9 @@ export class CLIHandler {
     /**
      * 실시간 스트리밍 청크 처리
      * stream-json 형식: 각 델타가 JSON으로 출력됨
-     * 예: {"delta": "텍스트 델타", ...} 형태의 JSON 라인들
+     * - thinking 타입: 내부 사고 과정 (스트리밍하지 않음)
+     * - assistant 타입: 실제 응답 텍스트 (스트리밍)
+     * - result 타입: 최종 결과 (스트리밍 완료 시 사용)
      */
     private processStreamingChunk(buffer: string, clientId: string) {
         try {
@@ -587,26 +607,47 @@ export class CLIHandler {
                     // JSON 델타 파싱 시도
                     const jsonData = JSON.parse(line.trim());
                     
-                    // stream-json 형식의 델타 추출
-                    const delta = jsonData.delta || jsonData.text || jsonData.result || '';
+                    // session_id 추출 (있는 경우)
+                    const extractedSessionId = jsonData.session_id || jsonData.sessionId || jsonData.chatId || jsonData.chat_id;
+                    if (extractedSessionId && clientId) {
+                        this.clientSessions.set(clientId, extractedSessionId);
+                    }
                     
-                    if (delta && typeof delta === 'string') {
-                        accumulatedText += delta;
-                        hasNewData = true;
-                        
-                        // session_id 추출 (있는 경우)
-                        const extractedSessionId = jsonData.session_id || jsonData.sessionId || jsonData.chatId || jsonData.chat_id;
-                        if (extractedSessionId && clientId) {
-                            this.clientSessions.set(clientId, extractedSessionId);
+                    // 타입별 처리
+                    const messageType = jsonData.type;
+                    
+                    if (messageType === 'assistant') {
+                        // assistant 타입: 실제 응답 텍스트 추출
+                        const message = jsonData.message;
+                        if (message && message.content && Array.isArray(message.content)) {
+                            for (const content of message.content) {
+                                if (content.type === 'text' && content.text) {
+                                    const text = content.text;
+                                    // 이전 텍스트와 비교하여 새로운 부분만 추가
+                                    if (text.length > accumulatedText.length && text.startsWith(accumulatedText)) {
+                                        accumulatedText = text;
+                                        hasNewData = true;
+                                    } else if (text !== accumulatedText) {
+                                        // 텍스트가 완전히 바뀐 경우
+                                        accumulatedText = text;
+                                        hasNewData = true;
+                                    }
+                                }
+                            }
+                        }
+                    } else if (messageType === 'result' && jsonData.result) {
+                        // result 타입: 최종 결과 (전체 텍스트로 교체)
+                        const resultText = jsonData.result;
+                        if (typeof resultText === 'string' && resultText.length > 0) {
+                            accumulatedText = resultText;
+                            hasNewData = true;
                         }
                     }
+                    // thinking 타입은 무시 (내부 사고 과정)
+                    // system, user 타입도 무시
                 } catch (parseError) {
-                    // JSON이 아닌 경우 일반 텍스트로 처리
-                    // (하위 호환성: 일반 텍스트 출력도 지원)
-                    if (line.trim().length > 0) {
-                        accumulatedText += line + '\n';
-                        hasNewData = true;
-                    }
+                    // JSON이 아닌 경우 무시 (stream-json 형식에서는 모든 라인이 JSON이어야 함)
+                    // 일반 텍스트 출력은 하위 호환성을 위해 지원하지 않음
                 }
             }
             
