@@ -162,14 +162,14 @@ export class CLIHandler {
     async sendPrompt(text: string, execute: boolean = true, clientId?: string, newSession: boolean = false, agentMode: 'agent' | 'ask' | 'plan' | 'debug' | 'auto' = 'auto'): Promise<void> {
         this.log(`sendPrompt called - textLength: ${text.length}, execute: ${execute}, clientId: ${clientId || 'none'}, newSession: ${newSession}`);
         
-        // 에이전트 모드 설정 (히스토리 저장 전에 결정)
-        let selectedModeForHistory: string = 'agent'; // 기본값
+        // 에이전트 모드 설정 (히스토리 저장 및 CLI 실행에 사용)
+        let selectedMode: string = 'agent'; // 기본값
         if (agentMode && agentMode !== 'auto') {
-            selectedModeForHistory = agentMode;
+            selectedMode = agentMode;
         } else if (agentMode === 'auto') {
             // 자동 모드: 텍스트 내용을 분석하여 적절한 모드 선택
             const autoMode = this.detectAgentMode(text);
-            selectedModeForHistory = autoMode || 'agent'; // 기본 Agent 모드
+            selectedMode = autoMode || 'agent'; // 기본 Agent 모드
         }
         
         // 대화 히스토리 저장 (사용자 메시지 전송 시)
@@ -178,13 +178,13 @@ export class CLIHandler {
         if (clientId) {
             const currentSessionId = newSession ? null : (this.clientSessions.get(clientId) || null);
             const pendingId = `pending-${Date.now()}-${Math.random().toString(36).substring(7)}`; // 고유한 임시 ID 사용
-            this.log(`💾 Saving user message - sessionId: ${currentSessionId || pendingId}, clientId: ${clientId}, newSession: ${newSession}, agentMode: ${selectedModeForHistory}`);
+            this.log(`💾 Saving user message - sessionId: ${currentSessionId || pendingId}, clientId: ${clientId}, newSession: ${newSession}, agentMode: ${selectedMode}`);
             this.saveChatHistoryEntry({
                 sessionId: currentSessionId || pendingId,
                 clientId: clientId,
                 userMessage: text,
                 timestamp: new Date().toISOString(),
-                agentMode: selectedModeForHistory
+                agentMode: selectedMode
             });
             // pending ID를 저장하여 나중에 실제 sessionId로 업데이트할 수 있도록
             if (!currentSessionId) {
@@ -260,23 +260,13 @@ export class CLIHandler {
                 }
             }
             
-            // 에이전트 모드 설정
-            let selectedMode: string = 'agent'; // 기본값
-            if (agentMode && agentMode !== 'auto') {
-                args.push('--mode', agentMode);
-                selectedMode = agentMode;
-                this.log(`Using agent mode: ${agentMode}`);
-            } else if (agentMode === 'auto') {
-                // 자동 모드: 텍스트 내용을 분석하여 적절한 모드 선택
-                const autoMode = this.detectAgentMode(text);
-                if (autoMode) {
-                    args.push('--mode', autoMode);
-                    selectedMode = autoMode;
-                    this.log(`Auto-detected agent mode: ${autoMode}`);
-                } else {
-                    selectedMode = 'agent'; // 기본 Agent 모드
-                    this.log(`Auto mode: No specific mode detected, using default 'agent' mode`);
-                }
+            // 에이전트 모드 설정 (이미 위에서 결정됨)
+            if (selectedMode && selectedMode !== 'agent') {
+                args.push('--mode', selectedMode);
+                this.log(`Using agent mode: ${selectedMode}`);
+            } else if (selectedMode === 'agent') {
+                // 기본 Agent 모드는 --mode 인자 없이 사용
+                this.log(`Using default agent mode`);
             }
             
             // 선택된 모드를 사용자에게 알림 (로그를 통해)
