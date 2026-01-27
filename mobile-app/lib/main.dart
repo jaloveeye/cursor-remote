@@ -412,6 +412,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       type: _messages[i].type,
                       agentMode: actualMode,
                     );
+                    print('🤖 Updated User Prompt mode to: $actualMode');
                     break;
                   }
                 }
@@ -819,6 +820,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       type: _messages[i].type,
                       agentMode: actualMode,
                     );
+                    print('🤖 Updated User Prompt mode to: $actualMode (relay)');
                     break;
                   }
                 }
@@ -1026,6 +1028,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           );
           _lastUserPrompt = promptItem;
           _messages.add(promptItem);
+          
+          // 디버깅: 모드 정보 출력
+          print('📝 User Prompt added - mode: $promptMode, agentMode: ${promptItem.agentMode}');
         });
       }
 
@@ -1253,7 +1258,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     color: Colors.green,
                   ),
                 ),
-                // 에이전트 모드 표시 (자동 모드로 선택된 경우)
+                // 에이전트 모드 표시
                 if (message.agentMode != null) ...[
                   const SizedBox(width: 8),
                   Container(
@@ -2317,7 +2322,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             setState(() {
                               // 버튼 클릭 상태 업데이트
                             });
-                            _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false);
+                            _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false, agentMode: _selectedAgentMode);
                             // 텍스트 클리어 후 UI 업데이트
                             _commandController.clear();
                             if (mounted) {
