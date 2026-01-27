@@ -625,10 +625,15 @@ export class CLIHandler {
                                     const text = content.text;
                                     // 이전 텍스트와 비교하여 새로운 부분만 추가
                                     if (text.length > accumulatedText.length && text.startsWith(accumulatedText)) {
+                                        // 새로운 텍스트가 이전 텍스트로 시작하는 경우 (일반적인 경우)
                                         accumulatedText = text;
                                         hasNewData = true;
-                                    } else if (text !== accumulatedText) {
-                                        // 텍스트가 완전히 바뀐 경우
+                                    } else if (accumulatedText.length > 0 && text.startsWith(accumulatedText) && text.length >= accumulatedText.length) {
+                                        // 이전 텍스트로 시작하지만 길이가 같거나 더 긴 경우
+                                        accumulatedText = text;
+                                        hasNewData = true;
+                                    } else if (text !== accumulatedText && text.length > 0) {
+                                        // 텍스트가 완전히 바뀐 경우 또는 처음 시작하는 경우
                                         accumulatedText = text;
                                         hasNewData = true;
                                     }
@@ -654,24 +659,31 @@ export class CLIHandler {
             // 새로운 데이터가 있으면 전송
             if (hasNewData && this.wsServer) {
                 const lastText = this.lastStreamedText.get(clientId) || '';
-                const newText = accumulatedText.substring(lastText.length);
                 
-                if (newText.length > 0) {
-                    const currentSessionId = this.clientSessions.get(clientId) || undefined;
+                // accumulatedText가 lastText와 다른 경우 전송
+                if (accumulatedText !== lastText) {
+                    const newText = accumulatedText.length > lastText.length 
+                        ? accumulatedText.substring(lastText.length)
+                        : accumulatedText; // 처음 시작하는 경우 전체 텍스트
                     
-                    const chunkMessage = {
-                        type: 'chat_response_chunk',
-                        text: newText,
-                        fullText: accumulatedText,
-                        timestamp: new Date().toISOString(),
-                        source: 'cli',
-                        sessionId: currentSessionId || undefined,
-                        clientId: clientId
-                    };
-                    
-                    this.wsServer.send(JSON.stringify(chunkMessage));
-                    this.lastStreamedText.set(clientId, accumulatedText);
-                    this.log(`📤 Streaming chunk sent (${newText.length} chars, total: ${accumulatedText.length})`);
+                    if (newText.length > 0 || accumulatedText.length > 0) {
+                        const currentSessionId = this.clientSessions.get(clientId) || undefined;
+                        
+                        const chunkMessage = {
+                            type: 'chat_response_chunk',
+                            text: newText.length > 0 ? newText : accumulatedText, // newText가 비어있으면 전체 텍스트 사용
+                            fullText: accumulatedText,
+                            timestamp: new Date().toISOString(),
+                            source: 'cli',
+                            sessionId: currentSessionId || undefined,
+                            clientId: clientId,
+                            isReplace: newText.length === 0 // 처음 시작하거나 전체 교체인 경우
+                        };
+                        
+                        this.wsServer.send(JSON.stringify(chunkMessage));
+                        this.lastStreamedText.set(clientId, accumulatedText);
+                        this.log(`📤 Streaming chunk sent (${newText.length > 0 ? newText.length : accumulatedText.length} chars, total: ${accumulatedText.length})`);
+                    }
                 }
             }
         } catch (error) {
