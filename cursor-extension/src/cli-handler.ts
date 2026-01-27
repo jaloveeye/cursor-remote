@@ -221,22 +221,14 @@ export class CLIHandler {
             }
 
             // Cursor CLI 실행
-            // 테스트: 대화형 모드 (--print 없이)
-            // --output-format json: JSON 형식으로 출력 (대화형 모드에서도 작동하는지 테스트)
+            // 스트리밍을 위해 --output-format json을 제거하고 일반 텍스트 출력 사용
             // --force: 자동 실행 (승인 없이)
-            // --continue: 이전 세션 재개 (대화 컨텍스트 유지)
-            // 주의: -p 없이 실행하면 대화형 모드가 되지만, JSON 출력이 제대로 작동하는지 확인 필요
             const args: string[] = [];
             
             // 클라이언트에서 새 세션 시작 여부 결정
             if (newSession) {
                 // 클라이언트가 명시적으로 새 세션을 요청한 경우
                 this.log(`Starting new session (client requested) for client ${clientId || 'global'}`);
-                // 기존 세션 ID는 무시하고 새로 시작
-                if (clientId) {
-                    // 클라이언트별 세션 맵에서 제거 (선택사항 - 나중에 재사용할 수도 있으므로 유지)
-                    // this.clientSessions.delete(clientId);
-                }
             } else {
                 // 기존 세션 재개 시도
                 let sessionId: string | null = null;
@@ -251,23 +243,31 @@ export class CLIHandler {
                     args.push('--resume', sessionId);
                     this.log(`Resuming chat session for client ${clientId || 'global'}: ${sessionId}`);
                 } else {
-                    // 세션이 없으면 새로 시작 (--continue 없이)
+                    // 세션이 없으면 새로 시작
                     this.log(`Starting new chat session for client ${clientId || 'global'} (no existing session)`);
                 }
             }
             
-            args.push('--output-format', 'json', '--force', text);
+            // 스트리밍을 위해 JSON 형식 제거, 일반 텍스트 출력 사용
+            args.push('--force', text);
             
             this.log(`Executing: ${cliCommand} ${args.join(' ')}`);
 
             // 현재 작업 디렉토리 설정
             const cwd = this.workspaceRoot || process.cwd();
 
+            // stdout 버퍼링 최소화를 위한 환경 변수 설정
+            const env = {
+                ...process.env,
+                PYTHONUNBUFFERED: '1', // Python 스크립트 버퍼링 비활성화 (만약 사용하는 경우)
+                NODE_NO_WARNINGS: '1'
+            };
+            
             this.currentProcess = child_process.spawn(cliCommand, args, {
                 cwd: cwd,
                 stdio: ['ignore', 'pipe', 'pipe'], // stdin은 무시, stdout/stderr는 파이프
                 shell: false,
-                env: { ...process.env } // 환경 변수 전달
+                env: env
             });
             
             this.log(`CLI process spawned (PID: ${this.currentProcess.pid})`);
@@ -298,8 +298,13 @@ export class CLIHandler {
 
             // stdout 수집 및 실시간 스트리밍
             if (this.currentProcess.stdout) {
-                // 버퍼링 비활성화 (가능한 경우)
+                // 버퍼링 최소화: 즉시 플러시되도록 설정
                 this.currentProcess.stdout.setEncoding('utf8');
+                
+                // Node.js 버퍼링 최소화 (가능한 경우)
+                if (this.currentProcess.stdout.setDefaultEncoding) {
+                    this.currentProcess.stdout.setDefaultEncoding('utf8');
+                }
                 
                 // 스트리밍 버퍼 초기화
                 if (currentClientId) {
@@ -447,70 +452,80 @@ export class CLIHandler {
         
         this.log(`Processing output - stdout length: ${stdout.length}, stderr length: ${stderr.length}`);
 
-        // JSON 출력 파싱 시도
+        // 일반 텍스트 출력 처리 (JSON 형식 사용 안 함, 스트리밍용)
         try {
             if (stdout.length > 0) {
                 this.log(`CLI stdout content: ${stdout.substring(0, 500)}`);
             }
             
-            // stdout에서 JSON 추출 시도
+            // stdout에서 JSON 추출 시도 (하위 호환성: 혹시 JSON이 포함된 경우)
             const jsonMatch = stdout.match(/\{[\s\S]*\}/);
+            let responseText = stdout.trim();
+            let extractedSessionId: string | null = null;
+            
             if (jsonMatch) {
-                const jsonData = JSON.parse(jsonMatch[0]);
-                this.log(`Parsed JSON data: ${JSON.stringify(jsonData).substring(0, 200)}`);
-                
-                // Cursor CLI 응답 형식: {"type":"result","result":"응답 텍스트",...}
-                // 또는 {"text":"응답 텍스트",...}
-                // 또는 {"response":"응답 텍스트",...}
-                const responseText = jsonData.result || jsonData.text || jsonData.response || jsonData.message || stdout;
-                
-                // 대화형 모드: session_id 추출 및 저장
-                const extractedSessionId = jsonData.session_id || jsonData.sessionId || jsonData.chatId || jsonData.chat_id;
-                if (extractedSessionId) {
-                    // 클라이언트별 세션 저장
-                    if (clientId) {
-                        this.clientSessions.set(clientId, extractedSessionId);
-                        this.log(`💾 Saved session ID for client ${clientId}: ${extractedSessionId}`);
-                        this.log(`💾 Total clients with sessions: ${this.clientSessions.size}`);
-                        // 디버깅: 모든 클라이언트 세션 출력
-                        this.clientSessions.forEach((session, cid) => {
-                            this.log(`   - Client ${cid}: Session ${session}`);
-                        });
-                    } else {
-                        // 전역 세션 (하위 호환성) - 경고 로그
-                        this.log(`⚠️ No clientId provided, saving to global session (this may cause session sharing!)`);
-                        this.lastChatId = extractedSessionId;
-                        this.log(`💾 Saved global session ID: ${extractedSessionId}`);
-                    }
-                }
-                
-                this.log(`Extracted response text length: ${responseText.length}`);
-                
-                // 대화 히스토리 저장 (응답 수신 시)
-                const currentSessionId = extractedSessionId || (clientId ? this.clientSessions.get(clientId) : this.lastChatId);
-                if (clientId) {
-                    // sessionId가 있으면 사용, 없으면 pending ID 사용
-                    const sessionIdToUse = currentSessionId || this.pendingHistoryIds.get(clientId) || 'unknown';
-                    this.log(`💾 Saving assistant response - sessionId: ${sessionIdToUse}, clientId: ${clientId}, hasPendingId: ${this.pendingHistoryIds.has(clientId)}`);
-                    this.saveChatHistoryEntry({
-                        sessionId: sessionIdToUse,
-                        clientId: clientId,
-                        assistantResponse: responseText,
-                        timestamp: new Date().toISOString()
-                    });
+                try {
+                    const jsonData = JSON.parse(jsonMatch[0]);
+                    this.log(`Parsed JSON data: ${JSON.stringify(jsonData).substring(0, 200)}`);
                     
-                    // pending ID가 있었고 실제 sessionId를 받았으면 업데이트
-                    if (extractedSessionId && this.pendingHistoryIds.has(clientId)) {
-                        const pendingId = this.pendingHistoryIds.get(clientId)!;
-                        this.log(`💾 Updating pending sessionId ${pendingId} to ${extractedSessionId}`);
-                        // 히스토리 파일에서 pending ID를 실제 sessionId로 업데이트
-                        this.updatePendingSessionId(clientId, pendingId, extractedSessionId);
-                        this.pendingHistoryIds.delete(clientId);
+                    // JSON에서 텍스트 추출 시도
+                    const jsonText = jsonData.result || jsonData.text || jsonData.response || jsonData.message;
+                    if (jsonText && typeof jsonText === 'string') {
+                        responseText = jsonText;
                     }
+                    
+                    // session_id 추출 시도
+                    extractedSessionId = jsonData.session_id || jsonData.sessionId || jsonData.chatId || jsonData.chat_id || null;
+                } catch (e) {
+                    // JSON 파싱 실패 시 일반 텍스트 사용
+                    this.log('JSON parsing failed, using stdout as text');
                 }
+            }
+            
+            // session_id 저장 (JSON에서 추출한 경우)
+            if (extractedSessionId) {
+                if (clientId) {
+                    this.clientSessions.set(clientId, extractedSessionId);
+                    this.log(`💾 Saved session ID for client ${clientId}: ${extractedSessionId}`);
+                } else {
+                    this.lastChatId = extractedSessionId;
+                    this.log(`💾 Saved global session ID: ${extractedSessionId}`);
+                }
+            }
+            
+            this.log(`Extracted response text length: ${responseText.length}`);
+            
+            // 대화 히스토리 저장 (응답 수신 시)
+            const currentSessionId = extractedSessionId || (clientId ? this.clientSessions.get(clientId) : this.lastChatId);
+            if (clientId) {
+                // sessionId가 있으면 사용, 없으면 pending ID 사용
+                const sessionIdToUse = currentSessionId || this.pendingHistoryIds.get(clientId) || 'unknown';
+                this.log(`💾 Saving assistant response - sessionId: ${sessionIdToUse}, clientId: ${clientId}, hasPendingId: ${this.pendingHistoryIds.has(clientId)}`);
+                this.saveChatHistoryEntry({
+                    sessionId: sessionIdToUse,
+                    clientId: clientId,
+                    assistantResponse: responseText,
+                    timestamp: new Date().toISOString()
+                });
                 
-                // WebSocket으로 응답 전송
-                if (this.wsServer && responseText) {
+                // pending ID가 있었고 실제 sessionId를 받았으면 업데이트
+                if (extractedSessionId && this.pendingHistoryIds.has(clientId)) {
+                    const pendingId = this.pendingHistoryIds.get(clientId)!;
+                    this.log(`💾 Updating pending sessionId ${pendingId} to ${extractedSessionId}`);
+                    this.updatePendingSessionId(clientId, pendingId, extractedSessionId);
+                    this.pendingHistoryIds.delete(clientId);
+                }
+            }
+            
+            // WebSocket으로 최종 응답 전송 (스트리밍이 이미 완료되었으므로 중복 방지를 위해 선택적)
+            // 스트리밍이 정상 작동했다면 이 메시지는 무시될 수 있음
+            // 하지만 하위 호환성을 위해 유지
+            if (this.wsServer && responseText) {
+                // 스트리밍이 이미 완료되었는지 확인
+                const wasStreaming = clientId && this.lastStreamedText.has(clientId);
+                
+                if (!wasStreaming) {
+                    // 스트리밍이 없었다면 일반 응답으로 전송
                     const responseMessage = {
                         type: 'chat_response',
                         text: responseText,
@@ -527,30 +542,15 @@ export class CLIHandler {
                     this.wsServer.send(JSON.stringify(responseMessage));
                     this.log('✅ Chat response sent to WebSocket');
                 } else {
-                    this.logError('wsServer is null or responseText is empty');
+                    this.log('⚠️ Streaming was active, skipping duplicate chat_response');
                 }
             } else {
-                // JSON이 없으면 전체 stdout을 응답으로 사용
-                this.log('No JSON match found, using stdout as text');
-                if (this.wsServer && stdout.trim()) {
-                    const responseMessage = {
-                        type: 'chat_response',
-                        text: stdout.trim(),
-                        timestamp: new Date().toISOString(),
-                        source: 'cli'
-                    };
-                    
-                    this.log(`Sending chat_response (from stdout): ${JSON.stringify(responseMessage).substring(0, 200)}`);
-                    this.wsServer.send(JSON.stringify(responseMessage));
-                    this.log('✅ Chat response sent to WebSocket (from stdout)');
-                } else {
-                    this.logError('wsServer is null or stdout is empty');
-                }
+                this.logError('wsServer is null or responseText is empty');
             }
-        } catch (parseError) {
-            // JSON 파싱 실패 시 전체 출력을 텍스트로 전송
-            const errorMsg = parseError instanceof Error ? parseError.message : 'Unknown error';
-            this.logError(`JSON parsing error: ${errorMsg}`);
+        } catch (error) {
+            // 에러 발생 시 전체 출력을 텍스트로 전송
+            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+            this.logError(`Output processing error: ${errorMsg}`);
             this.logError(`stdout: ${stdout.substring(0, 500)}`);
             
             if (this.wsServer) {
@@ -572,89 +572,58 @@ export class CLIHandler {
 
     /**
      * 실시간 스트리밍 청크 처리
-     * stdout 버퍼에서 완전한 JSON을 찾아서 result 필드를 추출하고 전송
+     * stdout 버퍼에서 텍스트를 실시간으로 추출하여 전송
+     * 일반 텍스트 출력을 스트리밍 (JSON 형식 사용 안 함)
      */
     private processStreamingChunk(buffer: string, clientId: string) {
         try {
-            // 버퍼에서 완전한 JSON 찾기
-            const jsonMatch = buffer.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) {
-                // 완전한 JSON이 아직 없으면 대기
-                return;
-            }
-
-            try {
-                const jsonData = JSON.parse(jsonMatch[0]);
+            // 이전에 전송한 텍스트와 비교하여 새로운 부분만 추출
+            const lastText = this.lastStreamedText.get(clientId) || '';
+            
+            // 버퍼에서 마지막으로 전송한 텍스트 이후의 새로운 부분 추출
+            if (buffer.length > lastText.length && buffer.startsWith(lastText)) {
+                // 새로운 텍스트가 추가된 경우
+                const newText = buffer.substring(lastText.length);
                 
-                // result 필드 추출
-                const responseText = jsonData.result || jsonData.text || jsonData.response || jsonData.message || '';
-                
-                if (!responseText || typeof responseText !== 'string') {
-                    return;
-                }
-
-                // 이전에 전송한 텍스트와 비교하여 새로운 부분만 추출
-                const lastText = this.lastStreamedText.get(clientId) || '';
-                
-                if (responseText.length > lastText.length && responseText.startsWith(lastText)) {
-                    // 새로운 텍스트가 추가된 경우
-                    const newText = responseText.substring(lastText.length);
+                if (newText.length > 0 && this.wsServer) {
+                    // 현재 세션 ID 가져오기
+                    const currentSessionId = this.clientSessions.get(clientId) || undefined;
                     
-                    if (newText.length > 0 && this.wsServer) {
-                        // sessionId 추출 (첫 번째로 발견된 경우)
-                        const extractedSessionId = jsonData.session_id || jsonData.sessionId || jsonData.chatId || jsonData.chat_id;
-                        const currentSessionId = extractedSessionId || this.clientSessions.get(clientId) || undefined;
-                        
-                        // 클라이언트 세션 저장
-                        if (extractedSessionId && clientId) {
-                            this.clientSessions.set(clientId, extractedSessionId);
-                        }
-                        
-                        // 스트리밍 청크 전송
-                        const chunkMessage = {
-                            type: 'chat_response_chunk',
-                            text: newText,
-                            fullText: responseText, // 전체 텍스트도 포함 (클라이언트에서 중복 제거용)
-                            timestamp: new Date().toISOString(),
-                            source: 'cli',
-                            sessionId: currentSessionId || undefined,
-                            clientId: clientId
-                        };
-                        
-                        this.wsServer.send(JSON.stringify(chunkMessage));
-                        this.lastStreamedText.set(clientId, responseText);
-                        this.log(`📤 Streaming chunk sent (${newText.length} chars, total: ${responseText.length})`);
-                    }
-                } else if (responseText !== lastText) {
-                    // 텍스트가 완전히 바뀐 경우 (덮어쓰기)
-                    if (this.wsServer) {
-                        const extractedSessionId = jsonData.session_id || jsonData.sessionId || jsonData.chatId || jsonData.chat_id;
-                        const currentSessionId = extractedSessionId || this.clientSessions.get(clientId) || undefined;
-                        
-                        if (extractedSessionId && clientId) {
-                            this.clientSessions.set(clientId, extractedSessionId);
-                        }
-                        
-                        const chunkMessage = {
-                            type: 'chat_response_chunk',
-                            text: responseText,
-                            fullText: responseText,
-                            timestamp: new Date().toISOString(),
-                            source: 'cli',
-                            sessionId: currentSessionId || undefined,
-                            clientId: clientId,
-                            isReplace: true // 전체 교체 플래그
-                        };
-                        
-                        this.wsServer.send(JSON.stringify(chunkMessage));
-                        this.lastStreamedText.set(clientId, responseText);
-                        this.log(`📤 Streaming chunk sent (replace, ${responseText.length} chars)`);
-                    }
+                    // 스트리밍 청크 전송
+                    const chunkMessage = {
+                        type: 'chat_response_chunk',
+                        text: newText,
+                        fullText: buffer, // 전체 텍스트도 포함 (클라이언트에서 중복 제거용)
+                        timestamp: new Date().toISOString(),
+                        source: 'cli',
+                        sessionId: currentSessionId || undefined,
+                        clientId: clientId
+                    };
+                    
+                    this.wsServer.send(JSON.stringify(chunkMessage));
+                    this.lastStreamedText.set(clientId, buffer);
+                    this.log(`📤 Streaming chunk sent (${newText.length} chars, total: ${buffer.length})`);
                 }
-            } catch (jsonParseError) {
-                // JSON 파싱 실패 (아직 완전하지 않은 JSON)
-                // 다음 청크를 기다림
-                return;
+            } else if (buffer !== lastText && buffer.length > 0) {
+                // 텍스트가 완전히 바뀐 경우 (덮어쓰기) 또는 처음 시작
+                if (this.wsServer) {
+                    const currentSessionId = this.clientSessions.get(clientId) || undefined;
+                    
+                    const chunkMessage = {
+                        type: 'chat_response_chunk',
+                        text: buffer,
+                        fullText: buffer,
+                        timestamp: new Date().toISOString(),
+                        source: 'cli',
+                        sessionId: currentSessionId || undefined,
+                        clientId: clientId,
+                        isReplace: true // 전체 교체 플래그
+                    };
+                    
+                    this.wsServer.send(JSON.stringify(chunkMessage));
+                    this.lastStreamedText.set(clientId, buffer);
+                    this.log(`📤 Streaming chunk sent (replace, ${buffer.length} chars)`);
+                }
             }
         } catch (error) {
             // 에러 발생 시 로그만 남기고 계속 진행
