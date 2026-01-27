@@ -964,11 +964,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     
     // Plan 모드 키워드
-    const planKeywords = ['plan', 'design', 'architecture', 'implement', 'create', 'build', 'feature', 'refactor'];
+    const planKeywords = ['plan', 'design', 'architecture', 'implement', 'create', 'build', 'feature', 'refactor', 'analyze', 'analysis', 'project', 'review', 'overview', 'structure'];
     if (planKeywords.any((keyword) => lowerText.contains(keyword))) {
       // 복잡한 작업 키워드 확인
-      const complexKeywords = ['multiple', 'several', 'many', 'system', 'module', 'component'];
+      const complexKeywords = ['multiple', 'several', 'many', 'system', 'module', 'component', 'project', '전체', '모든', '전반'];
       if (complexKeywords.any((keyword) => lowerText.contains(keyword))) {
+        return 'plan';
+      }
+      // "프로젝트 분석", "전체 분석" 같은 패턴도 Plan 모드
+      if (lowerText.contains('analyze') || lowerText.contains('analysis') || lowerText.contains('분석')) {
         return 'plan';
       }
     }
