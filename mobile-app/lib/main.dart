@@ -945,6 +945,43 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return Icons.smart_toy;
     }
   }
+  
+  // 텍스트 내용을 분석하여 적절한 에이전트 모드 자동 선택 (Extension의 detectAgentMode와 동일한 로직)
+  String? _detectAgentMode(String text) {
+    final lowerText = text.toLowerCase();
+    
+    // Debug 모드 키워드
+    const debugKeywords = ['bug', 'error', 'fix', 'debug', 'issue', 'problem', 'crash', 'exception', 'trace', 'log'];
+    if (debugKeywords.any((keyword) => lowerText.contains(keyword))) {
+      // 버그 관련 키워드가 있지만, 단순 질문인지 확인
+      if (lowerText.contains('why') || lowerText.contains('what') || lowerText.contains('how') || lowerText.contains('?')) {
+        // 질문 형태면 Ask 모드
+        if (lowerText.contains('explain') || lowerText.contains('understand') || lowerText.contains('learn')) {
+          return 'ask';
+        }
+      }
+      return 'debug';
+    }
+    
+    // Plan 모드 키워드
+    const planKeywords = ['plan', 'design', 'architecture', 'implement', 'create', 'build', 'feature', 'refactor'];
+    if (planKeywords.any((keyword) => lowerText.contains(keyword))) {
+      // 복잡한 작업 키워드 확인
+      const complexKeywords = ['multiple', 'several', 'many', 'system', 'module', 'component'];
+      if (complexKeywords.any((keyword) => lowerText.contains(keyword))) {
+        return 'plan';
+      }
+    }
+    
+    // Ask 모드 키워드 (질문, 학습, 탐색)
+    const askKeywords = ['explain', 'what is', 'how does', 'why', 'understand', 'learn', 'show me', 'tell me'];
+    if (askKeywords.any((keyword) => lowerText.contains(keyword)) || lowerText.endsWith('?')) {
+      return 'ask';
+    }
+    
+    // 기본값: Agent 모드 (코드 작성/수정 작업)
+    return null; // null이면 기본 Agent 모드 사용
+  }
 
   void _disconnect() {
     _stopPolling();
@@ -1060,17 +1097,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _isWaitingForResponse = true;
           // 사용자 프롬프트를 별도 타입으로 추가 (선택된 모드와 함께)
           final promptMode = mode ?? _selectedAgentMode;
-          // 자동 모드가 아닌 경우 즉시 모드 표시, 자동 모드는 나중에 업데이트
+          
+          // 자동 모드인 경우 텍스트를 분석하여 모드 미리 감지
+          String? finalMode;
+          if (promptMode == 'auto') {
+            final detectedMode = _detectAgentMode(text);
+            finalMode = detectedMode ?? 'agent'; // 감지되지 않으면 기본 Agent 모드
+            print('🤖 Auto mode detected: $finalMode for text: ${text.substring(0, text.length > 30 ? 30 : text.length)}...');
+          } else {
+            finalMode = promptMode;
+          }
+          
           final promptItem = MessageItem(
             text, 
             type: MessageType.userPrompt,
-            agentMode: promptMode == 'auto' ? null : promptMode,
+            agentMode: finalMode, // 자동 모드도 미리 감지된 모드로 표시
           );
           _lastUserPrompt = promptItem;
           _messages.add(promptItem);
           
           // 디버깅: 모드 정보 출력
-          print('📝 User Prompt added - mode: $promptMode, agentMode: ${promptItem.agentMode}');
+          print('📝 User Prompt added - mode: $promptMode, finalMode: $finalMode, agentMode: ${promptItem.agentMode}');
         });
       }
 
@@ -1298,7 +1345,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     color: Colors.green,
                   ),
                 ),
-                // 에이전트 모드 표시 (null이 아니고 auto가 아닌 모든 경우)
+                // 에이전트 모드 표시 (null이 아니고 auto가 아닌 모든 경우, 자동 모드도 미리 감지되어 표시됨)
                 if (message.agentMode != null && message.agentMode!.isNotEmpty && message.agentMode != 'auto') ...[
                   const SizedBox(width: 8),
                   Container(
