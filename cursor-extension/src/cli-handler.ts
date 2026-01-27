@@ -249,17 +249,27 @@ export class CLIHandler {
             }
             
             // 에이전트 모드 설정
+            let selectedMode: string = 'agent'; // 기본값
             if (agentMode && agentMode !== 'auto') {
                 args.push('--mode', agentMode);
+                selectedMode = agentMode;
                 this.log(`Using agent mode: ${agentMode}`);
             } else if (agentMode === 'auto') {
                 // 자동 모드: 텍스트 내용을 분석하여 적절한 모드 선택
                 const autoMode = this.detectAgentMode(text);
                 if (autoMode) {
                     args.push('--mode', autoMode);
+                    selectedMode = autoMode;
                     this.log(`Auto-detected agent mode: ${autoMode}`);
+                } else {
+                    selectedMode = 'agent'; // 기본 Agent 모드
+                    this.log(`Auto mode: No specific mode detected, using default 'agent' mode`);
                 }
             }
+            
+            // 선택된 모드를 사용자에게 알림 (로그를 통해)
+            const modeDisplayName = this.getModeDisplayName(selectedMode);
+            this.log(`🤖 Agent Mode: ${modeDisplayName} (${selectedMode})`);
             
             // 스트리밍 지원: stream-json 형식과 부분 출력 스트리밍 활성화
             // -p: 비대화형 모드 (--stream-partial-output과 함께 사용)
@@ -1024,5 +1034,19 @@ export class CLIHandler {
         
         // 기본값: Agent 모드 (코드 작성/수정 작업)
         return null; // null이면 기본 Agent 모드 사용
+    }
+    
+    /**
+     * 모드 이름을 사용자 친화적인 표시 이름으로 변환
+     */
+    private getModeDisplayName(mode: string): string {
+        const modeNames: { [key: string]: string } = {
+            'agent': 'Agent (코딩 작업)',
+            'ask': 'Ask (질문/학습)',
+            'plan': 'Plan (계획 수립)',
+            'debug': 'Debug (버그 수정)',
+            'auto': 'Auto (자동 선택)'
+        };
+        return modeNames[mode] || mode;
     }
 }
