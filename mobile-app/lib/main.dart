@@ -133,6 +133,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   
   // 에이전트 모드 관련
   String _selectedAgentMode = 'auto'; // auto, agent, ask, plan, debug
+  String? _actualSelectedMode; // 자동 모드로 선택된 경우 실제 선택된 모드 (null이면 사용자가 직접 선택)
   
   final List<MessageItem> _messages = [];
   final TextEditingController _commandController = TextEditingController();
@@ -386,6 +387,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
           
           _messages.add(MessageItem(logText, type: MessageType.log));
+        } else if (type == 'agent_mode_selected') {
+          // 자동 모드로 선택된 실제 모드 정보
+          final requestedMode = data['requestedMode'] ?? 'auto';
+          final actualMode = data['actualMode'] ?? 'agent';
+          final displayName = data['displayName'] ?? actualMode;
+          
+          if (mounted) {
+            setState(() {
+              // 자동 모드로 선택된 경우에만 표시
+              if (requestedMode == 'auto' && _selectedAgentMode == 'auto') {
+                _actualSelectedMode = actualMode;
+              }
+            });
+            
+            // 사용자에게 알림 (SnackBar)
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('🤖 자동 모드: $displayName'),
+                duration: const Duration(seconds: 2),
+                backgroundColor: Colors.blue.shade700,
+              ),
+            );
+          }
         } else if (type == 'connection_status') {
           // 연결 상태 메시지 처리
           final status = data['status'] ?? 'unknown';
@@ -754,6 +778,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _messages.add(MessageItem(text, type: MessageType.chatResponse));
         _messages.add(MessageItem('', type: MessageType.chatResponseDivider));
         _isWaitingForResponse = false;
+      } else if (type == 'agent_mode_selected') {
+        // 자동 모드로 선택된 실제 모드 정보 (릴레이 서버 연결)
+        final requestedMode = messageData['requestedMode'] ?? 'auto';
+        final actualMode = messageData['actualMode'] ?? 'agent';
+        final displayName = messageData['displayName'] ?? actualMode;
+        
+        if (mounted) {
+          setState(() {
+            // 자동 모드로 선택된 경우에만 표시
+            if (requestedMode == 'auto' && _selectedAgentMode == 'auto') {
+              _actualSelectedMode = actualMode;
+            }
+          });
+          
+          // 사용자에게 알림 (SnackBar)
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('🤖 자동 모드: $displayName'),
+              duration: const Duration(seconds: 2),
+              backgroundColor: Colors.blue.shade700,
+            ),
+          );
+        }
       } else if (type == 'log') {
         // 실시간 로그 메시지 처리
         final logLevel = messageData['level'] ?? 'info';
@@ -785,6 +832,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     });
     _scrollToBottom();
+  }
+
+  // 모드 이름을 사용자 친화적인 표시 이름으로 변환
+  String _getModeDisplayName(String mode) {
+    switch (mode) {
+      case 'agent':
+        return 'Agent (코딩 작업)';
+      case 'ask':
+        return 'Ask (질문/학습)';
+      case 'plan':
+        return 'Plan (계획 수립)';
+      case 'debug':
+        return 'Debug (버그 수정)';
+      case 'auto':
+        return 'Auto (자동 선택)';
+      default:
+        return mode;
+    }
   }
 
   void _disconnect() {
@@ -2114,6 +2179,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               if (value != null) {
                                 setState(() {
                                   _selectedAgentMode = value;
+                                  // 사용자가 직접 모드를 선택하면 실제 모드 표시 초기화
+                                  if (value != 'auto') {
+                                    _actualSelectedMode = null;
+                                  }
                                 });
                               }
                             },
@@ -2121,6 +2190,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ),
                       ],
                     ),
+                    // 자동 모드로 선택된 경우 실제 모드 표시
+                    if (_selectedAgentMode == 'auto' && _actualSelectedMode != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4.0, left: 26.0),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline, size: 14, color: Colors.blue.shade700),
+                            const SizedBox(width: 4),
+                            Text(
+                              '실제 모드: ${_getModeDisplayName(_actualSelectedMode!)}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.blue.shade700,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     const SizedBox(height: 8),
                     KeyboardListener(
                       focusNode: FocusNode(),

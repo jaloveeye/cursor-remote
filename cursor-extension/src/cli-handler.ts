@@ -271,6 +271,17 @@ export class CLIHandler {
             const modeDisplayName = this.getModeDisplayName(selectedMode);
             this.log(`🤖 Agent Mode: ${modeDisplayName} (${selectedMode})`);
             
+            // 자동 모드로 선택된 경우, 실제 선택된 모드를 모바일 앱에 전송
+            if (agentMode === 'auto' && this.wsServer) {
+                this.wsServer.send(JSON.stringify({
+                    type: 'agent_mode_selected',
+                    requestedMode: 'auto',
+                    actualMode: selectedMode,
+                    displayName: modeDisplayName,
+                    timestamp: new Date().toISOString()
+                }));
+            }
+            
             // 스트리밍 지원: stream-json 형식과 부분 출력 스트리밍 활성화
             // -p: 비대화형 모드 (--stream-partial-output과 함께 사용)
             // --output-format stream-json: 스트리밍 JSON 형식
