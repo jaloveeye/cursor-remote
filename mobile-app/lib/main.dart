@@ -1284,8 +1284,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     color: Colors.green,
                   ),
                 ),
-                // 에이전트 모드 표시 (auto가 아닌 모든 경우)
+                // 에이전트 모드 표시 (null이 아니고 auto가 아닌 모든 경우)
                 if (message.agentMode != null && message.agentMode!.isNotEmpty && message.agentMode != 'auto') ...[
+                  // 디버깅
+                  if (_messages.indexOf(message) == _messages.length - 1) {
+                    print('🎨 Rendering User Prompt with mode: ${message.agentMode}');
+                  }
                   const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -2531,6 +2535,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                   final assistantMsg = entry['assistantResponse'] as String? ?? '';
                                   final timestamp = entry['timestamp'] as String? ?? '';
                                   final agentMode = entry['agentMode'] as String?;
+                                  
+                                  // 디버깅: 첫 번째 항목만 로그 출력
+                                  if (index == 0) {
+                                    print('📋 History entry - agentMode: $agentMode, userMsg: ${userMsg.substring(0, userMsg.length > 20 ? 20 : userMsg.length)}...');
+                                  }
                                   
                                   return Card(
                                     margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
