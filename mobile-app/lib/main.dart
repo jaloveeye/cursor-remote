@@ -1300,10 +1300,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
                 // 에이전트 모드 표시 (null이 아니고 auto가 아닌 모든 경우)
                 if (message.agentMode != null && message.agentMode!.isNotEmpty && message.agentMode != 'auto') ...[
-                  // 디버깅
-                  if (_messages.indexOf(message) == _messages.length - 1) {
-                    print('🎨 Rendering User Prompt with mode: ${message.agentMode}');
-                  }
                   const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
