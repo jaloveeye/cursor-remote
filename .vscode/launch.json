@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/cursor-extension"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/cursor-extension/out/**/*.js"
+      ],
+      "preLaunchTask": "npm: compile - cursor-extension"
+    },
+    {
+      "name": "Extension Tests",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/cursor-extension",
+        "--extensionTestsPath=${workspaceFolder}/cursor-extension/out/test/suite/index"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/cursor-extension/out/test/**/*.js"
+      ],
+      "preLaunchTask": "npm: compile - cursor-extension"
+    }
+  ]
+}
