@@ -131,6 +131,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _isReconnecting = false;
   String? _lastConnectionError;
   
+  // 에이전트 모드 관련
+  String _selectedAgentMode = 'auto'; // auto, agent, ask, plan, debug
+  
   final List<MessageItem> _messages = [];
   final TextEditingController _commandController = TextEditingController();
   final TextEditingController _sessionIdController = TextEditingController();
@@ -858,7 +861,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _connect();
   }
 
-  Future<void> _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt, bool? terminal, bool? execute, String? action, bool? newSession, String? clientId, String? sessionId, int? limit}) async {
+  Future<void> _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt, bool? terminal, bool? execute, String? action, bool? newSession, String? clientId, String? sessionId, int? limit, String? agentMode}) async {
     // 연결 상태 재확인
     _checkConnectionState();
     
@@ -872,6 +875,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
 
     try {
+      // agentMode가 제공되지 않으면 선택된 모드 사용 (또는 auto)
+      final mode = agentMode ?? _selectedAgentMode;
+      
       final commandData = {
         'type': type,
         'id': DateTime.now().millisecondsSinceEpoch.toString(),
@@ -886,6 +892,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (clientId != null) 'clientId': clientId,
         if (sessionId != null) 'sessionId': sessionId,
         if (limit != null) 'limit': limit,
+        if (mode != null && mode != 'auto') 'agentMode': mode,
       };
 
       // 프롬프트 전송 시 사용자 프롬프트를 별도로 기록하고 응답 대기 상태 설정
@@ -2032,6 +2039,89 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // 에이전트 모드 선택
+                    Row(
+                      children: [
+                        const Icon(Icons.smart_toy, size: 18, color: Colors.blue),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Agent Mode:',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: DropdownButton<String>(
+                            value: _selectedAgentMode,
+                            isExpanded: true,
+                            isDense: true,
+                            underline: Container(),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'auto',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.auto_awesome, size: 16),
+                                    SizedBox(width: 4),
+                                    Text('Auto (자동 선택)', style: TextStyle(fontSize: 12)),
+                                  ],
+                                ),
+                              ),
+                              DropdownMenuItem(
+                                value: 'agent',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.code, size: 16),
+                                    SizedBox(width: 4),
+                                    Text('Agent (코딩 작업)', style: TextStyle(fontSize: 12)),
+                                  ],
+                                ),
+                              ),
+                              DropdownMenuItem(
+                                value: 'ask',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.help_outline, size: 16),
+                                    SizedBox(width: 4),
+                                    Text('Ask (질문/학습)', style: TextStyle(fontSize: 12)),
+                                  ],
+                                ),
+                              ),
+                              DropdownMenuItem(
+                                value: 'plan',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.assignment, size: 16),
+                                    SizedBox(width: 4),
+                                    Text('Plan (계획 수립)', style: TextStyle(fontSize: 12)),
+                                  ],
+                                ),
+                              ),
+                              DropdownMenuItem(
+                                value: 'debug',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.bug_report, size: 16),
+                                    SizedBox(width: 4),
+                                    Text('Debug (버그 수정)', style: TextStyle(fontSize: 12)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() {
+                                  _selectedAgentMode = value;
+                                });
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
                     KeyboardListener(
                       focusNode: FocusNode(),
                       onKeyEvent: (event) {
@@ -2104,7 +2194,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 setState(() {
                                   // 버튼 클릭 상태 업데이트
                                 });
-                                _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false);
+                                _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false, agentMode: _selectedAgentMode);
                                 // 텍스트 클리어 후 UI 업데이트
                                 _commandController.clear();
                                 if (mounted) {
@@ -2302,7 +2392,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 setState(() {
                                   // 버튼 클릭 상태 업데이트
                                 });
-                                _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: true);
+                                _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: true, agentMode: _selectedAgentMode);
                                 _commandController.clear();
                                 if (mounted) {
                                   setState(() {
@@ -2328,7 +2418,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 setState(() {
                                   // 버튼 클릭 상태 업데이트
                                 });
-                                _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false);
+                                _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false, agentMode: _selectedAgentMode);
                                 _commandController.clear();
                                 if (mounted) {
                                   setState(() {

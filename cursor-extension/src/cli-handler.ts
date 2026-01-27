@@ -158,7 +158,7 @@ export class CLIHandler {
      * @param clientId 클라이언트 ID (세션 격리용, 선택사항)
      * @param newSession 새 세션 시작 여부 (클라이언트에서 결정, 기본값: false)
      */
-    async sendPrompt(text: string, execute: boolean = true, clientId?: string, newSession: boolean = false): Promise<void> {
+    async sendPrompt(text: string, execute: boolean = true, clientId?: string, newSession: boolean = false, agentMode: 'agent' | 'ask' | 'plan' | 'debug' | 'auto' = 'auto'): Promise<void> {
         this.log(`sendPrompt called - textLength: ${text.length}, execute: ${execute}, clientId: ${clientId || 'none'}, newSession: ${newSession}`);
         
         // 대화 히스토리 저장 (사용자 메시지 전송 시)
@@ -245,6 +245,19 @@ export class CLIHandler {
                 } else {
                     // 세션이 없으면 새로 시작
                     this.log(`Starting new chat session for client ${clientId || 'global'} (no existing session)`);
+                }
+            }
+            
+            // 에이전트 모드 설정
+            if (agentMode && agentMode !== 'auto') {
+                args.push('--mode', agentMode);
+                this.log(`Using agent mode: ${agentMode}`);
+            } else if (agentMode === 'auto') {
+                // 자동 모드: 텍스트 내용을 분석하여 적절한 모드 선택
+                const autoMode = this.detectAgentMode(text);
+                if (autoMode) {
+                    args.push('--mode', autoMode);
+                    this.log(`Auto-detected agent mode: ${autoMode}`);
                 }
             }
             
@@ -973,5 +986,43 @@ export class CLIHandler {
             this.logError('Failed to load chat history', error);
             return [];
         }
+    
+    /**
+     * 텍스트 내용을 분석하여 적절한 에이전트 모드 자동 선택
+     */
+    private detectAgentMode(text: string): 'agent' | 'ask' | 'plan' | 'debug' | null {
+        const lowerText = text.toLowerCase();
+        
+        // Debug 모드 키워드
+        const debugKeywords = ['bug', 'error', 'fix', 'debug', 'issue', 'problem', 'crash', 'exception', 'trace', 'log'];
+        if (debugKeywords.some(keyword => lowerText.includes(keyword))) {
+            // 버그 관련 키워드가 있지만, 단순 질문인지 확인
+            if (lowerText.includes('why') || lowerText.includes('what') || lowerText.includes('how') || lowerText.includes('?')) {
+                // 질문 형태면 Ask 모드
+                if (lowerText.includes('explain') || lowerText.includes('understand') || lowerText.includes('learn')) {
+                    return 'ask';
+                }
+            }
+            return 'debug';
+        }
+        
+        // Plan 모드 키워드
+        const planKeywords = ['plan', 'design', 'architecture', 'implement', 'create', 'build', 'feature', 'refactor'];
+        if (planKeywords.some(keyword => lowerText.includes(keyword))) {
+            // 복잡한 작업 키워드 확인
+            const complexKeywords = ['multiple', 'several', 'many', 'system', 'module', 'component'];
+            if (complexKeywords.some(keyword => lowerText.includes(keyword))) {
+                return 'plan';
+            }
+        }
+        
+        // Ask 모드 키워드 (질문, 학습, 탐색)
+        const askKeywords = ['explain', 'what is', 'how does', 'why', 'understand', 'learn', 'show me', 'tell me'];
+        if (askKeywords.some(keyword => lowerText.includes(keyword)) || lowerText.endsWith('?')) {
+            return 'ask';
+        }
+        
+        // 기본값: Agent 모드 (코드 작성/수정 작업)
+        return null; // null이면 기본 Agent 모드 사용
     }
 }

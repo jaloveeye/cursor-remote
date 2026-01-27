@@ -132,7 +132,8 @@ export class CommandRouter {
             } else if (isPrompt) {
                 this.log('Routing to prompt');
                 const newSession = command.newSession === true;
-                await this.commandHandler.insertToPrompt(command.text || '', execute, command.clientId, newSession);
+                const agentMode = command.agentMode || 'auto';
+                await this.commandHandler.insertToPrompt(command.text || '', execute, command.clientId, newSession, agentMode);
                 return { success: true, message: execute ? 'Text inserted to prompt and executed' : 'Text inserted to prompt' };
             } else {
                 this.log('Routing to editor (fallback)');
