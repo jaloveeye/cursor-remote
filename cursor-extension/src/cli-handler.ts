@@ -30,6 +30,8 @@ export class CLIHandler {
     private clientSessions: Map<string, string> = new Map(); // 클라이언트별 세션 ID 관리
     private chatHistoryFile: string | null = null; // 대화 히스토리 파일 경로
     private pendingHistoryIds: Map<string, string> = new Map(); // clientId -> pending sessionId (실제 sessionId로 업데이트용)
+    private streamingBuffers: Map<string, string> = new Map(); // clientId -> stdout buffer (스트리밍용)
+    private lastStreamedText: Map<string, string> = new Map(); // clientId -> 마지막으로 전송한 텍스트 (중복 제거용)
 
     constructor(outputChannel?: vscode.OutputChannel, wsServer?: WebSocketServer, workspaceRoot?: string) {
         this.outputChannel = outputChannel || null;
@@ -294,25 +296,49 @@ export class CLIHandler {
                 this.log(`⚠️ No clientId provided, using global session (lastChatId: ${this.lastChatId || 'none'})`);
             }
 
-            // stdout 수집
+            // stdout 수집 및 실시간 스트리밍
             if (this.currentProcess.stdout) {
                 // 버퍼링 비활성화 (가능한 경우)
                 this.currentProcess.stdout.setEncoding('utf8');
+                
+                // 스트리밍 버퍼 초기화
+                if (currentClientId) {
+                    this.streamingBuffers.set(currentClientId, '');
+                    this.lastStreamedText.set(currentClientId, '');
+                }
                 
                 this.currentProcess.stdout.on('data', (data: Buffer | string) => {
                     const chunk = typeof data === 'string' ? data : data.toString();
                     stdout += chunk;
                     this.log(`CLI stdout chunk (${chunk.length} bytes): ${chunk.substring(0, 200)}${chunk.length > 200 ? '...' : ''}`);
                     
-                    // 실시간으로 session_id 추출 시도 (대화형 모드)
-                    // 주의: clientId는 sendPrompt 호출 시점에만 알 수 있으므로 여기서는 전역 저장하지 않음
-                    // 클라이언트별 세션은 checkAndProcessOutput에서 처리
-                    // 이 부분은 제거하거나 주석 처리 (클라이언트별 세션 관리로 인해 불필요)
+                    // 실시간 스트리밍 처리
+                    if (currentClientId) {
+                        const buffer = (this.streamingBuffers.get(currentClientId) || '') + chunk;
+                        this.streamingBuffers.set(currentClientId, buffer);
+                        this.processStreamingChunk(buffer, currentClientId);
+                    }
                 });
                 
                 this.currentProcess.stdout.on('end', () => {
                     this.log('CLI stdout stream ended');
                     stdoutEnded = true;
+                    
+                    // 스트리밍 완료 신호 전송
+                    if (currentClientId && this.wsServer) {
+                        const completeMessage = {
+                            type: 'chat_response_complete',
+                            timestamp: new Date().toISOString(),
+                            clientId: currentClientId
+                        };
+                        this.wsServer.send(JSON.stringify(completeMessage));
+                        this.log('✅ Streaming complete signal sent');
+                        
+                        // 스트리밍 버퍼 정리
+                        this.streamingBuffers.delete(currentClientId);
+                        this.lastStreamedText.delete(currentClientId);
+                    }
+                    
                     // 프로세스가 종료된 후에만 처리 (중복 방지)
                     if (processClosed) {
                         this.checkAndProcessOutput(stdout, stderr, currentClientId);
@@ -541,6 +567,98 @@ export class CLIHandler {
             }
         } finally {
             this.processingOutput = false;
+        }
+    }
+
+    /**
+     * 실시간 스트리밍 청크 처리
+     * stdout 버퍼에서 완전한 JSON을 찾아서 result 필드를 추출하고 전송
+     */
+    private processStreamingChunk(buffer: string, clientId: string) {
+        try {
+            // 버퍼에서 완전한 JSON 찾기
+            const jsonMatch = buffer.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+                // 완전한 JSON이 아직 없으면 대기
+                return;
+            }
+
+            try {
+                const jsonData = JSON.parse(jsonMatch[0]);
+                
+                // result 필드 추출
+                const responseText = jsonData.result || jsonData.text || jsonData.response || jsonData.message || '';
+                
+                if (!responseText || typeof responseText !== 'string') {
+                    return;
+                }
+
+                // 이전에 전송한 텍스트와 비교하여 새로운 부분만 추출
+                const lastText = this.lastStreamedText.get(clientId) || '';
+                
+                if (responseText.length > lastText.length && responseText.startsWith(lastText)) {
+                    // 새로운 텍스트가 추가된 경우
+                    const newText = responseText.substring(lastText.length);
+                    
+                    if (newText.length > 0 && this.wsServer) {
+                        // sessionId 추출 (첫 번째로 발견된 경우)
+                        const extractedSessionId = jsonData.session_id || jsonData.sessionId || jsonData.chatId || jsonData.chat_id;
+                        const currentSessionId = extractedSessionId || this.clientSessions.get(clientId) || undefined;
+                        
+                        // 클라이언트 세션 저장
+                        if (extractedSessionId && clientId) {
+                            this.clientSessions.set(clientId, extractedSessionId);
+                        }
+                        
+                        // 스트리밍 청크 전송
+                        const chunkMessage = {
+                            type: 'chat_response_chunk',
+                            text: newText,
+                            fullText: responseText, // 전체 텍스트도 포함 (클라이언트에서 중복 제거용)
+                            timestamp: new Date().toISOString(),
+                            source: 'cli',
+                            sessionId: currentSessionId || undefined,
+                            clientId: clientId
+                        };
+                        
+                        this.wsServer.send(JSON.stringify(chunkMessage));
+                        this.lastStreamedText.set(clientId, responseText);
+                        this.log(`📤 Streaming chunk sent (${newText.length} chars, total: ${responseText.length})`);
+                    }
+                } else if (responseText !== lastText) {
+                    // 텍스트가 완전히 바뀐 경우 (덮어쓰기)
+                    if (this.wsServer) {
+                        const extractedSessionId = jsonData.session_id || jsonData.sessionId || jsonData.chatId || jsonData.chat_id;
+                        const currentSessionId = extractedSessionId || this.clientSessions.get(clientId) || undefined;
+                        
+                        if (extractedSessionId && clientId) {
+                            this.clientSessions.set(clientId, extractedSessionId);
+                        }
+                        
+                        const chunkMessage = {
+                            type: 'chat_response_chunk',
+                            text: responseText,
+                            fullText: responseText,
+                            timestamp: new Date().toISOString(),
+                            source: 'cli',
+                            sessionId: currentSessionId || undefined,
+                            clientId: clientId,
+                            isReplace: true // 전체 교체 플래그
+                        };
+                        
+                        this.wsServer.send(JSON.stringify(chunkMessage));
+                        this.lastStreamedText.set(clientId, responseText);
+                        this.log(`📤 Streaming chunk sent (replace, ${responseText.length} chars)`);
+                    }
+                }
+            } catch (jsonParseError) {
+                // JSON 파싱 실패 (아직 완전하지 않은 JSON)
+                // 다음 청크를 기다림
+                return;
+            }
+        } catch (error) {
+            // 에러 발생 시 로그만 남기고 계속 진행
+            this.logError('Error processing streaming chunk', error);
         }
     }
 

@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 // Relay 서버 URL
 const String RELAY_SERVER_URL = 'https://relay.jaloveeye.com';
@@ -47,6 +46,8 @@ class HomePage extends StatefulWidget {
 class MessageType {
   static const String normal = 'normal';
   static const String chatResponse = 'chat_response';
+  static const String chatResponseChunk = 'chat_response_chunk'; // 스트리밍 청크
+  static const String chatResponseComplete = 'chat_response_complete'; // 스트리밍 완료
   static const String chatResponseHeader = 'chat_response_header';
   static const String chatResponseDivider = 'chat_response_divider';
   static const String userMessage = 'user_message';
@@ -74,6 +75,8 @@ class MessageItem {
   MessageFilter? get filterCategory {
     switch (type) {
       case MessageType.chatResponse:
+      case MessageType.chatResponseChunk:
+      case MessageType.chatResponseComplete:
       case MessageType.chatResponseHeader:
       case MessageType.chatResponseDivider:
       case MessageType.geminiResponse:
@@ -104,6 +107,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String? _currentCursorSessionId; // 현재 Cursor CLI 세션 ID
   String? _currentClientId; // 현재 클라이언트 ID
   Timer? _pollTimer;
+  
+  // 스트리밍 관련
+  int? _streamingMessageIndex; // 현재 스트리밍 중인 메시지의 인덱스
+  String _streamingText = ''; // 스트리밍 중인 텍스트
   
   // 세션 및 대화 히스토리
   Map<String, dynamic>? _sessionInfo; // 현재 세션 정보
@@ -534,7 +541,85 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } else if (type == 'terminal_output') {
         final text = messageData['text'] ?? '';
         _messages.add(MessageItem('📟 Terminal: $text', type: MessageType.terminalOutput));
+      } else if (type == 'chat_response_chunk') {
+        // 스트리밍 청크 처리
+        final chunkText = messageData['text'] ?? '';
+        final fullText = messageData['fullText'] ?? chunkText;
+        final isReplace = messageData['isReplace'] == true;
+        
+        // 세션 ID 추출 및 저장
+        if (messageData['sessionId'] != null) {
+          setState(() {
+            _currentCursorSessionId = messageData['sessionId'] as String;
+          });
+        }
+        if (messageData['clientId'] != null) {
+          final newClientId = messageData['clientId'] as String;
+          setState(() {
+            if (_currentClientId == null) {
+              _currentClientId = newClientId;
+              _loadSessionInfo();
+              _loadChatHistory();
+            } else if (_currentClientId != newClientId) {
+              _currentClientId = newClientId;
+              _loadSessionInfo();
+              _loadChatHistory();
+            }
+          });
+        }
+        
+        setState(() {
+          // 첫 번째 청크인 경우 메시지 추가
+          if (_streamingMessageIndex == null) {
+            _messages.add(MessageItem('', type: MessageType.chatResponseDivider));
+            _messages.add(MessageItem('🤖 Cursor AI Response', type: MessageType.chatResponseHeader));
+            _streamingText = isReplace ? fullText : chunkText;
+            _messages.add(MessageItem(_streamingText, type: MessageType.chatResponseChunk));
+            _streamingMessageIndex = _messages.length - 1;
+          } else {
+            // 기존 스트리밍 메시지 업데이트
+            if (isReplace) {
+              _streamingText = fullText;
+            } else {
+              _streamingText += chunkText;
+            }
+            // 메시지 업데이트
+            if (_streamingMessageIndex! < _messages.length) {
+              _messages[_streamingMessageIndex!] = MessageItem(_streamingText, type: MessageType.chatResponseChunk);
+            }
+          }
+        });
+        _scrollToBottom();
+      } else if (type == 'chat_response_complete') {
+        // 스트리밍 완료 처리
+        setState(() {
+          if (_streamingMessageIndex != null && _streamingMessageIndex! < _messages.length) {
+            // 스트리밍 메시지를 일반 chat_response로 변경
+            _messages[_streamingMessageIndex!] = MessageItem(_streamingText, type: MessageType.chatResponse);
+            _streamingMessageIndex = null;
+            _streamingText = '';
+          }
+          // 세션 ID 추출 및 저장
+          if (messageData['clientId'] != null) {
+            final newClientId = messageData['clientId'] as String;
+            if (_currentClientId == null || _currentClientId != newClientId) {
+              _currentClientId = newClientId;
+              _loadSessionInfo();
+            }
+            // 히스토리 새로고침
+            Future.delayed(const Duration(milliseconds: 500), () {
+              _loadChatHistory();
+            });
+          } else if (_currentClientId != null) {
+            Future.delayed(const Duration(milliseconds: 500), () {
+              _loadChatHistory();
+            });
+          }
+          _isWaitingForResponse = false;
+        });
+        _scrollToBottom();
       } else if (type == 'chat_response') {
+        // 기존 방식 (비스트리밍 응답) - 하위 호환성
         // 세션 ID 추출 및 저장
         if (messageData['sessionId'] != null) {
           setState(() {
@@ -741,7 +826,58 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
     }
     
-    // 채팅 응답 본문
+    // 채팅 응답 본문 (스트리밍 중)
+    if (message.type == MessageType.chatResponseChunk) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+        color: Colors.blue.withOpacity(0.05),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: SelectableText(
+                    message.text,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+                // 스트리밍 인디케이터
+                const SizedBox(width: 8),
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0.0, end: 1.0),
+                  duration: const Duration(milliseconds: 500),
+                  builder: (context, value, child) {
+                    return Opacity(
+                      opacity: value,
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: Colors.blue,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    );
+                  },
+                  onEnd: () {
+                    // 애니메이션 반복
+                    if (mounted) {
+                      setState(() {});
+                    }
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+    
+    // 채팅 응답 본문 (완료)
     if (message.type == MessageType.chatResponse) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
