@@ -1093,32 +1093,62 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
       // 프롬프트 전송 시 사용자 프롬프트를 별도로 기록하고 응답 대기 상태 설정
       if (prompt == true && execute == true && text != null) {
+        // 자동 모드인 경우 텍스트를 분석하여 모드 미리 감지
+        final promptMode = mode ?? _selectedAgentMode;
+        String? detectedModeForHistory;
+        
+        if (promptMode == 'auto') {
+          final detectedMode = _detectAgentMode(text);
+          detectedModeForHistory = detectedMode ?? 'agent'; // 감지되지 않으면 기본 Agent 모드
+          print('🤖 Auto mode detected: $detectedModeForHistory for text: ${text.substring(0, text.length > 30 ? 30 : text.length)}...');
+        } else {
+          detectedModeForHistory = promptMode;
+        }
+        
         setState(() {
           _isWaitingForResponse = true;
           // 사용자 프롬프트를 별도 타입으로 추가 (선택된 모드와 함께)
-          final promptMode = mode ?? _selectedAgentMode;
-          
-          // 자동 모드인 경우 텍스트를 분석하여 모드 미리 감지
-          String? finalMode;
-          if (promptMode == 'auto') {
-            final detectedMode = _detectAgentMode(text);
-            finalMode = detectedMode ?? 'agent'; // 감지되지 않으면 기본 Agent 모드
-            print('🤖 Auto mode detected: $finalMode for text: ${text.substring(0, text.length > 30 ? 30 : text.length)}...');
-          } else {
-            finalMode = promptMode;
-          }
-          
           final promptItem = MessageItem(
             text, 
             type: MessageType.userPrompt,
-            agentMode: finalMode, // 자동 모드도 미리 감지된 모드로 표시
+            agentMode: detectedModeForHistory, // 자동 모드도 미리 감지된 모드로 표시
           );
           _lastUserPrompt = promptItem;
           _messages.add(promptItem);
           
           // 디버깅: 모드 정보 출력
-          print('📝 User Prompt added - mode: $promptMode, finalMode: $finalMode, agentMode: ${promptItem.agentMode}');
+          print('📝 User Prompt added - mode: $promptMode, detectedMode: $detectedModeForHistory, agentMode: ${promptItem.agentMode}');
         });
+        
+        // Extension에 감지된 모드 전달 (히스토리 저장용)
+        // 자동 모드일 때도 감지된 모드를 전달하여 히스토리에 저장되도록 함
+        if (promptMode == 'auto' && detectedModeForHistory != null) {
+          // commandData에 감지된 모드 추가
+          final commandDataWithDetectedMode = {
+            ...commandData,
+            'agentMode': detectedModeForHistory, // 감지된 모드 전달
+          };
+          
+          // commandData 업데이트
+          if (_connectionType == ConnectionType.local) {
+            // 로컬 서버로 메시지 전송 (WebSocket)
+            if (_localWebSocket != null) {
+              _localWebSocket!.sink.add(jsonEncode(commandDataWithDetectedMode));
+            }
+          } else {
+            // 릴레이 서버로 메시지 전송 (HTTP POST)
+            final response = await http.post(
+              Uri.parse('$RELAY_SERVER_URL/api/send?sessionId=$_sessionId&deviceType=mobile'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode(commandDataWithDetectedMode),
+            );
+            
+            if (response.statusCode != 200) {
+              throw Exception('Failed to send command: ${response.statusCode}');
+            }
+          }
+          return; // 이미 전송했으므로 아래 코드 실행하지 않음
+        }
       }
 
       if (_connectionType == ConnectionType.local) {
