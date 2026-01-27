@@ -221,7 +221,7 @@ export class CLIHandler {
             }
 
             // Cursor CLI 실행
-            // 스트리밍을 위해 --output-format json을 제거하고 일반 텍스트 출력 사용
+            // 스트리밍을 위해 --output-format stream-json과 --stream-partial-output 사용
             // --force: 자동 실행 (승인 없이)
             const args: string[] = [];
             
@@ -248,8 +248,11 @@ export class CLIHandler {
                 }
             }
             
-            // 스트리밍을 위해 JSON 형식 제거, 일반 텍스트 출력 사용
-            args.push('--force', text);
+            // 스트리밍 지원: stream-json 형식과 부분 출력 스트리밍 활성화
+            // -p: 비대화형 모드 (--stream-partial-output과 함께 사용)
+            // --output-format stream-json: 스트리밍 JSON 형식
+            // --stream-partial-output: 부분 출력 스트리밍
+            args.push('-p', '--output-format', 'stream-json', '--stream-partial-output', '--force', text);
             
             this.log(`Executing: ${cliCommand} ${args.join(' ')}`);
 
@@ -300,11 +303,6 @@ export class CLIHandler {
             if (this.currentProcess.stdout) {
                 // 버퍼링 최소화: 즉시 플러시되도록 설정
                 this.currentProcess.stdout.setEncoding('utf8');
-                
-                // Node.js 버퍼링 최소화 (가능한 경우)
-                if (this.currentProcess.stdout.setDefaultEncoding) {
-                    this.currentProcess.stdout.setDefaultEncoding('utf8');
-                }
                 
                 // 스트리밍 버퍼 초기화
                 if (currentClientId) {
@@ -572,28 +570,58 @@ export class CLIHandler {
 
     /**
      * 실시간 스트리밍 청크 처리
-     * stdout 버퍼에서 텍스트를 실시간으로 추출하여 전송
-     * 일반 텍스트 출력을 스트리밍 (JSON 형식 사용 안 함)
+     * stream-json 형식: 각 델타가 JSON으로 출력됨
+     * 예: {"delta": "텍스트 델타", ...} 형태의 JSON 라인들
      */
     private processStreamingChunk(buffer: string, clientId: string) {
         try {
-            // 이전에 전송한 텍스트와 비교하여 새로운 부분만 추출
-            const lastText = this.lastStreamedText.get(clientId) || '';
+            // stream-json 형식: 각 라인이 JSON 델타일 수 있음
+            // 버퍼를 라인 단위로 분리하여 각 JSON 델타 처리
+            const lines = buffer.split('\n').filter(line => line.trim().length > 0);
             
-            // 버퍼에서 마지막으로 전송한 텍스트 이후의 새로운 부분 추출
-            if (buffer.length > lastText.length && buffer.startsWith(lastText)) {
-                // 새로운 텍스트가 추가된 경우
-                const newText = buffer.substring(lastText.length);
+            let accumulatedText = this.lastStreamedText.get(clientId) || '';
+            let hasNewData = false;
+            
+            for (const line of lines) {
+                try {
+                    // JSON 델타 파싱 시도
+                    const jsonData = JSON.parse(line.trim());
+                    
+                    // stream-json 형식의 델타 추출
+                    const delta = jsonData.delta || jsonData.text || jsonData.result || '';
+                    
+                    if (delta && typeof delta === 'string') {
+                        accumulatedText += delta;
+                        hasNewData = true;
+                        
+                        // session_id 추출 (있는 경우)
+                        const extractedSessionId = jsonData.session_id || jsonData.sessionId || jsonData.chatId || jsonData.chat_id;
+                        if (extractedSessionId && clientId) {
+                            this.clientSessions.set(clientId, extractedSessionId);
+                        }
+                    }
+                } catch (parseError) {
+                    // JSON이 아닌 경우 일반 텍스트로 처리
+                    // (하위 호환성: 일반 텍스트 출력도 지원)
+                    if (line.trim().length > 0) {
+                        accumulatedText += line + '\n';
+                        hasNewData = true;
+                    }
+                }
+            }
+            
+            // 새로운 데이터가 있으면 전송
+            if (hasNewData && this.wsServer) {
+                const lastText = this.lastStreamedText.get(clientId) || '';
+                const newText = accumulatedText.substring(lastText.length);
                 
-                if (newText.length > 0 && this.wsServer) {
-                    // 현재 세션 ID 가져오기
+                if (newText.length > 0) {
                     const currentSessionId = this.clientSessions.get(clientId) || undefined;
                     
-                    // 스트리밍 청크 전송
                     const chunkMessage = {
                         type: 'chat_response_chunk',
                         text: newText,
-                        fullText: buffer, // 전체 텍스트도 포함 (클라이언트에서 중복 제거용)
+                        fullText: accumulatedText,
                         timestamp: new Date().toISOString(),
                         source: 'cli',
                         sessionId: currentSessionId || undefined,
@@ -601,28 +629,8 @@ export class CLIHandler {
                     };
                     
                     this.wsServer.send(JSON.stringify(chunkMessage));
-                    this.lastStreamedText.set(clientId, buffer);
-                    this.log(`📤 Streaming chunk sent (${newText.length} chars, total: ${buffer.length})`);
-                }
-            } else if (buffer !== lastText && buffer.length > 0) {
-                // 텍스트가 완전히 바뀐 경우 (덮어쓰기) 또는 처음 시작
-                if (this.wsServer) {
-                    const currentSessionId = this.clientSessions.get(clientId) || undefined;
-                    
-                    const chunkMessage = {
-                        type: 'chat_response_chunk',
-                        text: buffer,
-                        fullText: buffer,
-                        timestamp: new Date().toISOString(),
-                        source: 'cli',
-                        sessionId: currentSessionId || undefined,
-                        clientId: clientId,
-                        isReplace: true // 전체 교체 플래그
-                    };
-                    
-                    this.wsServer.send(JSON.stringify(chunkMessage));
-                    this.lastStreamedText.set(clientId, buffer);
-                    this.log(`📤 Streaming chunk sent (replace, ${buffer.length} chars)`);
+                    this.lastStreamedText.set(clientId, accumulatedText);
+                    this.log(`📤 Streaming chunk sent (${newText.length} chars, total: ${accumulatedText.length})`);
                 }
             }
         } catch (error) {
