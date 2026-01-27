@@ -70,8 +70,9 @@ class MessageItem {
   final String text;
   final String type; // MessageType 상수 사용
   final DateTime timestamp;
+  String? agentMode; // 에이전트 모드 (userPrompt 타입일 때만 사용)
   
-  MessageItem(this.text, {this.type = MessageType.normal}) : timestamp = DateTime.now();
+  MessageItem(this.text, {this.type = MessageType.normal, this.agentMode}) : timestamp = DateTime.now();
   
   // 필터 카테고리 결정
   MessageFilter? get filterCategory {
@@ -134,6 +135,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // 에이전트 모드 관련
   String _selectedAgentMode = 'auto'; // auto, agent, ask, plan, debug
   String? _actualSelectedMode; // 자동 모드로 선택된 경우 실제 선택된 모드 (null이면 사용자가 직접 선택)
+  MessageItem? _lastUserPrompt; // 마지막 User Prompt 메시지 (모드 업데이트용)
   
   final List<MessageItem> _messages = [];
   final TextEditingController _commandController = TextEditingController();
@@ -398,6 +400,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               // 자동 모드로 선택된 경우에만 표시
               if (requestedMode == 'auto' && _selectedAgentMode == 'auto') {
                 _actualSelectedMode = actualMode;
+                
+              // 마지막 User Prompt의 모드 업데이트
+              if (_lastUserPrompt != null) {
+                // 메시지 리스트에서 마지막 User Prompt 찾아서 업데이트
+                for (int i = _messages.length - 1; i >= 0; i--) {
+                  if (_messages[i].type == MessageType.userPrompt && 
+                      _messages[i].text == _lastUserPrompt!.text) {
+                    _messages[i] = MessageItem(
+                      _messages[i].text,
+                      type: _messages[i].type,
+                      agentMode: actualMode,
+                    );
+                    break;
+                  }
+                }
+              }
               }
             });
             
@@ -789,6 +807,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             // 자동 모드로 선택된 경우에만 표시
             if (requestedMode == 'auto' && _selectedAgentMode == 'auto') {
               _actualSelectedMode = actualMode;
+              
+              // 마지막 User Prompt의 모드 업데이트
+              if (_lastUserPrompt != null) {
+                // 메시지 리스트에서 마지막 User Prompt 찾아서 업데이트
+                for (int i = _messages.length - 1; i >= 0; i--) {
+                  if (_messages[i].type == MessageType.userPrompt && 
+                      _messages[i].text == _lastUserPrompt!.text) {
+                    _messages[i] = MessageItem(
+                      _messages[i].text,
+                      type: _messages[i].type,
+                      agentMode: actualMode,
+                    );
+                    break;
+                  }
+                }
+              }
             }
           });
           
@@ -838,17 +872,35 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String _getModeDisplayName(String mode) {
     switch (mode) {
       case 'agent':
-        return 'Agent (코딩 작업)';
+        return 'Agent';
       case 'ask':
-        return 'Ask (질문/학습)';
+        return 'Ask';
       case 'plan':
-        return 'Plan (계획 수립)';
+        return 'Plan';
       case 'debug':
-        return 'Debug (버그 수정)';
+        return 'Debug';
       case 'auto':
-        return 'Auto (자동 선택)';
+        return 'Auto';
       default:
         return mode;
+    }
+  }
+  
+  // 모드에 따른 아이콘 반환
+  IconData _getModeIcon(String mode) {
+    switch (mode) {
+      case 'agent':
+        return Icons.code;
+      case 'ask':
+        return Icons.help_outline;
+      case 'plan':
+        return Icons.assignment;
+      case 'debug':
+        return Icons.bug_report;
+      case 'auto':
+        return Icons.auto_awesome;
+      default:
+        return Icons.smart_toy;
     }
   }
 
@@ -964,8 +1016,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (prompt == true && execute == true && text != null) {
         setState(() {
           _isWaitingForResponse = true;
-          // 사용자 프롬프트를 별도 타입으로 추가
-          _messages.add(MessageItem(text, type: MessageType.userPrompt));
+          // 사용자 프롬프트를 별도 타입으로 추가 (선택된 모드와 함께)
+          final promptMode = mode ?? _selectedAgentMode;
+          // 자동 모드가 아닌 경우 즉시 모드 표시, 자동 모드는 나중에 업데이트
+          final promptItem = MessageItem(
+            text, 
+            type: MessageType.userPrompt,
+            agentMode: promptMode == 'auto' ? null : promptMode,
+          );
+          _lastUserPrompt = promptItem;
+          _messages.add(promptItem);
         });
       }
 
@@ -1193,6 +1253,37 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     color: Colors.green,
                   ),
                 ),
+                // 에이전트 모드 표시 (자동 모드로 선택된 경우)
+                if (message.agentMode != null) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade100,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: Colors.blue.shade300, width: 0.5),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _getModeIcon(message.agentMode!),
+                          size: 12,
+                          color: Colors.blue.shade700,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _getModeDisplayName(message.agentMode!),
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.blue.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const Spacer(),
                 Text(
                   _formatTime(message.timestamp),
