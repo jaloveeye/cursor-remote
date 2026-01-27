@@ -13,6 +13,7 @@ interface ChatHistoryEntry {
     userMessage: string;
     assistantResponse: string;
     timestamp: string;
+    agentMode?: string; // 에이전트 모드 (agent, ask, plan, debug, auto)
 }
 
 interface ChatHistory {
@@ -161,25 +162,36 @@ export class CLIHandler {
     async sendPrompt(text: string, execute: boolean = true, clientId?: string, newSession: boolean = false, agentMode: 'agent' | 'ask' | 'plan' | 'debug' | 'auto' = 'auto'): Promise<void> {
         this.log(`sendPrompt called - textLength: ${text.length}, execute: ${execute}, clientId: ${clientId || 'none'}, newSession: ${newSession}`);
         
-        // 대화 히스토리 저장 (사용자 메시지 전송 시)
-        // 세션 ID는 나중에 응답에서 받을 수 있으므로, 임시로 저장
-        // 주의: newSession이 true면 기존 세션을 무시하므로 히스토리도 새로 시작
-        if (clientId) {
-            const currentSessionId = newSession ? null : (this.clientSessions.get(clientId) || null);
-            const pendingId = `pending-${Date.now()}-${Math.random().toString(36).substring(7)}`; // 고유한 임시 ID 사용
-            this.log(`💾 Saving user message - sessionId: ${currentSessionId || pendingId}, clientId: ${clientId}, newSession: ${newSession}`);
-            this.saveChatHistoryEntry({
-                sessionId: currentSessionId || pendingId,
-                clientId: clientId,
-                userMessage: text,
-                timestamp: new Date().toISOString()
-            });
-            // pending ID를 저장하여 나중에 실제 sessionId로 업데이트할 수 있도록
-            if (!currentSessionId) {
-                this.pendingHistoryIds.set(clientId, pendingId);
-                this.log(`💾 Saved pending history ID: ${pendingId} for client ${clientId}`);
+            // 에이전트 모드 설정 (히스토리 저장 전에 결정)
+            let selectedMode: string = 'agent'; // 기본값
+            if (agentMode && agentMode !== 'auto') {
+                selectedMode = agentMode;
+            } else if (agentMode === 'auto') {
+                // 자동 모드: 텍스트 내용을 분석하여 적절한 모드 선택
+                const autoMode = this.detectAgentMode(text);
+                selectedMode = autoMode || 'agent'; // 기본 Agent 모드
             }
-        }
+            
+            // 대화 히스토리 저장 (사용자 메시지 전송 시)
+            // 세션 ID는 나중에 응답에서 받을 수 있으므로, 임시로 저장
+            // 주의: newSession이 true면 기존 세션을 무시하므로 히스토리도 새로 시작
+            if (clientId) {
+                const currentSessionId = newSession ? null : (this.clientSessions.get(clientId) || null);
+                const pendingId = `pending-${Date.now()}-${Math.random().toString(36).substring(7)}`; // 고유한 임시 ID 사용
+                this.log(`💾 Saving user message - sessionId: ${currentSessionId || pendingId}, clientId: ${clientId}, newSession: ${newSession}, agentMode: ${selectedMode}`);
+                this.saveChatHistoryEntry({
+                    sessionId: currentSessionId || pendingId,
+                    clientId: clientId,
+                    userMessage: text,
+                    timestamp: new Date().toISOString(),
+                    agentMode: selectedMode
+                });
+                // pending ID를 저장하여 나중에 실제 sessionId로 업데이트할 수 있도록
+                if (!currentSessionId) {
+                    this.pendingHistoryIds.set(clientId, pendingId);
+                    this.log(`💾 Saved pending history ID: ${pendingId} for client ${clientId}`);
+                }
+            }
 
         try {
             // CLI 설치 확인

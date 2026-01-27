@@ -2520,6 +2520,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                   final userMsg = entry['userMessage'] as String? ?? '';
                                   final assistantMsg = entry['assistantResponse'] as String? ?? '';
                                   final timestamp = entry['timestamp'] as String? ?? '';
+                                  final agentMode = entry['agentMode'] as String?;
                                   
                                   return Card(
                                     margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
@@ -2531,9 +2532,47 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                           if (userMsg.isNotEmpty)
                                             Padding(
                                               padding: const EdgeInsets.only(bottom: 4.0),
-                                              child: Text(
-                                                '👤 $userMsg',
-                                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                              child: Row(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      '👤 $userMsg',
+                                                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                                    ),
+                                                  ),
+                                                  // 에이전트 모드 표시
+                                                  if (agentMode != null && agentMode != 'auto') ...[
+                                                    const SizedBox(width: 4),
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.blue.shade100,
+                                                        borderRadius: BorderRadius.circular(3),
+                                                        border: Border.all(color: Colors.blue.shade300, width: 0.5),
+                                                      ),
+                                                      child: Row(
+                                                        mainAxisSize: MainAxisSize.min,
+                                                        children: [
+                                                          Icon(
+                                                            _getModeIcon(agentMode),
+                                                            size: 10,
+                                                            color: Colors.blue.shade700,
+                                                          ),
+                                                          const SizedBox(width: 2),
+                                                          Text(
+                                                            _getModeDisplayName(agentMode),
+                                                            style: TextStyle(
+                                                              fontSize: 8,
+                                                              fontWeight: FontWeight.w500,
+                                                              color: Colors.blue.shade700,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ],
                                               ),
                                             ),
                                           if (assistantMsg.isNotEmpty)
