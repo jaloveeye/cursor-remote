@@ -55,6 +55,7 @@ class MessageType {
   static const String geminiResponse = 'gemini_response';
   static const String terminalOutput = 'terminal_output';
   static const String system = 'system'; // Sent, Received, Command succeeded 등
+  static const String log = 'log'; // 실시간 로그
 }
 
 // 필터 카테고리
@@ -62,6 +63,7 @@ enum MessageFilter {
   aiResponse,   // Cursor AI Response
   userPrompt,   // 사용자가 입력한 프롬프트
   system,       // Sent, Received, Command succeeded 등
+  log,          // 실시간 로그
 }
 
 class MessageItem {
@@ -83,6 +85,8 @@ class MessageItem {
         return MessageFilter.aiResponse;
       case MessageType.userPrompt:
         return MessageFilter.userPrompt;
+      case MessageType.log:
+        return MessageFilter.log;
       case MessageType.system:
       case MessageType.normal:
       case MessageType.terminalOutput:
@@ -135,6 +139,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     MessageFilter.aiResponse: true,
     MessageFilter.userPrompt: true,
     MessageFilter.system: true,
+    MessageFilter.log: false, // 로그는 기본적으로 숨김
   };
   
   // 필터링된 메시지 목록
@@ -338,6 +343,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _messages.add(MessageItem('❌ Command failed: ${data['error']}', type: MessageType.system));
             _isWaitingForResponse = false;
           }
+        } else if (type == 'log') {
+          // 실시간 로그 메시지 처리
+          final logLevel = data['level'] ?? 'info';
+          final logMessage = data['message'] ?? '';
+          final logSource = data['source'] ?? 'unknown';
+          final logError = data['error'];
+          
+          String logPrefix = '';
+          switch (logSource) {
+            case 'extension':
+              logPrefix = '🔌 [Extension]';
+              break;
+            case 'pc-server':
+              logPrefix = '🖥️ [PC Server]';
+              break;
+            default:
+              logPrefix = '📝 [Log]';
+          }
+          
+          String logText = '$logPrefix $logMessage';
+          if (logError != null) {
+            logText += ' - Error: $logError';
+          }
+          
+          _messages.add(MessageItem(logText, type: MessageType.log));
         }
       });
       _scrollToBottom();
@@ -658,6 +688,34 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _messages.add(MessageItem(text, type: MessageType.chatResponse));
         _messages.add(MessageItem('', type: MessageType.chatResponseDivider));
         _isWaitingForResponse = false;
+      } else if (type == 'log') {
+        // 실시간 로그 메시지 처리
+        final logLevel = messageData['level'] ?? 'info';
+        final logMessage = messageData['message'] ?? '';
+        final logSource = messageData['source'] ?? 'unknown';
+        final logError = messageData['error'];
+        
+        String logPrefix = '';
+        switch (logSource) {
+          case 'extension':
+            logPrefix = '🔌 [Extension]';
+            break;
+          case 'pc-server':
+            logPrefix = '🖥️ [PC Server]';
+            break;
+          default:
+            logPrefix = '📝 [Log]';
+        }
+        
+        String logText = '$logPrefix $logMessage';
+        if (logError != null) {
+          logText += ' - Error: $logError';
+        }
+        
+        setState(() {
+          _messages.add(MessageItem(logText, type: MessageType.log));
+        });
+        _scrollToBottom();
       }
     });
     _scrollToBottom();
@@ -979,6 +1037,58 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   },
                 ),
               ],
+            ),
+          ],
+        ),
+      );
+    }
+    
+    // 로그 메시지 스타일
+    if (message.type == MessageType.log) {
+      // 로그 레벨에 따라 색상 결정
+      Color logColor = Colors.orange;
+      IconData logIcon = Icons.bug_report;
+      
+      // 메시지에서 레벨 추출 (간단한 방법)
+      final text = message.text.toLowerCase();
+      if (text.contains('[error]') || text.contains('error:')) {
+        logColor = Colors.red;
+        logIcon = Icons.error;
+      } else if (text.contains('[warn]') || text.contains('warning:')) {
+        logColor = Colors.orange;
+        logIcon = Icons.warning;
+      } else {
+        logColor = Colors.blue;
+        logIcon = Icons.info;
+      }
+      
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+        decoration: BoxDecoration(
+          color: logColor.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(6.0),
+          border: Border.all(color: logColor.withOpacity(0.3), width: 1),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              logIcon,
+              size: 14,
+              color: logColor,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: SelectableText(
+                message.text,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: logColor.withOpacity(0.9),
+                  fontFamily: 'monospace',
+                  height: 1.4,
+                ),
+              ),
             ),
           ],
         ),
@@ -1539,6 +1649,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               onSelected: (selected) {
                                 setState(() {
                                   _activeFilters[MessageFilter.userPrompt] = selected;
+                                });
+                              },
+                            ),
+                            FilterChip(
+                              label: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.bug_report, size: 14),
+                                  SizedBox(width: 4),
+                                  Text('Logs', style: TextStyle(fontSize: 12)),
+                                ],
+                              ),
+                              selected: _activeFilters[MessageFilter.log] ?? false,
+                              selectedColor: Colors.orange.withOpacity(0.2),
+                              checkmarkColor: Colors.orange,
+                              onSelected: (selected) {
+                                setState(() {
+                                  _activeFilters[MessageFilter.log] = selected;
                                 });
                               },
                             ),

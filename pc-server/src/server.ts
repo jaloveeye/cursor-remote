@@ -55,6 +55,20 @@ function connectToExtension() {
                 console.log('📥 Extension connection message received (ignored)');
                 return;
             }
+            
+            // 로그 메시지는 PC 서버 로그도 추가하여 전달
+            if (parsed.type === 'log') {
+                // PC 서버에서도 로그를 출력
+                const logLevel = parsed.level || 'info';
+                const logMessage = `[Extension] ${parsed.message}`;
+                if (logLevel === 'error') {
+                    console.error(logMessage);
+                } else if (logLevel === 'warn') {
+                    console.warn(logMessage);
+                } else {
+                    console.log(logMessage);
+                }
+            }
         } catch (e) {
             // JSON 파싱 실패 시 계속 진행
         }
@@ -380,6 +394,24 @@ function setupLocalWebSocketHandlers() {
     localWSServer.on('connection', (ws: WebSocket) => {
         console.log('📱 Local mobile client connected');
         localMobileClient = ws;
+        
+        // PC 서버 로그를 클라이언트에 전송하는 헬퍼 함수
+        const sendPCLog = (level: 'info' | 'warn' | 'error', message: string, error?: any) => {
+            if (ws.readyState === WebSocket.OPEN) {
+                const logData = {
+                    type: 'log',
+                    level,
+                    message,
+                    timestamp: new Date().toISOString(),
+                    source: 'pc-server',
+                    ...(error && { error: error instanceof Error ? error.message : String(error) })
+                };
+                ws.send(JSON.stringify(logData));
+            }
+        };
+        
+        // PC 서버 로그를 전송
+        sendPCLog('info', 'PC Server connected - Ready to receive commands');
         
         // 로컬 클라이언트가 연결되면 로컬 모드로 전환
         // 단, 세션 ID가 CLI 인자로 제공된 경우는 릴레이 모드 유지

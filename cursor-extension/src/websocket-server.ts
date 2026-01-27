@@ -18,22 +18,63 @@ export class WebSocketServer {
         this.outputChannel = outputChannel || null;
     }
 
-    private log(message: string) {
+    private log(message: string, level: 'info' | 'warn' | 'error' = 'info') {
         const timestamp = new Date().toLocaleTimeString();
         const logMessage = `[${timestamp}] ${message}`;
         if (this.outputChannel) {
             this.outputChannel.appendLine(logMessage);
         }
         console.log(logMessage);
+        
+        // 실시간 로그를 클라이언트에 전송
+        this.sendLogToClients({
+            level,
+            message,
+            timestamp: new Date().toISOString(),
+            source: 'extension'
+        });
     }
 
     private logError(message: string, error?: any) {
         const timestamp = new Date().toLocaleTimeString();
-        const logMessage = `[${timestamp}] ERROR: ${message}${error ? ` - ${error}` : ''}`;
+        const errorMessage = error instanceof Error ? error.message : String(error || '');
+        const logMessage = `[${timestamp}] ERROR: ${message}${errorMessage ? ` - ${errorMessage}` : ''}`;
         if (this.outputChannel) {
             this.outputChannel.appendLine(logMessage);
         }
         console.error(logMessage);
+        
+        // 에러 로그를 클라이언트에 전송
+        this.sendLogToClients({
+            level: 'error',
+            message: `${message}${errorMessage ? ` - ${errorMessage}` : ''}`,
+            timestamp: new Date().toISOString(),
+            source: 'extension',
+            error: errorMessage
+        });
+    }
+    
+    private sendLogToClients(logData: {
+        level: 'info' | 'warn' | 'error';
+        message: string;
+        timestamp: string;
+        source: string;
+        error?: string;
+    }) {
+        if (!this.wss || this.clients.size === 0) {
+            return;
+        }
+        
+        const logMessage = JSON.stringify({
+            type: 'log',
+            ...logData
+        });
+        
+        this.clients.forEach((client) => {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(logMessage);
+            }
+        });
     }
 
     private async findAvailablePort(startPort: number, maxAttempts: number = 10): Promise<number | null> {
