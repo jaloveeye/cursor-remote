@@ -395,28 +395,36 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           final actualMode = data['actualMode'] ?? 'agent';
           final displayName = data['displayName'] ?? actualMode;
           
+          print('📨 Received agent_mode_selected: requestedMode=$requestedMode, actualMode=$actualMode, _selectedAgentMode=$_selectedAgentMode');
+          
           if (mounted) {
             setState(() {
               // 자동 모드로 선택된 경우에만 표시
               if (requestedMode == 'auto' && _selectedAgentMode == 'auto') {
                 _actualSelectedMode = actualMode;
                 
-              // 마지막 User Prompt의 모드 업데이트
-              if (_lastUserPrompt != null) {
-                // 메시지 리스트에서 마지막 User Prompt 찾아서 업데이트
+                // 마지막 User Prompt의 모드 업데이트
+                // 메시지 리스트에서 가장 최근 User Prompt 찾아서 업데이트
+                bool found = false;
                 for (int i = _messages.length - 1; i >= 0; i--) {
-                  if (_messages[i].type == MessageType.userPrompt && 
-                      _messages[i].text == _lastUserPrompt!.text) {
-                    _messages[i] = MessageItem(
-                      _messages[i].text,
-                      type: _messages[i].type,
-                      agentMode: actualMode,
-                    );
-                    print('🤖 Updated User Prompt mode to: $actualMode');
-                    break;
+                  if (_messages[i].type == MessageType.userPrompt) {
+                    // agentMode가 null인 경우 (자동 모드로 전송된 경우) 업데이트
+                    if (_messages[i].agentMode == null) {
+                      _messages[i] = MessageItem(
+                        _messages[i].text,
+                        type: _messages[i].type,
+                        agentMode: actualMode,
+                      );
+                      print('🤖 Updated User Prompt mode to: $actualMode (text: ${_messages[i].text.substring(0, _messages[i].text.length > 30 ? 30 : _messages[i].text.length)}...)');
+                      found = true;
+                      break;
+                    }
                   }
                 }
-              }
+                
+                if (!found) {
+                  print('⚠️ Could not find User Prompt to update');
+                }
               }
             });
             
@@ -803,6 +811,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final actualMode = messageData['actualMode'] ?? 'agent';
         final displayName = messageData['displayName'] ?? actualMode;
         
+        print('📨 Received agent_mode_selected (relay): requestedMode=$requestedMode, actualMode=$actualMode, _selectedAgentMode=$_selectedAgentMode');
+        
         if (mounted) {
           setState(() {
             // 자동 모드로 선택된 경우에만 표시
@@ -810,20 +820,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               _actualSelectedMode = actualMode;
               
               // 마지막 User Prompt의 모드 업데이트
-              if (_lastUserPrompt != null) {
-                // 메시지 리스트에서 마지막 User Prompt 찾아서 업데이트
-                for (int i = _messages.length - 1; i >= 0; i--) {
-                  if (_messages[i].type == MessageType.userPrompt && 
-                      _messages[i].text == _lastUserPrompt!.text) {
+              // 메시지 리스트에서 가장 최근 User Prompt 찾아서 업데이트
+              bool found = false;
+              for (int i = _messages.length - 1; i >= 0; i--) {
+                if (_messages[i].type == MessageType.userPrompt) {
+                  // agentMode가 null인 경우 (자동 모드로 전송된 경우) 업데이트
+                  if (_messages[i].agentMode == null) {
                     _messages[i] = MessageItem(
                       _messages[i].text,
                       type: _messages[i].type,
                       agentMode: actualMode,
                     );
-                    print('🤖 Updated User Prompt mode to: $actualMode (relay)');
+                    print('🤖 Updated User Prompt mode to: $actualMode (relay, text: ${_messages[i].text.substring(0, _messages[i].text.length > 30 ? 30 : _messages[i].text.length)}...)');
+                    found = true;
                     break;
                   }
                 }
+              }
+              
+              if (!found) {
+                print('⚠️ Could not find User Prompt to update (relay)');
               }
             }
           });
