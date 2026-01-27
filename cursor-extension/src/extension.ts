@@ -23,8 +23,26 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(outputChannel);
     outputChannel.show(true);
     
+    // 로그를 클라이언트에 전송하는 헬퍼 함수
+    const sendLogToClients = (level: 'info' | 'warn' | 'error', message: string, error?: any) => {
+        if (wsServer) {
+            const logData = {
+                level,
+                message,
+                timestamp: new Date().toISOString(),
+                source: 'extension',
+                ...(error && { error: error instanceof Error ? error.message : String(error) })
+            };
+            wsServer.send(JSON.stringify({
+                type: 'log',
+                ...logData
+            }));
+        }
+    };
+    
     outputChannel.appendLine('Cursor Remote extension is now active!');
     console.log('Cursor Remote extension is now active!');
+    sendLogToClients('info', 'Cursor Remote extension is now active!');
 
     // Status bar manager
     statusBarManager = new StatusBarManager(context);
@@ -81,8 +99,16 @@ export async function activate(context: vscode.ExtensionContext) {
         
         if (connected) {
             outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Client connected - Ready to receive commands`);
+            // 연결 상태 전송
+            if (wsServer) {
+                wsServer.sendConnectionStatus();
+            }
         } else {
             outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Client disconnected`);
+            // 연결 상태 전송
+            if (wsServer) {
+                wsServer.sendConnectionStatus();
+            }
         }
     });
 

@@ -20,11 +20,39 @@ let pollInterval: NodeJS.Timeout | null = null;
 let isConnected = false;
 let isLocalMode = false; // 로컬 모드 여부
 
+// 재연결 관리
+let reconnectAttempts = 0;
+let reconnectTimer: NodeJS.Timeout | null = null;
+let reconnectDelay = CONFIG.RECONNECT_DELAY;
+
 // Extension WebSocket 클라이언트 연결 (Extension이 서버를 열면 연결)
 function connectToExtension() {
     // 이미 연결된 Extension이 있으면 재연결하지 않음 (여러 Extension 지원)
+    if (extensionClients.size > 0) {
+        const activeClients = Array.from(extensionClients.entries())
+            .filter(([_, ws]) => ws.readyState === WebSocket.OPEN);
+        if (activeClients.length > 0) {
+            console.log(`Extension already connected (${activeClients.length} active)`);
+            return;
+        }
+    }
+    
+    // 재시도 횟수 확인
+    if (CONFIG.RECONNECT_MAX_ATTEMPTS > 0 && reconnectAttempts >= CONFIG.RECONNECT_MAX_ATTEMPTS) {
+        console.error(`❌ Maximum reconnection attempts (${CONFIG.RECONNECT_MAX_ATTEMPTS}) reached. Stopping reconnection.`);
+        // 모바일 클라이언트에 에러 전송
+        if (localMobileClient && localMobileClient.readyState === WebSocket.OPEN) {
+            localMobileClient.send(JSON.stringify({
+                type: 'error',
+                message: `Extension connection failed after ${CONFIG.RECONNECT_MAX_ATTEMPTS} attempts`,
+                errorType: 'max_retries_exceeded'
+            }));
+        }
+        return;
+    }
+    
     const extensionUrl = `ws://localhost:${CONFIG.EXTENSION_WS_PORT}`;
-    console.log(`Attempting to connect to extension at ${extensionUrl}...`);
+    console.log(`Attempting to connect to extension at ${extensionUrl}... (Attempt ${reconnectAttempts + 1}${CONFIG.RECONNECT_MAX_ATTEMPTS > 0 ? `/${CONFIG.RECONNECT_MAX_ATTEMPTS}` : ''})`);
 
     const extensionClient = new WebSocket(extensionUrl);
     const clientId = `ext-${Date.now()}`;
@@ -34,6 +62,20 @@ function connectToExtension() {
         console.log(`✅ Connected to Cursor Extension (${clientId})`);
         // 가장 최근 연결된 Extension을 활성 Extension으로 설정
         activeExtensionId = clientId;
+        
+        // 재연결 성공 시 재시도 카운터 및 딜레이 리셋
+        reconnectAttempts = 0;
+        reconnectDelay = CONFIG.RECONNECT_DELAY;
+        
+        // 모바일 클라이언트에 연결 성공 알림
+        if (localMobileClient && localMobileClient.readyState === WebSocket.OPEN) {
+            localMobileClient.send(JSON.stringify({
+                type: 'connection_status',
+                status: 'connected',
+                source: 'extension',
+                message: 'Extension connected successfully'
+            }));
+        }
         
         // 기존 Extension이 있으면 정리 (선택사항 - 여러 Extension 지원 시 주석 처리)
         // extensionClients.forEach((ws, id) => {
@@ -55,6 +97,20 @@ function connectToExtension() {
                 console.log('📥 Extension connection message received (ignored)');
                 return;
             }
+            
+            // 로그 메시지는 PC 서버 로그도 추가하여 전달
+            if (parsed.type === 'log') {
+                // PC 서버에서도 로그를 출력
+                const logLevel = parsed.level || 'info';
+                const logMessage = `[Extension] ${parsed.message}`;
+                if (logLevel === 'error') {
+                    console.error(logMessage);
+                } else if (logLevel === 'warn') {
+                    console.warn(logMessage);
+                } else {
+                    console.log(logMessage);
+                }
+            }
         } catch (e) {
             // JSON 파싱 실패 시 계속 진행
         }
@@ -74,8 +130,9 @@ function connectToExtension() {
         }
     });
 
-    extensionClient.on('close', () => {
-        console.log(`Extension connection closed (${clientId}). Removing from active clients...`);
+    extensionClient.on('close', (code: number, reason: Buffer) => {
+        const reasonStr = reason.toString();
+        console.log(`Extension connection closed (${clientId}). Code: ${code}, Reason: ${reasonStr || 'none'}`);
         extensionClients.delete(clientId);
         if (activeExtensionId === clientId) {
             activeExtensionId = null;
@@ -87,23 +144,80 @@ function connectToExtension() {
                 console.log(`Switched to active Extension: ${activeExtensionId}`);
             }
         }
+        
+        // 모바일 클라이언트에 연결 끊김 알림
+        if (localMobileClient && localMobileClient.readyState === WebSocket.OPEN) {
+            localMobileClient.send(JSON.stringify({
+                type: 'connection_status',
+                status: 'disconnected',
+                source: 'extension',
+                message: `Extension disconnected (code: ${code})`,
+                errorCode: code
+            }));
+        }
+        
         // 모든 Extension이 닫혔으면 재연결 시도
         if (extensionClients.size === 0) {
-            setTimeout(connectToExtension, CONFIG.RECONNECT_DELAY);
+            scheduleReconnect();
         }
     });
 
-    extensionClient.on('error', (error) => {
-        console.error(`Extension connection error (${clientId}):`, error);
+    extensionClient.on('error', (error: Error & { code?: string }) => {
+        const errorCode = error.code || 'UNKNOWN';
+        const errorMessage = error.message || 'Unknown error';
+        console.error(`Extension connection error (${clientId}):`, errorMessage, `Code: ${errorCode}`);
         extensionClients.delete(clientId);
         if (activeExtensionId === clientId) {
             activeExtensionId = null;
         }
+        
+        // 모바일 클라이언트에 에러 알림
+        if (localMobileClient && localMobileClient.readyState === WebSocket.OPEN) {
+            localMobileClient.send(JSON.stringify({
+                type: 'connection_status',
+                status: 'error',
+                source: 'extension',
+                message: `Extension connection error: ${errorMessage}`,
+                errorCode: errorCode,
+                errorType: getErrorType(errorCode)
+            }));
+        }
+        
         // Extension이 아직 시작되지 않았을 수 있으므로 재시도
         if (extensionClients.size === 0) {
-            setTimeout(connectToExtension, CONFIG.RECONNECT_DELAY);
+            scheduleReconnect();
         }
     });
+}
+
+// 에러 타입 분류
+function getErrorType(errorCode: string): string {
+    if (errorCode === 'ECONNREFUSED' || errorCode === 'EPERM') {
+        return 'connection_refused';
+    } else if (errorCode === 'ETIMEDOUT' || errorCode === 'ECONNRESET') {
+        return 'timeout';
+    } else if (errorCode === 'ENOTFOUND' || errorCode === 'EAI_AGAIN') {
+        return 'dns_error';
+    } else {
+        return 'unknown';
+    }
+}
+
+// 재연결 스케줄링 (지수 백오프)
+function scheduleReconnect() {
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+    }
+    
+    reconnectAttempts++;
+    const delay = Math.min(reconnectDelay, CONFIG.RECONNECT_MAX_DELAY);
+    
+    console.log(`🔄 Scheduling reconnection in ${delay}ms (Attempt ${reconnectAttempts}${CONFIG.RECONNECT_MAX_ATTEMPTS > 0 ? `/${CONFIG.RECONNECT_MAX_ATTEMPTS}` : ''})`);
+    
+    reconnectTimer = setTimeout(() => {
+        reconnectDelay = Math.floor(reconnectDelay * CONFIG.RECONNECT_BACKOFF_MULTIPLIER);
+        connectToExtension();
+    }, delay);
 }
 
 // 활성 Extension으로 메시지 전송
@@ -303,14 +417,34 @@ function stopPolling() {
 
 // HTTP 엔드포인트
 app.get('/status', (req, res) => {
+    const extensionStatus = activeExtensionId !== null && extensionClients.has(activeExtensionId) 
+        ? extensionClients.get(activeExtensionId)?.readyState === WebSocket.OPEN 
+        : false;
+    
     res.json({
         relayServer: RELAY_SERVER_URL,
         sessionId,
         isConnected,
         isLocalMode,
         localMobileConnected: localMobileClient !== null && localMobileClient.readyState === WebSocket.OPEN,
-        extensionConnected: activeExtensionId !== null && extensionClients.has(activeExtensionId) && extensionClients.get(activeExtensionId)?.readyState === WebSocket.OPEN,
-        activeExtensionCount: extensionClients.size
+        extensionConnected: extensionStatus,
+        activeExtensionCount: extensionClients.size,
+        reconnectAttempts: reconnectAttempts,
+        isReconnecting: reconnectTimer !== null,
+        connections: {
+            extension: {
+                connected: extensionStatus,
+                activeCount: extensionClients.size,
+                activeExtensionId: activeExtensionId
+            },
+            mobile: {
+                connected: localMobileClient !== null && localMobileClient.readyState === WebSocket.OPEN
+            },
+            relay: {
+                connected: isConnected && !isLocalMode,
+                sessionId: sessionId
+            }
+        }
     });
 });
 
@@ -381,6 +515,24 @@ function setupLocalWebSocketHandlers() {
         console.log('📱 Local mobile client connected');
         localMobileClient = ws;
         
+        // PC 서버 로그를 클라이언트에 전송하는 헬퍼 함수
+        const sendPCLog = (level: 'info' | 'warn' | 'error', message: string, error?: any) => {
+            if (ws.readyState === WebSocket.OPEN) {
+                const logData = {
+                    type: 'log',
+                    level,
+                    message,
+                    timestamp: new Date().toISOString(),
+                    source: 'pc-server',
+                    ...(error && { error: error instanceof Error ? error.message : String(error) })
+                };
+                ws.send(JSON.stringify(logData));
+            }
+        };
+        
+        // PC 서버 로그를 전송
+        sendPCLog('info', 'PC Server connected - Ready to receive commands');
+        
         // 로컬 클라이언트가 연결되면 로컬 모드로 전환
         // 단, 세션 ID가 CLI 인자로 제공된 경우는 릴레이 모드 유지
         const args = process.argv.slice(2);
@@ -416,15 +568,36 @@ function setupLocalWebSocketHandlers() {
             }
         });
         
-        ws.on('close', () => {
-            console.log('📱 Local mobile client disconnected');
+        ws.on('close', (code: number, reason: Buffer) => {
+            const reasonStr = reason.toString();
+            console.log(`📱 Local mobile client disconnected. Code: ${code}, Reason: ${reasonStr || 'none'}`);
             localMobileClient = null;
             isLocalMode = false;
             isConnected = false;
         });
         
-        ws.on('error', (error) => {
-            console.error('Local mobile client error:', error);
+        ws.on('error', (error: Error & { code?: string }) => {
+            const errorCode = error.code || 'UNKNOWN';
+            const errorMessage = error.message || 'Unknown error';
+            console.error(`📱 Local mobile client error: ${errorMessage} (Code: ${errorCode})`);
+        });
+        
+        // 연결 상태 주기적 확인 (heartbeat)
+        const heartbeatInterval = setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+                try {
+                    ws.ping();
+                } catch (error) {
+                    console.error('Heartbeat ping failed:', error);
+                    clearInterval(heartbeatInterval);
+                }
+            } else {
+                clearInterval(heartbeatInterval);
+            }
+        }, 30000); // 30초마다 ping
+        
+        ws.on('pong', () => {
+            // Pong 수신 - 연결 유지됨
         });
     });
 }

@@ -55,6 +55,7 @@ class MessageType {
   static const String geminiResponse = 'gemini_response';
   static const String terminalOutput = 'terminal_output';
   static const String system = 'system'; // Sent, Received, Command succeeded 등
+  static const String log = 'log'; // 실시간 로그
 }
 
 // 필터 카테고리
@@ -62,6 +63,7 @@ enum MessageFilter {
   aiResponse,   // Cursor AI Response
   userPrompt,   // 사용자가 입력한 프롬프트
   system,       // Sent, Received, Command succeeded 등
+  log,          // 실시간 로그
 }
 
 class MessageItem {
@@ -83,6 +85,8 @@ class MessageItem {
         return MessageFilter.aiResponse;
       case MessageType.userPrompt:
         return MessageFilter.userPrompt;
+      case MessageType.log:
+        return MessageFilter.log;
       case MessageType.system:
       case MessageType.normal:
       case MessageType.terminalOutput:
@@ -121,6 +125,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   WebSocketChannel? _localWebSocket;
   final TextEditingController _localIpController = TextEditingController();
   
+  // 재연결 관련
+  Timer? _reconnectTimer;
+  int _reconnectAttempts = 0;
+  bool _isReconnecting = false;
+  String? _lastConnectionError;
+  
   final List<MessageItem> _messages = [];
   final TextEditingController _commandController = TextEditingController();
   final TextEditingController _sessionIdController = TextEditingController();
@@ -135,6 +145,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     MessageFilter.aiResponse: true,
     MessageFilter.userPrompt: true,
     MessageFilter.system: true,
+    MessageFilter.log: false, // 로그는 기본적으로 숨김
   };
   
   // 필터링된 메시지 목록
@@ -208,9 +219,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         onError: (error) {
           if (mounted) {
             setState(() {
+              _lastConnectionError = error.toString();
               _messages.add(MessageItem('❌ Local connection error: $error', type: MessageType.system));
               _isConnected = false;
             });
+            // 자동 재연결 시도
+            _scheduleReconnect();
           }
         },
         onDone: () {
@@ -219,12 +233,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               _messages.add(MessageItem('Local connection closed', type: MessageType.system));
               _isConnected = false;
             });
+            // 자동 재연결 시도
+            _scheduleReconnect();
           }
         },
       );
       
       setState(() {
         _isConnected = true;
+        _isReconnecting = false;
+        _reconnectAttempts = 0;
+        _lastConnectionError = null;
+        _stopReconnect();
         _messages.add(MessageItem('✅ Connected to local server at $ip', type: MessageType.system));
       });
       
@@ -338,6 +358,69 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             _messages.add(MessageItem('❌ Command failed: ${data['error']}', type: MessageType.system));
             _isWaitingForResponse = false;
           }
+        } else if (type == 'log') {
+          // 실시간 로그 메시지 처리
+          final logLevel = data['level'] ?? 'info';
+          final logMessage = data['message'] ?? '';
+          final logSource = data['source'] ?? 'unknown';
+          final logError = data['error'];
+          
+          String logPrefix = '';
+          switch (logSource) {
+            case 'extension':
+              logPrefix = '🔌 [Extension]';
+              break;
+            case 'pc-server':
+              logPrefix = '🖥️ [PC Server]';
+              break;
+            default:
+              logPrefix = '📝 [Log]';
+          }
+          
+          String logText = '$logPrefix $logMessage';
+          if (logError != null) {
+            logText += ' - Error: $logError';
+          }
+          
+          _messages.add(MessageItem(logText, type: MessageType.log));
+        } else if (type == 'connection_status') {
+          // 연결 상태 메시지 처리
+          final status = data['status'] ?? 'unknown';
+          final source = data['source'] ?? 'unknown';
+          final message = data['message'] ?? '';
+          final errorCode = data['errorCode'];
+          final errorType = data['errorType'];
+          
+          String statusText = '';
+          switch (status) {
+            case 'connected':
+              statusText = '✅ $message';
+              setState(() {
+                _isReconnecting = false;
+                _reconnectAttempts = 0;
+                _stopReconnect();
+              });
+              break;
+            case 'disconnected':
+              statusText = '⚠️ $message';
+              setState(() {
+                _isConnected = false;
+              });
+              _scheduleReconnect();
+              break;
+            case 'error':
+              statusText = '❌ $message';
+              setState(() {
+                _isConnected = false;
+                _lastConnectionError = message;
+              });
+              _scheduleReconnect();
+              break;
+          }
+          
+          if (statusText.isNotEmpty) {
+            _messages.add(MessageItem(statusText, type: MessageType.system));
+          }
         }
       });
       _scrollToBottom();
@@ -386,6 +469,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         setState(() {
           _sessionId = sessionId;
           _isConnected = true;
+          _isReconnecting = false;
+          _reconnectAttempts = 0;
+          _lastConnectionError = null;
+          _stopReconnect();
           _messages.add(MessageItem('✅ Connected to session $sessionId', type: MessageType.system));
         });
         
@@ -407,6 +494,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       } else {
         final error = data['error'] ?? 'Unknown error';
         setState(() {
+          _lastConnectionError = error.toString();
           _messages.add(MessageItem('❌ Failed to connect: $error', type: MessageType.system));
         });
         
@@ -418,12 +506,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // 세션 ID를 비우고 새 세션 생성
           _sessionIdController.clear();
           await _createSession();
+        } else {
+          // 다른 에러는 재연결 시도
+          _scheduleReconnect();
         }
       }
     } catch (e) {
       setState(() {
+        _lastConnectionError = e.toString();
         _messages.add(MessageItem('❌ Error connecting to session: $e', type: MessageType.system));
       });
+      _scheduleReconnect();
     }
   }
 
@@ -658,6 +751,34 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _messages.add(MessageItem(text, type: MessageType.chatResponse));
         _messages.add(MessageItem('', type: MessageType.chatResponseDivider));
         _isWaitingForResponse = false;
+      } else if (type == 'log') {
+        // 실시간 로그 메시지 처리
+        final logLevel = messageData['level'] ?? 'info';
+        final logMessage = messageData['message'] ?? '';
+        final logSource = messageData['source'] ?? 'unknown';
+        final logError = messageData['error'];
+        
+        String logPrefix = '';
+        switch (logSource) {
+          case 'extension':
+            logPrefix = '🔌 [Extension]';
+            break;
+          case 'pc-server':
+            logPrefix = '🖥️ [PC Server]';
+            break;
+          default:
+            logPrefix = '📝 [Log]';
+        }
+        
+        String logText = '$logPrefix $logMessage';
+        if (logError != null) {
+          logText += ' - Error: $logError';
+        }
+        
+        setState(() {
+          _messages.add(MessageItem(logText, type: MessageType.log));
+        });
+        _scrollToBottom();
       }
     });
     _scrollToBottom();
@@ -665,6 +786,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   void _disconnect() {
     _stopPolling();
+    _stopReconnect(); // 재연결 중지
     
     // 로컬 WebSocket 연결 종료
     _localWebSocket?.sink.close();
@@ -674,9 +796,66 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       setState(() {
         _isConnected = false;
         _sessionId = null;
+        _isReconnecting = false;
+        _reconnectAttempts = 0;
         _messages.add(MessageItem('Disconnected', type: MessageType.system));
       });
     }
+  }
+  
+  // 재연결 스케줄링
+  void _scheduleReconnect() {
+    if (_isReconnecting || _isConnected) return;
+    
+    const maxAttempts = 5;
+    if (_reconnectAttempts >= maxAttempts) {
+      setState(() {
+        _isReconnecting = false;
+        _messages.add(MessageItem('❌ 재연결 시도 횟수 초과 (${maxAttempts}회). 수동으로 연결해주세요.', type: MessageType.system));
+      });
+      return;
+    }
+    
+    setState(() {
+      _isReconnecting = true;
+      _reconnectAttempts++;
+    });
+    
+    // 지수 백오프: 2초, 4초, 8초, 16초, 32초
+    final delay = Duration(seconds: 2 * (1 << (_reconnectAttempts - 1)));
+    
+    setState(() {
+      _messages.add(MessageItem('🔄 ${delay.inSeconds}초 후 재연결 시도... (${_reconnectAttempts}/$maxAttempts)', type: MessageType.system));
+    });
+    
+    _reconnectTimer = Timer(delay, () {
+      if (mounted && !_isConnected) {
+        if (_connectionType == ConnectionType.local) {
+          _connectToLocal();
+        } else {
+          final sessionId = _sessionIdController.text.trim();
+          if (sessionId.isNotEmpty) {
+            _connectToSession(sessionId);
+          } else {
+            _createSession();
+          }
+        }
+      }
+    });
+  }
+  
+  // 재연결 중지
+  void _stopReconnect() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _isReconnecting = false;
+  }
+  
+  // 수동 재연결
+  void _manualReconnect() {
+    _stopReconnect();
+    _reconnectAttempts = 0;
+    _connect();
   }
 
   Future<void> _sendCommand(String type, {String? text, String? command, List<dynamic>? args, bool? prompt, bool? terminal, bool? execute, String? action, bool? newSession, String? clientId, String? sessionId, int? limit}) async {
@@ -979,6 +1158,58 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   },
                 ),
               ],
+            ),
+          ],
+        ),
+      );
+    }
+    
+    // 로그 메시지 스타일
+    if (message.type == MessageType.log) {
+      // 로그 레벨에 따라 색상 결정
+      Color logColor = Colors.orange;
+      IconData logIcon = Icons.bug_report;
+      
+      // 메시지에서 레벨 추출 (간단한 방법)
+      final text = message.text.toLowerCase();
+      if (text.contains('[error]') || text.contains('error:')) {
+        logColor = Colors.red;
+        logIcon = Icons.error;
+      } else if (text.contains('[warn]') || text.contains('warning:')) {
+        logColor = Colors.orange;
+        logIcon = Icons.warning;
+      } else {
+        logColor = Colors.blue;
+        logIcon = Icons.info;
+      }
+      
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+        decoration: BoxDecoration(
+          color: logColor.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(6.0),
+          border: Border.all(color: logColor.withOpacity(0.3), width: 1),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              logIcon,
+              size: 14,
+              color: logColor,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: SelectableText(
+                message.text,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: logColor.withOpacity(0.9),
+                  fontFamily: 'monospace',
+                  height: 1.4,
+                ),
+              ),
             ),
           ],
         ),
@@ -1395,12 +1626,74 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ),
                     ],
                     const SizedBox(height: 12),
+                    // 재연결 중 상태 표시
+                    if (_isReconnecting) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                '재연결 시도 중... (${_reconnectAttempts}회)',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.orange[900],
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: _stopReconnect,
+                              child: const Text('취소', style: TextStyle(fontSize: 12)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    // 연결 에러 표시
+                    if (_lastConnectionError != null && !_isConnected && !_isReconnecting) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline, size: 18, color: Colors.red),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '연결 실패: ${_lastConnectionError!.length > 50 ? _lastConnectionError!.substring(0, 50) + '...' : _lastConnectionError}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.red[900],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: _isConnected ? null : _connect,
+                            onPressed: _isConnected || _isReconnecting ? null : _connect,
                             style: ElevatedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               backgroundColor: Colors.green,
@@ -1414,6 +1707,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           ),
                         ),
                         const SizedBox(width: 8),
+                        if (!_isConnected && _lastConnectionError != null) ...[
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _isReconnecting ? null : _manualReconnect,
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                backgroundColor: Colors.orange,
+                                foregroundColor: Colors.white,
+                              ),
+                              icon: const Icon(Icons.refresh, size: 18),
+                              label: const Text('재연결'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
                         Expanded(
                           child: ElevatedButton(
                             onPressed: _isConnected ? _disconnect : null,
@@ -1425,37 +1733,92 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ),
                       ],
                     ),
-                    if (_isConnected && _connectionType == ConnectionType.relay && _sessionId != null) ...[
+                    // 연결 상태 표시
+                    if (_isConnected) ...[
                       const SizedBox(height: 12),
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
+                          color: Colors.green.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.green.withOpacity(0.3)),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.info_outline, size: 18, color: Colors.blue),
+                            const Icon(Icons.check_circle, size: 18, color: Colors.green),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _connectionType == ConnectionType.local
+                                        ? '✅ 로컬 서버에 연결됨'
+                                        : '✅ 릴레이 서버에 연결됨',
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.green,
+                                    ),
+                                  ),
+                                  if (_connectionType == ConnectionType.relay && _sessionId != null) ...[
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            '세션 ID: $_sessionId',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.grey[700],
+                                              fontFamily: 'monospace',
+                                            ),
+                                          ),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(Icons.copy, size: 16),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          onPressed: () {
+                                            Clipboard.setData(ClipboardData(text: _sessionId!));
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(
+                                                content: Text('세션 ID가 클립보드에 복사되었습니다'),
+                                                duration: Duration(seconds: 1),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ] else if (!_isConnected && !_isReconnecting) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey.withOpacity(0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.cloud_off, size: 18, color: Colors.grey),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'PC에서 같은 세션 ID로 연결하세요: $_sessionId',
-                                style: const TextStyle(fontSize: 12),
+                                '연결되지 않음',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey[700],
+                                ),
                               ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.copy, size: 18),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              onPressed: () {
-                                Clipboard.setData(ClipboardData(text: _sessionId!));
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('세션 ID가 클립보드에 복사되었습니다'),
-                                    duration: Duration(seconds: 1),
-                                  ),
-                                );
-                              },
                             ),
                           ],
                         ),
@@ -1539,6 +1902,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               onSelected: (selected) {
                                 setState(() {
                                   _activeFilters[MessageFilter.userPrompt] = selected;
+                                });
+                              },
+                            ),
+                            FilterChip(
+                              label: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.bug_report, size: 14),
+                                  SizedBox(width: 4),
+                                  Text('Logs', style: TextStyle(fontSize: 12)),
+                                ],
+                              ),
+                              selected: _activeFilters[MessageFilter.log] ?? false,
+                              selectedColor: Colors.orange.withOpacity(0.2),
+                              checkmarkColor: Colors.orange,
+                              onSelected: (selected) {
+                                setState(() {
+                                  _activeFilters[MessageFilter.log] = selected;
                                 });
                               },
                             ),
