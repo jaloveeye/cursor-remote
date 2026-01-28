@@ -1,57 +1,58 @@
 ---
-description: Git Flow 규칙 - 모든 코드 변경은 Git Flow를 따라야 함
+description: Git Flow 규칙 - 모든 코드 변경은 Git Flow를 따라야 함 (강화된 규칙)
 alwaysApply: true
+priority: 1
 ---
 
-# Git Flow 규칙
+# ⚠️ Git Flow 규칙 (강화 버전) - 절대 위반 금지
 
-## ⚠️ 필수 규칙
+## 🚨 CRITICAL: 이 규칙은 절대 위반할 수 없습니다
 
-**모든 코드 변경 작업은 반드시 Git Flow 규칙을 따라야 합니다.**
+**이 규칙은 최우선순위입니다. 모든 코드 변경 작업은 반드시 Git Flow 규칙을 따라야 합니다.**
 
-## 브랜치 전략
+### 규칙 위반 시 동작
+- `main` 또는 `develop` 브랜치에서 커밋 시도 감지 시: **즉시 중단하고 사용자에게 알림**
+- 브랜치 확인 없이 커밋 시도 시: **즉시 중단하고 브랜치 확인 요청**
+- `git merge` 직접 사용 시도 시: **즉시 중단하고 `git flow feature finish` 사용 요청**
 
-### 1. 직접 작업 금지 브랜치
-- ❌ **`main` 브랜치에 직접 커밋 금지**
-- ❌ **`develop` 브랜치에 직접 커밋 금지** (가능하지만 권장하지 않음)
+## 🚫 금지 사항 (절대 금지)
 
-### 2. 작업 전 필수 확인
-코드 변경 작업을 시작하기 전에 **반드시** 현재 브랜치를 확인:
+1. ❌ **`main` 브랜치에 직접 커밋 절대 금지**
+2. ❌ **`develop` 브랜치에 직접 커밋 절대 금지** (문서만 수정하는 경우도 feature 브랜치 권장)
+3. ❌ **`git merge` 직접 사용 금지** - 반드시 `git flow feature finish` 또는 `git flow bugfix finish` 사용
+4. ❌ **브랜치 확인 없이 커밋 금지**
 
+## 📋 작업 전 필수 절차
+
+코드 변경 작업을 시작하기 전에 **반드시** 다음 순서를 따라야 합니다:
+
+### Step 1: 현재 브랜치 확인 (필수)
 ```bash
 git branch --show-current
 ```
 
-### 3. Feature 브랜치 생성 (새 기능 개발)
-새 기능을 개발할 때:
+### Step 2: 브랜치 판단
+- **`main` 또는 `develop`에 있으면**: 즉시 feature/bugfix 브랜치 생성 필요
+- **`feature/*` 또는 `bugfix/*`에 있으면**: 작업 진행 가능
 
+### Step 3: 브랜치 생성 (필요한 경우)
 ```bash
 # develop 브랜치로 이동
 git checkout develop
 git pull origin develop
 
-# feature 브랜치 생성
+# feature 브랜치 생성 (새 기능)
 git flow feature start <feature-name>
-```
 
-**예시:**
-```bash
-git flow feature start session-management
-git flow feature start add-chat-history
-```
-
-### 4. Bugfix 브랜치 생성 (버그 수정)
-버그를 수정할 때:
-
-```bash
-git checkout develop
-git pull origin develop
+# 또는 bugfix 브랜치 생성 (버그 수정)
 git flow bugfix start <bugfix-name>
 ```
 
-### 5. 작업 완료 후
-작업이 완료되면:
+### Step 4: 작업 진행
+- 코드 변경
+- 커밋 (Conventional Commits 형식)
 
+### Step 5: 작업 완료 (사용자가 직접 실행)
 ```bash
 # Feature 완료
 git flow feature finish <feature-name>
@@ -60,7 +61,7 @@ git flow feature finish <feature-name>
 git flow bugfix finish <bugfix-name>
 ```
 
-**주의**: `git merge`를 직접 사용하지 말고 `git flow feature finish` 또는 `git flow bugfix finish`를 사용하세요.
+**⚠️ 중요**: `git flow feature finish` 또는 `git flow bugfix finish`는 사용자가 명시적으로 요청하지 않는 한 AI가 자동으로 실행하지 않습니다.
 
 ## 커밋 메시지 규칙
 
@@ -103,33 +104,101 @@ Closes #123
 4. ✅ 커밋 (Conventional Commits 형식)
 5. ✅ 작업 완료 시 `git flow feature finish` 또는 `git flow bugfix finish`
 
-## AI Assistant 가이드라인
+## 🤖 AI Assistant 강화된 가이드라인 (MANDATORY)
 
-코드 변경 작업을 할 때:
+**이 섹션은 AI Assistant가 반드시 따라야 하는 규칙입니다. 위반 시 즉시 중단해야 합니다.**
 
-1. **항상 현재 브랜치 확인**
-   - `main` 또는 `develop`에 있으면 경고
-   - feature/bugfix 브랜치 생성 제안
+### 🚨 Rule 1: 커밋 전 필수 확인 (절대 생략 불가)
 
-2. **브랜치 생성 제안**
-   - 새 기능: `git flow feature start <name>`
-   - 버그 수정: `git flow bugfix start <name>`
+**모든 `git commit` 명령 실행 전에 반드시 다음을 수행:**
 
-3. **커밋 메시지 형식 준수**
-   - Conventional Commits 형식 사용
-   - `feat:`, `fix:`, `docs:` 등 적절한 type 사용
+1. **현재 브랜치 확인** (필수):
+   ```bash
+   git branch --show-current
+   ```
+   또는
+   ```bash
+   git status
+   ```
 
-4. **작업 완료 시**
-   - `git flow feature finish` 또는 `git flow bugfix finish` 제안
-   - 직접 `git merge` 사용 금지
+2. **브랜치 검증**:
+   - 결과가 `main` 또는 `develop`이면: **즉시 커밋 중단**
+   - 결과가 `feature/*` 또는 `bugfix/*`이면: 커밋 진행 가능
 
-## 예외 상황
+3. **위반 시 동작**:
+   - `main` 또는 `develop`에서 커밋 시도 감지 시:
+     - ❌ **커밋 명령 실행 중단**
+     - ✅ **사용자에게 다음 메시지 전달:**
+       ```
+       ⚠️ Git Flow 규칙 위반: main 또는 develop 브랜치에서 직접 커밋할 수 없습니다.
+       먼저 feature 브랜치를 생성해주세요:
+       git flow feature start <feature-name>
+       ```
 
-- 문서만 수정하는 경우: `develop`에 직접 커밋 가능 (하지만 feature 브랜치 권장)
-- 긴급 수정 (hotfix): `main`에서 `hotfix/*` 브랜치 생성
+### 🚨 Rule 2: 브랜치 생성 강제
 
-## 중요 사항
+**`main` 또는 `develop`에 있으면:**
 
-⚠️ **절대 `main` 브랜치에 직접 커밋하지 마세요!**
-⚠️ **`develop` 브랜치에 직접 작업하는 것보다 feature/bugfix 브랜치를 사용하세요!**
-⚠️ **`git merge`를 직접 사용하지 말고 `git flow feature finish`를 사용하세요!**
+- ❌ **절대 `git commit` 실행하지 않음**
+- ✅ **반드시 feature/bugfix 브랜치 생성 후 작업**
+- 새 기능: `git flow feature start <name>`
+- 버그 수정: `git flow bugfix start <name>`
+- 문서 수정: `git flow feature start docs-<description>`
+- 기타 변경: `git flow feature start <description>`
+
+### 🚨 Rule 3: git merge 직접 사용 금지
+
+**절대 `git merge`를 직접 사용하지 않음:**
+- ❌ `git merge feature/xxx` 사용 금지
+- ✅ `git flow feature finish <name>` 사용 (사용자 명시적 요청 시에만)
+
+### 🚨 Rule 4: 커밋 메시지 형식 준수
+
+- Conventional Commits 형식 사용
+- `feat:`, `fix:`, `docs:`, `chore:` 등 적절한 type 사용
+
+### 🚨 Rule 5: 작업 완료 시 (사용자 명시적 요청 시에만)
+
+- 사용자가 명시적으로 "finish" 또는 "feature finish" 요청 시에만 실행
+- `git flow feature finish` 또는 `git flow bugfix finish` 사용
+- 직접 `git merge` 사용 절대 금지
+
+### 🚨 Rule 6: 에러 처리 및 복구
+
+**규칙 위반 감지 시:**
+1. 즉시 중단
+2. 사용자에게 명확한 안내 메시지 전달
+3. 올바른 브랜치 생성 방법 제시
+4. 브랜치 생성 후 작업 재개
+
+## 📝 예외 상황 (매우 제한적)
+
+- **문서만 수정하는 경우**: feature 브랜치 권장 (`git flow feature start docs-<description>`)
+- **긴급 수정 (hotfix)**: `main`에서 `hotfix/*` 브랜치 생성 (`git flow hotfix start <name>`)
+
+## ⚠️ 중요 사항 (반복 강조)
+
+1. **절대 `main` 브랜치에 직접 커밋하지 마세요!**
+2. **절대 `develop` 브랜치에 직접 커밋하지 마세요!**
+3. **절대 `git merge`를 직접 사용하지 마세요!**
+4. **커밋 전에 반드시 브랜치를 확인하세요!**
+5. **`git flow feature finish`는 사용자가 명시적으로 요청할 때만 실행하세요!**
+
+## 🔍 체크리스트 (모든 커밋 전 - MANDATORY)
+
+**코드 변경 작업을 시작하기 전에 반드시 다음을 확인:**
+
+1. ✅ **현재 브랜치 확인** (`git branch --show-current`)
+2. ✅ **브랜치 검증**: `main` 또는 `develop`이면 브랜치 생성 필수
+3. ✅ **feature/bugfix 브랜치에서 작업 진행**
+4. ✅ **커밋 메시지 형식 확인** (Conventional Commits)
+5. ✅ **작업 완료 시 `git flow feature finish` 사용** (사용자 명시적 요청 시에만)
+
+## ⚠️ 최종 경고
+
+**이 규칙을 위반하면:**
+- 코드 변경 작업이 중단됩니다
+- 사용자에게 명확한 안내가 제공됩니다
+- 올바른 브랜치 생성 후 작업을 재개해야 합니다
+
+**이 규칙은 절대 우회할 수 없습니다.**
