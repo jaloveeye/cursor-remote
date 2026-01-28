@@ -76,6 +76,7 @@ async function activate(context) {
         }
     };
     outputChannel.appendLine('Cursor Remote extension is now active!');
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Extension activation started`);
     console.log('Cursor Remote extension is now active!');
     sendLogToClients('info', 'Cursor Remote extension is now active!');
     // Status bar manager
@@ -205,7 +206,10 @@ async function activate(context) {
     });
     context.subscriptions.push(startCommand, stopCommand, toggleCommand);
     // Initialize relay client
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Creating RelayClient instance...`);
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Relay Server URL: ${config_1.CONFIG.RELAY_SERVER_URL}`);
     relayClient = new relay_client_1.RelayClient(config_1.CONFIG.RELAY_SERVER_URL, outputChannel);
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ RelayClient instance created`);
     // Set up message forwarding: Relay Server -> Extension WebSocket
     relayClient.setOnMessage((message) => {
         // Mark message as from relay to prevent loop
@@ -237,16 +241,24 @@ async function activate(context) {
             statusBarManager.update(false); // Client not connected yet
         }
         // Start relay client after WebSocket server is ready
+        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Initializing relay client...`);
         if (relayClient) {
             try {
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Starting relay client...`);
                 await relayClient.start();
                 outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ Relay client started - waiting for mobile client session...`);
             }
             catch (error) {
                 const errorMsg = error instanceof Error ? error.message : 'Unknown error';
                 outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ⚠️ Failed to start relay client: ${errorMsg}`);
+                if (error instanceof Error && error.stack) {
+                    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Stack: ${error.stack}`);
+                }
                 // Don't show error to user - relay is optional
             }
+        }
+        else {
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ⚠️ Relay client is null - not initialized`);
         }
     }).catch((error) => {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error';

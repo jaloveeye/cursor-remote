@@ -121,16 +121,22 @@ export class RelayClient {
 
         // If session exists, poll for messages
         if (!this.sessionId || !this.isConnected) {
+            this.log(`⚠️ Polling skipped: sessionId=${this.sessionId}, isConnected=${this.isConnected}`);
             return;
         }
 
         try {
             const pollUrl = `${this.relayServerUrl}/api/poll?sessionId=${this.sessionId}&deviceType=pc`;
+            this.log(`🔄 Polling messages from relay: ${pollUrl}`);
             const data = await this.httpRequest(pollUrl);
 
             if (!data) {
+                this.log(`⚠️ Poll returned no data`);
                 return;
             }
+            
+            this.log(`📊 Poll response: success=${data.success}, messages=${data.data?.messages?.length || 0}`);
+            
             if (data.success && data.data?.messages) {
                 const messages = data.data.messages;
                 if (messages.length > 0) {
@@ -138,16 +144,22 @@ export class RelayClient {
                 }
 
                 for (const msg of messages) {
+                    this.log(`📨 Processing message: ${JSON.stringify(msg).substring(0, 200)}`);
                     // Forward message to callback (Extension WebSocket server)
                     if (this.onMessageCallback) {
                         const messageStr = typeof msg.data === 'string' 
                             ? msg.data 
                             : JSON.stringify(msg.data || msg);
+                        this.log(`📤 Forwarding message to callback: ${messageStr.substring(0, 200)}`);
                         this.onMessageCallback(messageStr);
+                    } else {
+                        this.logError('⚠️ onMessageCallback is null - cannot forward message');
                     }
                 }
             } else if (!data.success) {
                 this.logError(`Poll failed: ${data.error}`);
+            } else {
+                this.log(`ℹ️ No messages in poll response`);
             }
         } catch (error) {
             this.logError('Polling error', error);
