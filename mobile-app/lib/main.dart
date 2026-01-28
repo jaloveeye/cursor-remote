@@ -2358,17 +2358,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               children: [
                                 Icon(
                                   _messages.isEmpty ? Icons.chat_bubble_outline : Icons.filter_alt,
-                                  size: 48,
-                                  color: Colors.grey[400],
+                                  size: 64,
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.4),
                                 ),
-                                const SizedBox(height: 8),
+                                const SizedBox(height: 16),
                                 Text(
-                                  _messages.isEmpty ? 'No messages yet' : 'No messages match the filter',
+                                  _messages.isEmpty ? '메시지가 없습니다' : '필터와 일치하는 메시지가 없습니다',
                                   style: TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 14,
+                                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
+                                if (_messages.isEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    '프롬프트를 입력하여 시작하세요',
+                                    style: TextStyle(
+                                      color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.7),
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           )
@@ -2629,7 +2640,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           prefixIcon: const Icon(Icons.edit_note),
                           suffixIcon: _commandController.text.isNotEmpty
                               ? IconButton(
-                                  icon: const Icon(Icons.clear),
+                                  icon: Icon(
+                                    Icons.clear,
+                                    size: 20,
+                                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  ),
                                   onPressed: () {
                                     _commandController.clear();
                                     setState(() {});
