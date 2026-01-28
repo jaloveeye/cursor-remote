@@ -11,10 +11,10 @@ npm i -g vercel
 # mobile-app 디렉토리로 이동
 cd mobile-app
 
-# 배포 (프로젝트 이름 지정)
+# 배포 (프로젝트 이름: cursor-remote-web)
 vercel --name cursor-remote-web
 
-# 또는 기존 프로젝트 이름 변경 후 배포
+# 프로덕션 배포 (프로젝트 이름: cursor-remote-web)
 vercel --name cursor-remote-web --prod
 
 # 프로덕션 배포
