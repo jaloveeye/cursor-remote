@@ -2754,11 +2754,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ],
                       ],
                     ),
-                            child: const Text('Stop'),
-                          ),
-                        ),
-                      ],
-                    ),
                     const SizedBox(height: 8),
                     // 세션 정보 및 대화 히스토리 표시
                     if (_isConnected) ...[
