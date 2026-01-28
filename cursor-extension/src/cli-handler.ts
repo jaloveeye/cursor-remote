@@ -179,6 +179,7 @@ export class CLIHandler {
             const currentSessionId = newSession ? null : (this.clientSessions.get(clientId) || null);
             const pendingId = `pending-${Date.now()}-${Math.random().toString(36).substring(7)}`; // 고유한 임시 ID 사용
             this.log(`💾 Saving user message - sessionId: ${currentSessionId || pendingId}, clientId: ${clientId}, newSession: ${newSession}, agentMode: ${selectedMode}`);
+            this.log(`💾 sendPrompt agentMode param: ${agentMode}, selectedMode: ${selectedMode}`);
             this.saveChatHistoryEntry({
                 sessionId: currentSessionId || pendingId,
                 clientId: clientId,
@@ -820,6 +821,11 @@ export class CLIHandler {
                 agentMode: entry.agentMode // 에이전트 모드 추가
             };
             
+            // 디버깅: agentMode 저장 확인
+            if (newEntry.userMessage) {
+                this.log(`💾 Creating new entry - agentMode: ${newEntry.agentMode || 'undefined'}, userMessage: ${newEntry.userMessage.substring(0, 30)}...`);
+            }
+            
             // pending sessionId를 실제 sessionId로 업데이트
             if (newEntry.sessionId.startsWith('pending-') && entry.clientId) {
                 const actualSessionId = this.clientSessions.get(entry.clientId);
@@ -871,9 +877,13 @@ export class CLIHandler {
                 if (newEntry.assistantResponse) {
                     lastEntry.assistantResponse = newEntry.assistantResponse;
                 }
-                // agentMode 업데이트 (사용자 메시지가 있을 때만)
-                if (newEntry.agentMode && newEntry.userMessage) {
+                // agentMode 업데이트 (사용자 메시지가 있고 agentMode가 제공된 경우에만)
+                // 응답만 저장하는 경우 agentMode를 덮어쓰지 않도록 주의
+                if (newEntry.userMessage && newEntry.agentMode) {
                     lastEntry.agentMode = newEntry.agentMode;
+                    this.log(`💾 Updated agentMode for entry: ${newEntry.agentMode}`);
+                } else if (newEntry.userMessage && !newEntry.agentMode) {
+                    this.log(`⚠️ User message saved but agentMode is missing`);
                 }
                 // sessionId도 업데이트 (pending -> actual)
                 if (lastEntry.sessionId.startsWith('pending-') && !newEntry.sessionId.startsWith('pending-')) {
