@@ -2380,15 +2380,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               // 마지막에 로딩 메시지 추가
                               if (index == _filteredMessages.length && _isWaitingForResponse) {
                                 return Container(
+                                  margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
                                   padding: const EdgeInsets.all(16.0),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      const SizedBox(
+                                      SizedBox(
                                         width: 20,
                                         height: 20,
                                         child: CircularProgressIndicator(
                                           strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation<Color>(
+                                            Theme.of(context).colorScheme.primary,
+                                          ),
                                         ),
                                       ),
                                       const SizedBox(width: 12),
@@ -2396,8 +2404,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                         '응답을 기다리는 중...',
                                         style: TextStyle(
                                           fontSize: 14,
-                                          color: Colors.grey[600],
-                                          fontStyle: FontStyle.italic,
+                                          fontWeight: FontWeight.w500,
+                                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                                         ),
                                       ),
                                     ],
@@ -2438,22 +2446,53 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     // 에이전트 모드 선택
                     Row(
                       children: [
-                        const Icon(Icons.smart_toy, size: 18, color: Colors.blue),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Agent Mode:',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.smart_toy,
+                            size: 18,
+                            color: Theme.of(context).colorScheme.onPrimaryContainer,
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 12),
+                        Text(
+                          '에이전트 모드',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
                         Expanded(
-                          child: DropdownButton<String>(
-                            value: _selectedAgentMode,
-                            isExpanded: true,
-                            isDense: true,
-                            underline: Container(),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.surfaceVariant,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                                width: 1,
+                              ),
+                            ),
+                            child: DropdownButton<String>(
+                              value: _selectedAgentMode,
+                              isExpanded: true,
+                              isDense: true,
+                              underline: Container(),
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Theme.of(context).colorScheme.onSurface,
+                              ),
+                              dropdownColor: Theme.of(context).colorScheme.surface,
+                              icon: Icon(
+                                Icons.arrow_drop_down,
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              ),
                             items: const [
                               DropdownMenuItem(
                                 value: 'auto',
@@ -2517,6 +2556,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 });
                               }
                             },
+                            ),
                           ),
                         ),
                       ],
@@ -2524,20 +2564,32 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     // 자동 모드로 선택된 경우 실제 모드 표시
                     if (_selectedAgentMode == 'auto' && _actualSelectedMode != null)
                       Padding(
-                        padding: const EdgeInsets.only(top: 4.0, left: 26.0),
-                        child: Row(
-                          children: [
-                            Icon(Icons.info_outline, size: 14, color: Colors.blue.shade700),
-                            const SizedBox(width: 4),
-                            Text(
-                              '실제 모드: ${_getModeDisplayName(_actualSelectedMode!)}',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.blue.shade700,
-                                fontStyle: FontStyle.italic,
+                        padding: const EdgeInsets.only(top: 8.0, left: 42.0),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.info_outline,
+                                size: 14,
+                                color: Theme.of(context).colorScheme.primary,
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 6),
+                              Text(
+                                '실제 모드: ${_getModeDisplayName(_actualSelectedMode!)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     const SizedBox(height: 8),
@@ -2571,11 +2623,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       child: TextField(
                         controller: _commandController,
                         focusNode: _commandFocusNode,
-                        decoration: const InputDecoration(
-                          labelText: 'Command',
-                          border: OutlineInputBorder(),
-                          isDense: true,
-                          contentPadding: EdgeInsets.all(12),
+                        decoration: InputDecoration(
+                          labelText: '프롬프트 입력',
+                          hintText: 'Cursor에게 요청할 내용을 입력하세요...',
+                          prefixIcon: const Icon(Icons.edit_note),
+                          suffixIcon: _commandController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () {
+                                    _commandController.clear();
+                                    setState(() {});
+                                  },
+                                )
+                              : null,
                         ),
                         textInputAction: TextInputAction.newline,
                         keyboardType: TextInputType.multiline,
