@@ -130,6 +130,7 @@ export class RelayClient {
             const data = await this.httpRequest(pollUrl);
 
             if (!data) {
+                this.logError('⚠️ Poll returned null/undefined data');
                 return;
             }
             
@@ -137,24 +138,34 @@ export class RelayClient {
                 const messages = data.data.messages;
                 if (messages.length > 0) {
                     this.log(`📥 Received ${messages.length} message(s) from relay`);
+                    this.log(`📋 Messages: ${JSON.stringify(messages.map(m => ({ id: m.id, type: m.type, from: m.from })))}`);
                 }
 
                 for (const msg of messages) {
+                    this.log(`📨 Processing message: id=${msg.id}, type=${msg.type}, from=${msg.from}`);
                     // Forward message to callback (Extension WebSocket server)
                     if (this.onMessageCallback) {
                         const messageStr = typeof msg.data === 'string' 
                             ? msg.data 
                             : JSON.stringify(msg.data || msg);
+                        this.log(`📤 Calling onMessageCallback with: ${messageStr.substring(0, 200)}`);
                         this.onMessageCallback(messageStr);
+                        this.log(`✅ onMessageCallback completed`);
                     } else {
                         this.logError('⚠️ onMessageCallback is null - cannot forward message');
                     }
                 }
             } else if (!data.success) {
                 this.logError(`Poll failed: ${data.error}`);
+            } else {
+                // No messages - this is normal, don't log
             }
         } catch (error) {
             this.logError('Polling error', error);
+            if (error instanceof Error) {
+                this.logError(`   Error message: ${error.message}`);
+                this.logError(`   Error stack: ${error.stack}`);
+            }
         }
     }
 
