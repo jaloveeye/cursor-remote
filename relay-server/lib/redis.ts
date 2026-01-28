@@ -72,6 +72,16 @@ export async function getSession(sessionId: string): Promise<Session | null> {
   return typeof data === 'string' ? JSON.parse(data) : data;
 }
 
+// PC deviceId가 없는 세션 찾기 (모바일 클라이언트가 이미 연결한 세션)
+// Redis에서 모든 세션을 검색하는 것은 비효율적이므로,
+// 실제로는 세션 목록을 별도 Set에 저장하는 것이 좋음
+// 현재는 제한적 구현
+export async function findSessionsWaitingForPC(): Promise<Session[]> {
+  // TODO: 세션 목록을 Set에 저장하여 성능 개선
+  // 현재는 빈 배열 반환 (구현 필요)
+  return [];
+}
+
 // 세션에 디바이스 연결
 export async function joinSession(
   sessionId: string, 

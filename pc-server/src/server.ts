@@ -293,59 +293,59 @@ function sendToExtension(message: string) {
 }
 
 // 세션 자동 감지 (PC deviceId가 없는 세션 찾기)
+// 모바일 클라이언트가 이미 연결한 세션을 찾아서 자동으로 연결
+let lastSessionDiscoveryTime = 0;
+const SESSION_DISCOVERY_INTERVAL = 10000; // 10초마다 한 번만
+
 async function discoverSession(): Promise<string | null> {
     if (sessionId || isLocalMode) {
         return null; // 이미 세션이 있거나 로컬 모드면 스킵
     }
     
+    // 너무 자주 호출하지 않도록 제한
+    const now = Date.now();
+    if (now - lastSessionDiscoveryTime < SESSION_DISCOVERY_INTERVAL) {
+        return null;
+    }
+    lastSessionDiscoveryTime = now;
+    
     try {
         // 릴레이 서버에 PC deviceId가 없는 세션 찾기 요청
-        // 현재는 간단하게 deviceId로 세션 찾기 시도 (모바일 클라이언트가 연결하면 deviceId 매핑이 생성됨)
-        // 실제로는 릴레이 서버에 "PC deviceId가 없는 세션 찾기" API가 필요하지만,
-        // 현재 구조에서는 모바일 클라이언트가 세션에 연결할 때 PC Server의 deviceId를 알 수 없음
-        // 따라서 PC Server가 connectToSession을 호출하면 자동으로 deviceId가 매핑됨
+        const discoveryUrl = `${RELAY_SERVER_URL}/api/sessions-waiting-for-pc`;
+        const response = await fetch(discoveryUrl);
         
-        // 대안: 모바일 클라이언트가 세션에 연결하면, 릴레이 서버가 PC Server에 알림을 보낼 수 있도록
-        // 하지만 현재는 폴링 방식이므로, PC Server가 주기적으로 자신의 deviceId로 세션을 찾음
-        // 모바일 클라이언트가 세션에 연결하면, PC Server가 connectToSession을 호출할 때 deviceId가 매핑됨
+        if (!response.ok) {
+            return null;
+        }
         
-        // 임시 해결책: PC Server가 세션 ID 없이 시작되면, 사용자가 세션 ID를 입력하거나
-        // 모바일 클라이언트가 세션을 생성한 후 세션 ID를 PC Server에 전달해야 함
+        const data = await response.json() as any;
+        if (data.success && data.data?.sessions && data.data.sessions.length > 0) {
+            // 첫 번째 세션에 자동으로 연결
+            const foundSession = data.data.sessions[0];
+            if (foundSession.sessionId) {
+                console.log(`\n🔍 Found session waiting for PC: ${foundSession.sessionId}`);
+                console.log(`🔄 Auto-connecting to session...`);
+                return foundSession.sessionId;
+            }
+        }
         
-        // 하지만 사용자 요구사항은 "PC Server를 먼저 시작하고 나중에 자동 연결"이므로,
-        // 모바일 클라이언트가 세션을 생성하고 연결하면, PC Server가 자동으로 감지해야 함
-        
-        // 현재 구조에서는 모바일 클라이언트가 세션에 연결할 때 PC Server의 deviceId를 알 수 없으므로,
-        // PC Server가 주기적으로 릴레이 서버에 "PC deviceId가 없는 세션"을 찾는 요청을 보내야 함
-        // 하지만 현재 릴레이 서버 API에는 그런 기능이 없음
-        
-        // 해결책: PC Server가 connectToSession을 호출하면, 릴레이 서버가 자동으로 deviceId를 매핑함
-        // 따라서 모바일 클라이언트가 세션을 생성하고 연결한 후, PC Server가 그 세션 ID를 알면 연결 가능
-        // 하지만 PC Server가 세션 ID를 어떻게 알 수 있을까?
-        
-        // 최종 해결책: 모바일 클라이언트가 세션을 생성할 때, 세션 ID를 릴레이 서버에 저장하고,
-        // PC Server가 주기적으로 "PC deviceId가 없는 세션"을 찾아서 자동으로 연결
-        
-        // 현재는 이 기능이 없으므로, PC Server가 deviceId로 세션을 찾는 시도는 실패할 것임
-        // 따라서 사용자가 세션 ID를 수동으로 입력하거나, 다른 방법을 사용해야 함
-        
-        return null; // 현재는 자동 감지 불가능
+        return null;
     } catch (error) {
-        console.log(`💡 Session discovery: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        // 에러는 무시 (세션이 없을 수 있음)
         return null;
     }
 }
 
 // Relay 서버에서 메시지 폴링 및 세션 자동 감지
 async function pollMessages() {
-    // 세션 ID가 없으면 세션 자동 감지 시도 (5초마다 한 번만)
+    // 세션 ID가 없으면 세션 자동 감지 시도
     if (!sessionId && !isLocalMode) {
-        // 세션 자동 감지는 별도 함수로 분리 (너무 자주 호출하지 않도록)
-        // 현재는 자동 감지 기능이 완전하지 않으므로, 사용자가 세션 ID를 입력하거나
-        // 모바일 클라이언트가 세션을 생성한 후 세션 ID를 PC Server에 전달해야 함
-        
-        // TODO: 릴레이 서버에 "PC deviceId가 없는 세션 찾기" API 추가 필요
-        return;
+        const discoveredSessionId = await discoverSession();
+        if (discoveredSessionId) {
+            await connectToSession(discoveredSessionId);
+            return; // 연결 후 다음 폴링에서 메시지 처리
+        }
+        return; // 세션을 찾지 못했으면 다음 폴링에서 다시 시도
     }
     
     // 세션 ID가 있으면 기존 로직대로 메시지 폴링
