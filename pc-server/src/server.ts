@@ -298,9 +298,10 @@ let lastSessionDiscoveryTime = 0;
 const SESSION_DISCOVERY_INTERVAL = 10000; // 10초마다 한 번만
 
 async function discoverSession(): Promise<string | null> {
-    if (sessionId || isLocalMode) {
-        return null; // 이미 세션이 있거나 로컬 모드면 스킵
+    if (sessionId) {
+        return null; // 이미 세션이 있으면 스킵
     }
+    // 로컬 모드여도 릴레이 세션 자동 감지는 계속 진행 (로컬 모드와 병행 가능)
     
     // 너무 자주 호출하지 않도록 제한
     const now = Date.now();
@@ -339,9 +340,13 @@ async function discoverSession(): Promise<string | null> {
 // Relay 서버에서 메시지 폴링 및 세션 자동 감지
 async function pollMessages() {
     // 세션 ID가 없으면 세션 자동 감지 시도
-    if (!sessionId && !isLocalMode) {
+    // 로컬 모드여도 릴레이 모드 세션 자동 감지는 계속 진행 (로컬 모드와 병행 가능)
+    if (!sessionId) {
         const discoveredSessionId = await discoverSession();
         if (discoveredSessionId) {
+            // 세션을 찾았으면 릴레이 모드로 전환
+            console.log('🔄 Switching to relay mode - session discovered');
+            isLocalMode = false;
             await connectToSession(discoveredSessionId);
             return; // 연결 후 다음 폴링에서 메시지 처리
         }
@@ -594,15 +599,20 @@ function setupLocalWebSocketHandlers() {
         const args = process.argv.slice(2);
         if (args.length === 0 || !args[0]) {
             // 세션 ID가 없으면 로컬 모드로 전환
+            // 하지만 릴레이 모드 세션 자동 감지는 계속 진행 (로컬 모드와 병행 가능)
             isLocalMode = true;
             isConnected = true;
             
-            // 기존 릴레이 연결 정리
+            // 기존 릴레이 연결이 있으면 정리
             if (sessionId) {
                 console.log('🔄 Switching from relay mode to local mode');
                 stopPolling();
                 sessionId = null;
             }
+            
+            // 로컬 모드로 전환했지만, 릴레이 모드 세션 자동 감지는 계속 진행
+            // (로컬 모드와 릴레이 모드를 동시에 지원)
+            console.log('💡 Local mode active. Relay mode session discovery will continue in background.');
         } else {
             // 세션 ID가 있으면 릴레이 모드 유지 (로컬 클라이언트는 무시)
             console.log('⚠️  Session ID provided - Relay mode active. Local client will be ignored.');
@@ -712,6 +722,12 @@ async function initializeServer() {
         console.log(`   PC Server will automatically detect and connect to sessions created by mobile clients.`);
         console.log(`   To use relay mode manually, start with: npm start <SESSION_ID>`);
         console.log(`   Or use HTTP API: POST http://localhost:${CONFIG.HTTP_PORT}/session/connect with {"sessionId": "YOUR_SESSION_ID"}`);
+        
+        // 세션 ID 없이 시작할 때도 폴링을 시작하여 세션 자동 감지
+        // 로컬 모드와 릴레이 모드를 동시에 지원 (로컬 모드로 시작해도 릴레이 세션 자동 감지)
+        console.log(`\n🔄 Starting session discovery polling (every ${CONFIG.POLL_INTERVAL / 1000} seconds)...`);
+        console.log(`   PC Server will check for new relay sessions in the background.`);
+        startPolling();
     }
     
     // 서버 시작 메시지
