@@ -816,7 +816,8 @@ export class CLIHandler {
                 clientId: entry.clientId,
                 userMessage: entry.userMessage || '',
                 assistantResponse: entry.assistantResponse || '',
-                timestamp: entry.timestamp
+                timestamp: entry.timestamp,
+                agentMode: entry.agentMode // 에이전트 모드 추가
             };
             
             // pending sessionId를 실제 sessionId로 업데이트
@@ -869,6 +870,10 @@ export class CLIHandler {
                 }
                 if (newEntry.assistantResponse) {
                     lastEntry.assistantResponse = newEntry.assistantResponse;
+                }
+                // agentMode 업데이트 (사용자 메시지가 있을 때만)
+                if (newEntry.agentMode && newEntry.userMessage) {
+                    lastEntry.agentMode = newEntry.agentMode;
                 }
                 // sessionId도 업데이트 (pending -> actual)
                 if (lastEntry.sessionId.startsWith('pending-') && !newEntry.sessionId.startsWith('pending-')) {
@@ -971,7 +976,8 @@ export class CLIHandler {
                         clientId: 'legacy',
                         userMessage: oldEntry.user || oldEntry.userMessage || '',
                         assistantResponse: oldEntry.assistant || oldEntry.assistantResponse || '',
-                        timestamp: oldEntry.timestamp || new Date().toISOString()
+                        timestamp: oldEntry.timestamp || new Date().toISOString(),
+                        agentMode: oldEntry.agentMode // 기존 데이터에서도 agentMode 포함
                     })),
                     lastUpdated: new Date().toISOString()
                 };
