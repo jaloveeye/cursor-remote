@@ -43,6 +43,7 @@ export async function activate(context: vscode.ExtensionContext) {
     };
     
     outputChannel.appendLine('Cursor Remote extension is now active!');
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Extension activation started`);
     console.log('Cursor Remote extension is now active!');
     sendLogToClients('info', 'Cursor Remote extension is now active!');
 
@@ -186,7 +187,10 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(startCommand, stopCommand, toggleCommand);
 
     // Initialize relay client
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Creating RelayClient instance...`);
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Relay Server URL: ${CONFIG.RELAY_SERVER_URL}`);
     relayClient = new RelayClient(CONFIG.RELAY_SERVER_URL, outputChannel);
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ RelayClient instance created`);
     
     // Set up message forwarding: Relay Server -> Extension WebSocket
     relayClient.setOnMessage((message: string) => {
