@@ -845,23 +845,24 @@ export class CLIHandler {
             for (let i = history.entries.length - 1; i >= 0; i--) {
                 const entry = history.entries[i];
                 if (entry.clientId === newEntry.clientId) {
+                    const timeDiff = Math.abs(new Date(entry.timestamp).getTime() - new Date(newEntry.timestamp).getTime());
                     // 사용자 메시지가 있고 응답이 없는 경우 (응답을 추가해야 함)
-                    if (entry.userMessage && !entry.assistantResponse && 
-                        Math.abs(new Date(entry.timestamp).getTime() - new Date(newEntry.timestamp).getTime()) < 30000) {
+                    if (entry.userMessage && !entry.assistantResponse && timeDiff < 30000) {
+                        this.log(`💾 Found entry to update with response - entryId: ${entry.id}, hasAgentMode: ${!!entry.agentMode}`);
                         lastEntry = entry;
                         lastEntryIndex = i;
                         break;
                     }
                     // pending ID가 실제 sessionId로 업데이트되는 경우
-                    if (entry.sessionId.startsWith('pending-') && !newEntry.sessionId.startsWith('pending-') &&
-                        Math.abs(new Date(entry.timestamp).getTime() - new Date(newEntry.timestamp).getTime()) < 30000) {
+                    if (entry.sessionId.startsWith('pending-') && !newEntry.sessionId.startsWith('pending-') && timeDiff < 30000) {
+                        this.log(`💾 Found entry to update sessionId - entryId: ${entry.id}, hasAgentMode: ${!!entry.agentMode}`);
                         lastEntry = entry;
                         lastEntryIndex = i;
                         break;
                     }
                     // 같은 sessionId인 경우 (이미 완성된 엔트리 업데이트)
-                    if (entry.sessionId === newEntry.sessionId &&
-                        Math.abs(new Date(entry.timestamp).getTime() - new Date(newEntry.timestamp).getTime()) < 30000) {
+                    if (entry.sessionId === newEntry.sessionId && timeDiff < 30000) {
+                        this.log(`💾 Found entry with same sessionId - entryId: ${entry.id}, hasAgentMode: ${!!entry.agentMode}`);
                         lastEntry = entry;
                         lastEntryIndex = i;
                         break;
@@ -871,6 +872,7 @@ export class CLIHandler {
             
             if (lastEntry) {
                 // 기존 엔트리 업데이트
+                this.log(`💾 Updating existing entry - id: ${lastEntry.id}, currentAgentMode: ${lastEntry.agentMode || 'undefined'}`);
                 if (newEntry.userMessage) {
                     lastEntry.userMessage = newEntry.userMessage;
                 }
@@ -883,7 +885,10 @@ export class CLIHandler {
                     lastEntry.agentMode = newEntry.agentMode;
                     this.log(`💾 Updated agentMode for entry: ${newEntry.agentMode}`);
                 } else if (newEntry.userMessage && !newEntry.agentMode) {
-                    this.log(`⚠️ User message saved but agentMode is missing`);
+                    this.log(`⚠️ User message saved but agentMode is missing - keeping existing: ${lastEntry.agentMode || 'undefined'}`);
+                } else if (newEntry.assistantResponse && !newEntry.userMessage) {
+                    // 응답만 저장하는 경우 기존 agentMode 유지
+                    this.log(`💾 Saving response only - preserving agentMode: ${lastEntry.agentMode || 'undefined'}`);
                 }
                 // sessionId도 업데이트 (pending -> actual)
                 if (lastEntry.sessionId.startsWith('pending-') && !newEntry.sessionId.startsWith('pending-')) {
@@ -891,6 +896,7 @@ export class CLIHandler {
                 }
                 // 타임스탬프 업데이트
                 lastEntry.timestamp = newEntry.timestamp;
+                this.log(`💾 Entry updated - final agentMode: ${lastEntry.agentMode || 'undefined'}`);
             } else {
                 // 새 엔트리 추가
                 history.entries.push(newEntry);
