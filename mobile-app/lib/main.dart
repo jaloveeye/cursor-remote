@@ -260,7 +260,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           setState(() {
             _sessionIdController.text = sessionId;
             _messages.add(MessageItem('✅ Session created: $sessionId', type: MessageType.system));
-            _messages.add(MessageItem('💡 PC Server will automatically connect when it detects this session', type: MessageType.system));
+            _messages.add(MessageItem('💡 PC Server가 자동으로 이 세션을 감지하여 연결합니다 (최대 10초 소요)', type: MessageType.system));
+            _messages.add(MessageItem('📋 세션 ID: $sessionId', type: MessageType.system));
           });
           
           // 자동으로 세션에 연결

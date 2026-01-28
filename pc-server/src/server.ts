@@ -417,6 +417,7 @@ async function connectToSession(sid: string) {
             // 폴링 시작
             startPolling();
             console.log(`✅ Message polling started (every ${CONFIG.POLL_INTERVAL / 1000} seconds)`);
+            console.log(`\n💡 모바일 앱에서 이 세션 ID를 사용하여 연결하세요: ${sessionId}`);
         } else {
             console.error(`\n❌ Failed to connect: ${data.error}`);
             if (data.error) {
