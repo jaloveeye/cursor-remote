@@ -48,21 +48,51 @@ class WebSocketServer {
         this.port = port;
         this.outputChannel = outputChannel || null;
     }
-    log(message) {
+    log(message, level = 'info') {
         const timestamp = new Date().toLocaleTimeString();
         const logMessage = `[${timestamp}] ${message}`;
         if (this.outputChannel) {
             this.outputChannel.appendLine(logMessage);
         }
         console.log(logMessage);
+        // 실시간 로그를 클라이언트에 전송
+        this.sendLogToClients({
+            level,
+            message,
+            timestamp: new Date().toISOString(),
+            source: 'extension'
+        });
     }
     logError(message, error) {
         const timestamp = new Date().toLocaleTimeString();
-        const logMessage = `[${timestamp}] ERROR: ${message}${error ? ` - ${error}` : ''}`;
+        const errorMessage = error instanceof Error ? error.message : String(error || '');
+        const logMessage = `[${timestamp}] ERROR: ${message}${errorMessage ? ` - ${errorMessage}` : ''}`;
         if (this.outputChannel) {
             this.outputChannel.appendLine(logMessage);
         }
         console.error(logMessage);
+        // 에러 로그를 클라이언트에 전송
+        this.sendLogToClients({
+            level: 'error',
+            message: `${message}${errorMessage ? ` - ${errorMessage}` : ''}`,
+            timestamp: new Date().toISOString(),
+            source: 'extension',
+            error: errorMessage
+        });
+    }
+    sendLogToClients(logData) {
+        if (!this.wss || this.clients.size === 0) {
+            return;
+        }
+        const logMessage = JSON.stringify({
+            type: 'log',
+            ...logData
+        });
+        this.clients.forEach((client) => {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(logMessage);
+            }
+        });
     }
     async findAvailablePort(startPort, maxAttempts = 10) {
         return new Promise((resolve) => {
@@ -218,6 +248,27 @@ class WebSocketServer {
     }
     getClientCount() {
         return this.clients.size;
+    }
+    getConnectionStatus() {
+        return {
+            isRunning: this.isRunning(),
+            clientCount: this.clients.size,
+            port: this.getActualPort()
+        };
+    }
+    // 연결 상태를 클라이언트에 전송
+    sendConnectionStatus() {
+        const status = this.getConnectionStatus();
+        const statusMessage = JSON.stringify({
+            type: 'connection_status',
+            status: status.isRunning ? 'connected' : 'disconnected',
+            source: 'extension',
+            message: status.isRunning
+                ? `WebSocket server running on port ${status.port} (${status.clientCount} client(s))`
+                : 'WebSocket server not running',
+            data: status
+        });
+        this.send(statusMessage);
     }
     send(message) {
         if (!this.wss) {

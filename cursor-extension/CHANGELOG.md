@@ -35,6 +35,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Updated icon to meet VS Code Extension Marketplace requirements
 
+## [0.2.0] - 2026-01-28
+
+### Added
+- **Agent Mode Detection**: Automatic detection of appropriate agent mode (agent, ask, plan, debug) based on user prompt content
+- **Chat History Enhancement**: Agent mode information is now saved and displayed in chat history entries
+- **Mode Display Names**: User-friendly display names for agent modes (e.g., "Agent (코딩 작업)", "Ask (질문/학습)")
+
+### Fixed
+- Fixed TypeScript compilation error in `cli-handler.ts` (missing closing brace in `getChatHistory` method)
+- Improved agent mode detection logic for "Plan" mode, specifically for phrases like "analyze project"
+
+### Changed
+- Enhanced chat history structure to include `agentMode` field
+- Improved agent mode auto-detection algorithm with better keyword matching
+- Updated chat history saving logic to properly store and update agent mode information
+
+### Technical Details
+- Added `detectAgentMode()` private method for intelligent mode selection
+- Added `getModeDisplayName()` method for localized mode names
+- Enhanced `ChatHistoryEntry` interface to include optional `agentMode` field
+- Improved session management for chat history entries
+
 ## [Unreleased]
 
 ### Planned

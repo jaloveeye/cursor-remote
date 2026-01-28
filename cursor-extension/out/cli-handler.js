@@ -47,6 +47,9 @@ class CLIHandler {
         this.lastChatId = null; // 마지막 채팅 세션 ID (대화형 모드 테스트용)
         this.clientSessions = new Map(); // 클라이언트별 세션 ID 관리
         this.chatHistoryFile = null; // 대화 히스토리 파일 경로
+        this.pendingHistoryIds = new Map(); // clientId -> pending sessionId (실제 sessionId로 업데이트용)
+        this.streamingBuffers = new Map(); // clientId -> stdout buffer (스트리밍용)
+        this.lastStreamedText = new Map(); // clientId -> 마지막으로 전송한 텍스트 (중복 제거용)
         this.outputChannel = outputChannel || null;
         this.wsServer = wsServer || null;
         this.workspaceRoot = workspaceRoot || null;
@@ -157,18 +160,38 @@ class CLIHandler {
      * @param clientId 클라이언트 ID (세션 격리용, 선택사항)
      * @param newSession 새 세션 시작 여부 (클라이언트에서 결정, 기본값: false)
      */
-    async sendPrompt(text, execute = true, clientId, newSession = false) {
+    async sendPrompt(text, execute = true, clientId, newSession = false, agentMode = 'auto') {
         this.log(`sendPrompt called - textLength: ${text.length}, execute: ${execute}, clientId: ${clientId || 'none'}, newSession: ${newSession}`);
+        // 에이전트 모드 설정 (히스토리 저장 및 CLI 실행에 사용)
+        let selectedMode = 'agent'; // 기본값
+        if (agentMode && agentMode !== 'auto') {
+            selectedMode = agentMode;
+        }
+        else if (agentMode === 'auto') {
+            // 자동 모드: 텍스트 내용을 분석하여 적절한 모드 선택
+            const autoMode = this.detectAgentMode(text);
+            selectedMode = autoMode || 'agent'; // 기본 Agent 모드
+        }
         // 대화 히스토리 저장 (사용자 메시지 전송 시)
         // 세션 ID는 나중에 응답에서 받을 수 있으므로, 임시로 저장
+        // 주의: newSession이 true면 기존 세션을 무시하므로 히스토리도 새로 시작
         if (clientId) {
-            const currentSessionId = this.clientSessions.get(clientId) || null;
+            const currentSessionId = newSession ? null : (this.clientSessions.get(clientId) || null);
+            const pendingId = `pending-${Date.now()}-${Math.random().toString(36).substring(7)}`; // 고유한 임시 ID 사용
+            this.log(`💾 Saving user message - sessionId: ${currentSessionId || pendingId}, clientId: ${clientId}, newSession: ${newSession}, agentMode: ${selectedMode}`);
+            this.log(`💾 sendPrompt agentMode param: ${agentMode}, selectedMode: ${selectedMode}`);
             this.saveChatHistoryEntry({
-                sessionId: currentSessionId || 'pending',
+                sessionId: currentSessionId || pendingId,
                 clientId: clientId,
                 userMessage: text,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                agentMode: selectedMode
             });
+            // pending ID를 저장하여 나중에 실제 sessionId로 업데이트할 수 있도록
+            if (!currentSessionId) {
+                this.pendingHistoryIds.set(clientId, pendingId);
+                this.log(`💾 Saved pending history ID: ${pendingId} for client ${clientId}`);
+            }
         }
         try {
             // CLI 설치 확인
@@ -203,21 +226,13 @@ class CLIHandler {
                 this.log('Previous CLI process stopped');
             }
             // Cursor CLI 실행
-            // 테스트: 대화형 모드 (--print 없이)
-            // --output-format json: JSON 형식으로 출력 (대화형 모드에서도 작동하는지 테스트)
+            // 스트리밍을 위해 --output-format stream-json과 --stream-partial-output 사용
             // --force: 자동 실행 (승인 없이)
-            // --continue: 이전 세션 재개 (대화 컨텍스트 유지)
-            // 주의: -p 없이 실행하면 대화형 모드가 되지만, JSON 출력이 제대로 작동하는지 확인 필요
             const args = [];
             // 클라이언트에서 새 세션 시작 여부 결정
             if (newSession) {
                 // 클라이언트가 명시적으로 새 세션을 요청한 경우
                 this.log(`Starting new session (client requested) for client ${clientId || 'global'}`);
-                // 기존 세션 ID는 무시하고 새로 시작
-                if (clientId) {
-                    // 클라이언트별 세션 맵에서 제거 (선택사항 - 나중에 재사용할 수도 있으므로 유지)
-                    // this.clientSessions.delete(clientId);
-                }
             }
             else {
                 // 기존 세션 재개 시도
@@ -234,19 +249,51 @@ class CLIHandler {
                     this.log(`Resuming chat session for client ${clientId || 'global'}: ${sessionId}`);
                 }
                 else {
-                    // 세션이 없으면 새로 시작 (--continue 없이)
+                    // 세션이 없으면 새로 시작
                     this.log(`Starting new chat session for client ${clientId || 'global'} (no existing session)`);
                 }
             }
-            args.push('--output-format', 'json', '--force', text);
+            // 에이전트 모드 설정 (이미 위에서 결정됨)
+            if (selectedMode && selectedMode !== 'agent') {
+                args.push('--mode', selectedMode);
+                this.log(`Using agent mode: ${selectedMode}`);
+            }
+            else if (selectedMode === 'agent') {
+                // 기본 Agent 모드는 --mode 인자 없이 사용
+                this.log(`Using default agent mode`);
+            }
+            // 선택된 모드를 사용자에게 알림 (로그를 통해)
+            const modeDisplayName = this.getModeDisplayName(selectedMode);
+            this.log(`🤖 Agent Mode: ${modeDisplayName} (${selectedMode})`);
+            // 자동 모드로 선택된 경우, 실제 선택된 모드를 모바일 앱에 전송
+            if (agentMode === 'auto' && this.wsServer) {
+                this.wsServer.send(JSON.stringify({
+                    type: 'agent_mode_selected',
+                    requestedMode: 'auto',
+                    actualMode: selectedMode,
+                    displayName: modeDisplayName,
+                    timestamp: new Date().toISOString()
+                }));
+            }
+            // 스트리밍 지원: stream-json 형식과 부분 출력 스트리밍 활성화
+            // -p: 비대화형 모드 (--stream-partial-output과 함께 사용)
+            // --output-format stream-json: 스트리밍 JSON 형식
+            // --stream-partial-output: 부분 출력 스트리밍
+            args.push('-p', '--output-format', 'stream-json', '--stream-partial-output', '--force', text);
             this.log(`Executing: ${cliCommand} ${args.join(' ')}`);
             // 현재 작업 디렉토리 설정
             const cwd = this.workspaceRoot || process.cwd();
+            // stdout 버퍼링 최소화를 위한 환경 변수 설정
+            const env = {
+                ...process.env,
+                PYTHONUNBUFFERED: '1', // Python 스크립트 버퍼링 비활성화 (만약 사용하는 경우)
+                NODE_NO_WARNINGS: '1'
+            };
             this.currentProcess = child_process.spawn(cliCommand, args, {
                 cwd: cwd,
                 stdio: ['ignore', 'pipe', 'pipe'], // stdin은 무시, stdout/stderr는 파이프
                 shell: false,
-                env: { ...process.env } // 환경 변수 전달
+                env: env
             });
             this.log(`CLI process spawned (PID: ${this.currentProcess.pid})`);
             this.log(`CLI process stdout: ${this.currentProcess.stdout ? 'exists' : 'null'}`);
@@ -272,22 +319,42 @@ class CLIHandler {
             else {
                 this.log(`⚠️ No clientId provided, using global session (lastChatId: ${this.lastChatId || 'none'})`);
             }
-            // stdout 수집
+            // stdout 수집 및 실시간 스트리밍
             if (this.currentProcess.stdout) {
-                // 버퍼링 비활성화 (가능한 경우)
+                // 버퍼링 최소화: 즉시 플러시되도록 설정
                 this.currentProcess.stdout.setEncoding('utf8');
+                // 스트리밍 버퍼 초기화
+                if (currentClientId) {
+                    this.streamingBuffers.set(currentClientId, '');
+                    this.lastStreamedText.set(currentClientId, '');
+                }
                 this.currentProcess.stdout.on('data', (data) => {
                     const chunk = typeof data === 'string' ? data : data.toString();
                     stdout += chunk;
                     this.log(`CLI stdout chunk (${chunk.length} bytes): ${chunk.substring(0, 200)}${chunk.length > 200 ? '...' : ''}`);
-                    // 실시간으로 session_id 추출 시도 (대화형 모드)
-                    // 주의: clientId는 sendPrompt 호출 시점에만 알 수 있으므로 여기서는 전역 저장하지 않음
-                    // 클라이언트별 세션은 checkAndProcessOutput에서 처리
-                    // 이 부분은 제거하거나 주석 처리 (클라이언트별 세션 관리로 인해 불필요)
+                    // 실시간 스트리밍 처리
+                    if (currentClientId) {
+                        const buffer = (this.streamingBuffers.get(currentClientId) || '') + chunk;
+                        this.streamingBuffers.set(currentClientId, buffer);
+                        this.processStreamingChunk(buffer, currentClientId);
+                    }
                 });
                 this.currentProcess.stdout.on('end', () => {
                     this.log('CLI stdout stream ended');
                     stdoutEnded = true;
+                    // 스트리밍 완료 신호 전송
+                    if (currentClientId && this.wsServer) {
+                        const completeMessage = {
+                            type: 'chat_response_complete',
+                            timestamp: new Date().toISOString(),
+                            clientId: currentClientId
+                        };
+                        this.wsServer.send(JSON.stringify(completeMessage));
+                        this.log('✅ Streaming complete signal sent');
+                        // 스트리밍 버퍼 정리
+                        this.streamingBuffers.delete(currentClientId);
+                        this.lastStreamedText.delete(currentClientId);
+                    }
                     // 프로세스가 종료된 후에만 처리 (중복 방지)
                     if (processClosed) {
                         this.checkAndProcessOutput(stdout, stderr, currentClientId);
@@ -381,55 +448,87 @@ class CLIHandler {
         }
         this.processingOutput = true;
         this.log(`Processing output - stdout length: ${stdout.length}, stderr length: ${stderr.length}`);
-        // JSON 출력 파싱 시도
+        // 일반 텍스트 출력 처리 (JSON 형식 사용 안 함, 스트리밍용)
         try {
             if (stdout.length > 0) {
                 this.log(`CLI stdout content: ${stdout.substring(0, 500)}`);
             }
-            // stdout에서 JSON 추출 시도
-            const jsonMatch = stdout.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                const jsonData = JSON.parse(jsonMatch[0]);
-                this.log(`Parsed JSON data: ${JSON.stringify(jsonData).substring(0, 200)}`);
-                // Cursor CLI 응답 형식: {"type":"result","result":"응답 텍스트",...}
-                // 또는 {"text":"응답 텍스트",...}
-                // 또는 {"response":"응답 텍스트",...}
-                const responseText = jsonData.result || jsonData.text || jsonData.response || jsonData.message || stdout;
-                // 대화형 모드: session_id 추출 및 저장
-                const extractedSessionId = jsonData.session_id || jsonData.sessionId || jsonData.chatId || jsonData.chat_id;
-                if (extractedSessionId) {
-                    // 클라이언트별 세션 저장
-                    if (clientId) {
-                        this.clientSessions.set(clientId, extractedSessionId);
-                        this.log(`💾 Saved session ID for client ${clientId}: ${extractedSessionId}`);
-                        this.log(`💾 Total clients with sessions: ${this.clientSessions.size}`);
-                        // 디버깅: 모든 클라이언트 세션 출력
-                        this.clientSessions.forEach((session, cid) => {
-                            this.log(`   - Client ${cid}: Session ${session}`);
-                        });
+            // stream-json 형식: 여러 JSON 라인이 있을 수 있음
+            // 각 라인을 파싱하여 result 타입의 최종 결과 추출
+            let responseText = '';
+            let extractedSessionId = null;
+            // 각 라인을 파싱하여 result 타입 찾기
+            const lines = stdout.split('\n').filter(line => line.trim().length > 0);
+            for (const line of lines) {
+                try {
+                    const jsonData = JSON.parse(line.trim());
+                    // session_id 추출
+                    const sessionId = jsonData.session_id || jsonData.sessionId || jsonData.chatId || jsonData.chat_id;
+                    if (sessionId && !extractedSessionId) {
+                        extractedSessionId = sessionId;
                     }
-                    else {
-                        // 전역 세션 (하위 호환성) - 경고 로그
-                        this.log(`⚠️ No clientId provided, saving to global session (this may cause session sharing!)`);
-                        this.lastChatId = extractedSessionId;
-                        this.log(`💾 Saved global session ID: ${extractedSessionId}`);
+                    // result 타입: 최종 결과
+                    if (jsonData.type === 'result' && jsonData.result) {
+                        if (typeof jsonData.result === 'string') {
+                            responseText = jsonData.result;
+                        }
                     }
+                    // assistant 타입: 스트리밍이 이미 완료되었으므로 무시
+                    // (스트리밍이 작동했다면 이미 전송됨)
                 }
-                this.log(`Extracted response text length: ${responseText.length}`);
-                // 대화 히스토리 저장 (응답 수신 시)
-                const currentSessionId = extractedSessionId || (clientId ? this.clientSessions.get(clientId) : this.lastChatId);
-                if (currentSessionId && clientId) {
-                    // 마지막 사용자 메시지를 찾아서 히스토리에 저장
-                    // (사용자 메시지는 sendPrompt에서 저장되어야 함)
-                    this.saveChatHistoryEntry({
-                        sessionId: currentSessionId,
-                        clientId: clientId,
-                        assistantResponse: responseText,
-                        timestamp: new Date().toISOString()
-                    });
+                catch (e) {
+                    // JSON 파싱 실패 시 해당 라인 무시
+                    continue;
                 }
-                // WebSocket으로 응답 전송
-                if (this.wsServer && responseText) {
+            }
+            // result 타입을 찾지 못한 경우, 스트리밍된 텍스트 사용
+            if (!responseText && clientId) {
+                responseText = this.lastStreamedText.get(clientId) || '';
+            }
+            // 여전히 없으면 전체 stdout 사용 (하위 호환성)
+            if (!responseText) {
+                responseText = stdout.trim();
+            }
+            // session_id 저장 (JSON에서 추출한 경우)
+            if (extractedSessionId) {
+                if (clientId) {
+                    this.clientSessions.set(clientId, extractedSessionId);
+                    this.log(`💾 Saved session ID for client ${clientId}: ${extractedSessionId}`);
+                }
+                else {
+                    this.lastChatId = extractedSessionId;
+                    this.log(`💾 Saved global session ID: ${extractedSessionId}`);
+                }
+            }
+            this.log(`Extracted response text length: ${responseText.length}`);
+            // 대화 히스토리 저장 (응답 수신 시)
+            const currentSessionId = extractedSessionId || (clientId ? this.clientSessions.get(clientId) : this.lastChatId);
+            if (clientId) {
+                // sessionId가 있으면 사용, 없으면 pending ID 사용
+                const sessionIdToUse = currentSessionId || this.pendingHistoryIds.get(clientId) || 'unknown';
+                this.log(`💾 Saving assistant response - sessionId: ${sessionIdToUse}, clientId: ${clientId}, hasPendingId: ${this.pendingHistoryIds.has(clientId)}`);
+                this.saveChatHistoryEntry({
+                    sessionId: sessionIdToUse,
+                    clientId: clientId,
+                    assistantResponse: responseText,
+                    timestamp: new Date().toISOString()
+                });
+                // pending ID가 있었고 실제 sessionId를 받았으면 업데이트
+                if (extractedSessionId && this.pendingHistoryIds.has(clientId)) {
+                    const pendingId = this.pendingHistoryIds.get(clientId);
+                    this.log(`💾 Updating pending sessionId ${pendingId} to ${extractedSessionId}`);
+                    this.updatePendingSessionId(clientId, pendingId, extractedSessionId);
+                    this.pendingHistoryIds.delete(clientId);
+                }
+            }
+            // WebSocket으로 최종 응답 전송 (스트리밍이 이미 완료되었으므로 중복 방지를 위해 선택적)
+            // 스트리밍이 정상 작동했다면 이 메시지는 무시될 수 있음
+            // 하지만 하위 호환성을 위해 유지
+            if (this.wsServer && responseText) {
+                // 스트리밍이 이미 완료되었는지 확인
+                const wasStreaming = clientId && this.lastStreamedText.has(clientId);
+                if (!wasStreaming) {
+                    // 스트리밍이 없었다면 일반 응답으로 전송
                     const responseMessage = {
                         type: 'chat_response',
                         text: responseText,
@@ -446,32 +545,17 @@ class CLIHandler {
                     this.log('✅ Chat response sent to WebSocket');
                 }
                 else {
-                    this.logError('wsServer is null or responseText is empty');
+                    this.log('⚠️ Streaming was active, skipping duplicate chat_response');
                 }
             }
             else {
-                // JSON이 없으면 전체 stdout을 응답으로 사용
-                this.log('No JSON match found, using stdout as text');
-                if (this.wsServer && stdout.trim()) {
-                    const responseMessage = {
-                        type: 'chat_response',
-                        text: stdout.trim(),
-                        timestamp: new Date().toISOString(),
-                        source: 'cli'
-                    };
-                    this.log(`Sending chat_response (from stdout): ${JSON.stringify(responseMessage).substring(0, 200)}`);
-                    this.wsServer.send(JSON.stringify(responseMessage));
-                    this.log('✅ Chat response sent to WebSocket (from stdout)');
-                }
-                else {
-                    this.logError('wsServer is null or stdout is empty');
-                }
+                this.logError('wsServer is null or responseText is empty');
             }
         }
-        catch (parseError) {
-            // JSON 파싱 실패 시 전체 출력을 텍스트로 전송
-            const errorMsg = parseError instanceof Error ? parseError.message : 'Unknown error';
-            this.logError(`JSON parsing error: ${errorMsg}`);
+        catch (error) {
+            // 에러 발생 시 전체 출력을 텍스트로 전송
+            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+            this.logError(`Output processing error: ${errorMsg}`);
             this.logError(`stdout: ${stdout.substring(0, 500)}`);
             if (this.wsServer) {
                 const responseMessage = {
@@ -487,6 +571,106 @@ class CLIHandler {
         }
         finally {
             this.processingOutput = false;
+        }
+    }
+    /**
+     * 실시간 스트리밍 청크 처리
+     * stream-json 형식: 각 델타가 JSON으로 출력됨
+     * - thinking 타입: 내부 사고 과정 (스트리밍하지 않음)
+     * - assistant 타입: 실제 응답 텍스트 (스트리밍)
+     * - result 타입: 최종 결과 (스트리밍 완료 시 사용)
+     */
+    processStreamingChunk(buffer, clientId) {
+        try {
+            // stream-json 형식: 각 라인이 JSON 델타일 수 있음
+            // 버퍼를 라인 단위로 분리하여 각 JSON 델타 처리
+            const lines = buffer.split('\n').filter(line => line.trim().length > 0);
+            let accumulatedText = this.lastStreamedText.get(clientId) || '';
+            let hasNewData = false;
+            for (const line of lines) {
+                try {
+                    // JSON 델타 파싱 시도
+                    const jsonData = JSON.parse(line.trim());
+                    // session_id 추출 (있는 경우)
+                    const extractedSessionId = jsonData.session_id || jsonData.sessionId || jsonData.chatId || jsonData.chat_id;
+                    if (extractedSessionId && clientId) {
+                        this.clientSessions.set(clientId, extractedSessionId);
+                    }
+                    // 타입별 처리
+                    const messageType = jsonData.type;
+                    if (messageType === 'assistant') {
+                        // assistant 타입: 실제 응답 텍스트 추출
+                        const message = jsonData.message;
+                        if (message && message.content && Array.isArray(message.content)) {
+                            for (const content of message.content) {
+                                if (content.type === 'text' && content.text) {
+                                    const text = content.text;
+                                    // 이전 텍스트와 비교하여 새로운 부분만 추가
+                                    if (text.length > accumulatedText.length && text.startsWith(accumulatedText)) {
+                                        // 새로운 텍스트가 이전 텍스트로 시작하는 경우 (일반적인 경우)
+                                        accumulatedText = text;
+                                        hasNewData = true;
+                                    }
+                                    else if (accumulatedText.length > 0 && text.startsWith(accumulatedText) && text.length >= accumulatedText.length) {
+                                        // 이전 텍스트로 시작하지만 길이가 같거나 더 긴 경우
+                                        accumulatedText = text;
+                                        hasNewData = true;
+                                    }
+                                    else if (text !== accumulatedText && text.length > 0) {
+                                        // 텍스트가 완전히 바뀐 경우 또는 처음 시작하는 경우
+                                        accumulatedText = text;
+                                        hasNewData = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else if (messageType === 'result' && jsonData.result) {
+                        // result 타입: 최종 결과 (전체 텍스트로 교체)
+                        const resultText = jsonData.result;
+                        if (typeof resultText === 'string' && resultText.length > 0) {
+                            accumulatedText = resultText;
+                            hasNewData = true;
+                        }
+                    }
+                    // thinking 타입은 무시 (내부 사고 과정)
+                    // system, user 타입도 무시
+                }
+                catch (parseError) {
+                    // JSON이 아닌 경우 무시 (stream-json 형식에서는 모든 라인이 JSON이어야 함)
+                    // 일반 텍스트 출력은 하위 호환성을 위해 지원하지 않음
+                }
+            }
+            // 새로운 데이터가 있으면 전송
+            if (hasNewData && this.wsServer) {
+                const lastText = this.lastStreamedText.get(clientId) || '';
+                // accumulatedText가 lastText와 다른 경우 전송
+                if (accumulatedText !== lastText) {
+                    const newText = accumulatedText.length > lastText.length
+                        ? accumulatedText.substring(lastText.length)
+                        : accumulatedText; // 처음 시작하는 경우 전체 텍스트
+                    if (newText.length > 0 || accumulatedText.length > 0) {
+                        const currentSessionId = this.clientSessions.get(clientId) || undefined;
+                        const chunkMessage = {
+                            type: 'chat_response_chunk',
+                            text: newText.length > 0 ? newText : accumulatedText, // newText가 비어있으면 전체 텍스트 사용
+                            fullText: accumulatedText,
+                            timestamp: new Date().toISOString(),
+                            source: 'cli',
+                            sessionId: currentSessionId || undefined,
+                            clientId: clientId,
+                            isReplace: newText.length === 0 // 처음 시작하거나 전체 교체인 경우
+                        };
+                        this.wsServer.send(JSON.stringify(chunkMessage));
+                        this.lastStreamedText.set(clientId, accumulatedText);
+                        this.log(`📤 Streaming chunk sent (${newText.length > 0 ? newText.length : accumulatedText.length} chars, total: ${accumulatedText.length})`);
+                    }
+                }
+            }
+        }
+        catch (error) {
+            // 에러 발생 시 로그만 남기고 계속 진행
+            this.logError('Error processing streaming chunk', error);
         }
     }
     /**
@@ -531,7 +715,36 @@ class CLIHandler {
             if (fs.existsSync(this.chatHistoryFile)) {
                 const content = fs.readFileSync(this.chatHistoryFile, 'utf8');
                 try {
-                    history = JSON.parse(content);
+                    const parsed = JSON.parse(content);
+                    // 기존 형식(배열)을 새 형식으로 변환
+                    if (Array.isArray(parsed)) {
+                        this.log('🔄 Converting old chat history format to new format');
+                        history = {
+                            entries: parsed.map((oldEntry, index) => ({
+                                id: `${Date.now()}-${index}-${Math.random().toString(36).substring(7)}`,
+                                sessionId: 'unknown',
+                                clientId: 'legacy',
+                                userMessage: oldEntry.user || oldEntry.userMessage || '',
+                                assistantResponse: oldEntry.assistant || oldEntry.assistantResponse || '',
+                                timestamp: oldEntry.timestamp || new Date().toISOString()
+                            })),
+                            lastUpdated: new Date().toISOString()
+                        };
+                    }
+                    else if (parsed.entries && Array.isArray(parsed.entries)) {
+                        // 새 형식
+                        history = parsed;
+                    }
+                    else {
+                        // 알 수 없는 형식
+                        this.log('⚠️ Unknown chat history format, resetting');
+                        history = { entries: [], lastUpdated: new Date().toISOString() };
+                    }
+                    // entries가 배열인지 확인
+                    if (!Array.isArray(history.entries)) {
+                        this.log('⚠️ history.entries is not an array, resetting');
+                        history.entries = [];
+                    }
                 }
                 catch (e) {
                     this.logError('Failed to parse chat history', e);
@@ -545,17 +758,83 @@ class CLIHandler {
                 clientId: entry.clientId,
                 userMessage: entry.userMessage || '',
                 assistantResponse: entry.assistantResponse || '',
-                timestamp: entry.timestamp
+                timestamp: entry.timestamp,
+                agentMode: entry.agentMode // 에이전트 모드 추가
             };
-            // 마지막 엔트리 업데이트 또는 새로 추가
-            const lastEntry = history.entries[history.entries.length - 1];
-            if (lastEntry &&
-                lastEntry.sessionId === newEntry.sessionId &&
-                lastEntry.clientId === newEntry.clientId &&
-                Math.abs(new Date(lastEntry.timestamp).getTime() - new Date(newEntry.timestamp).getTime()) < 5000) {
-                // 5초 이내면 업데이트 (사용자 메시지 후 응답 받은 경우)
-                lastEntry.userMessage = newEntry.userMessage || lastEntry.userMessage;
-                lastEntry.assistantResponse = newEntry.assistantResponse || lastEntry.assistantResponse;
+            // 디버깅: agentMode 저장 확인
+            if (newEntry.userMessage) {
+                this.log(`💾 Creating new entry - agentMode: ${newEntry.agentMode || 'undefined'}, userMessage: ${newEntry.userMessage.substring(0, 30)}...`);
+            }
+            // pending sessionId를 실제 sessionId로 업데이트
+            if (newEntry.sessionId.startsWith('pending-') && entry.clientId) {
+                const actualSessionId = this.clientSessions.get(entry.clientId);
+                if (actualSessionId) {
+                    newEntry.sessionId = actualSessionId;
+                    // pending ID 제거
+                    this.pendingHistoryIds.delete(entry.clientId);
+                }
+            }
+            // 마지막 엔트리 찾기 (같은 clientId, 사용자 메시지가 있고 응답이 없는 경우)
+            // 또는 pending ID가 실제 sessionId로 업데이트되는 경우
+            let lastEntry = undefined;
+            let lastEntryIndex = -1;
+            // 역순으로 검색하여 가장 최근 엔트리 찾기
+            for (let i = history.entries.length - 1; i >= 0; i--) {
+                const entry = history.entries[i];
+                if (entry.clientId === newEntry.clientId) {
+                    const timeDiff = Math.abs(new Date(entry.timestamp).getTime() - new Date(newEntry.timestamp).getTime());
+                    // 사용자 메시지가 있고 응답이 없는 경우 (응답을 추가해야 함)
+                    if (entry.userMessage && !entry.assistantResponse && timeDiff < 30000) {
+                        this.log(`💾 Found entry to update with response - entryId: ${entry.id}, hasAgentMode: ${!!entry.agentMode}`);
+                        lastEntry = entry;
+                        lastEntryIndex = i;
+                        break;
+                    }
+                    // pending ID가 실제 sessionId로 업데이트되는 경우
+                    if (entry.sessionId.startsWith('pending-') && !newEntry.sessionId.startsWith('pending-') && timeDiff < 30000) {
+                        this.log(`💾 Found entry to update sessionId - entryId: ${entry.id}, hasAgentMode: ${!!entry.agentMode}`);
+                        lastEntry = entry;
+                        lastEntryIndex = i;
+                        break;
+                    }
+                    // 같은 sessionId인 경우 (이미 완성된 엔트리 업데이트)
+                    if (entry.sessionId === newEntry.sessionId && timeDiff < 30000) {
+                        this.log(`💾 Found entry with same sessionId - entryId: ${entry.id}, hasAgentMode: ${!!entry.agentMode}`);
+                        lastEntry = entry;
+                        lastEntryIndex = i;
+                        break;
+                    }
+                }
+            }
+            if (lastEntry) {
+                // 기존 엔트리 업데이트
+                this.log(`💾 Updating existing entry - id: ${lastEntry.id}, currentAgentMode: ${lastEntry.agentMode || 'undefined'}`);
+                if (newEntry.userMessage) {
+                    lastEntry.userMessage = newEntry.userMessage;
+                }
+                if (newEntry.assistantResponse) {
+                    lastEntry.assistantResponse = newEntry.assistantResponse;
+                }
+                // agentMode 업데이트 (사용자 메시지가 있고 agentMode가 제공된 경우에만)
+                // 응답만 저장하는 경우 agentMode를 덮어쓰지 않도록 주의
+                if (newEntry.userMessage && newEntry.agentMode) {
+                    lastEntry.agentMode = newEntry.agentMode;
+                    this.log(`💾 Updated agentMode for entry: ${newEntry.agentMode}`);
+                }
+                else if (newEntry.userMessage && !newEntry.agentMode) {
+                    this.log(`⚠️ User message saved but agentMode is missing - keeping existing: ${lastEntry.agentMode || 'undefined'}`);
+                }
+                else if (newEntry.assistantResponse && !newEntry.userMessage) {
+                    // 응답만 저장하는 경우 기존 agentMode 유지
+                    this.log(`💾 Saving response only - preserving agentMode: ${lastEntry.agentMode || 'undefined'}`);
+                }
+                // sessionId도 업데이트 (pending -> actual)
+                if (lastEntry.sessionId.startsWith('pending-') && !newEntry.sessionId.startsWith('pending-')) {
+                    lastEntry.sessionId = newEntry.sessionId;
+                }
+                // 타임스탬프 업데이트
+                lastEntry.timestamp = newEntry.timestamp;
+                this.log(`💾 Entry updated - final agentMode: ${lastEntry.agentMode || 'undefined'}`);
             }
             else {
                 // 새 엔트리 추가
@@ -575,6 +854,56 @@ class CLIHandler {
         }
     }
     /**
+     * pending sessionId를 실제 sessionId로 업데이트
+     */
+    updatePendingSessionId(clientId, pendingId, actualSessionId) {
+        if (!this.chatHistoryFile || !fs.existsSync(this.chatHistoryFile)) {
+            return;
+        }
+        try {
+            const content = fs.readFileSync(this.chatHistoryFile, 'utf8');
+            const parsed = JSON.parse(content);
+            // 기존 형식(배열)을 새 형식으로 변환
+            let history;
+            if (Array.isArray(parsed)) {
+                history = {
+                    entries: parsed.map((oldEntry, index) => ({
+                        id: `${Date.now()}-${index}-${Math.random().toString(36).substring(7)}`,
+                        sessionId: 'unknown',
+                        clientId: 'legacy',
+                        userMessage: oldEntry.user || oldEntry.userMessage || '',
+                        assistantResponse: oldEntry.assistant || oldEntry.assistantResponse || '',
+                        timestamp: oldEntry.timestamp || new Date().toISOString()
+                    })),
+                    lastUpdated: new Date().toISOString()
+                };
+            }
+            else if (parsed.entries && Array.isArray(parsed.entries)) {
+                history = parsed;
+            }
+            else {
+                this.log('⚠️ Unknown chat history format in updatePendingSessionId');
+                return;
+            }
+            // entries가 배열인지 확인
+            if (!Array.isArray(history.entries)) {
+                this.log('⚠️ history.entries is not an array in updatePendingSessionId');
+                return;
+            }
+            // pending ID를 가진 엔트리를 찾아서 실제 sessionId로 업데이트
+            history.entries.forEach(entry => {
+                if (entry.clientId === clientId && entry.sessionId === pendingId) {
+                    entry.sessionId = actualSessionId;
+                }
+            });
+            fs.writeFileSync(this.chatHistoryFile, JSON.stringify(history, null, 2), 'utf8');
+            this.log(`💾 Updated pending sessionId ${pendingId} to ${actualSessionId} in history`);
+        }
+        catch (error) {
+            this.logError('Failed to update pending sessionId', error);
+        }
+    }
+    /**
      * 대화 히스토리 조회
      */
     getChatHistory(clientId, sessionId, limit = 50) {
@@ -583,12 +912,41 @@ class CLIHandler {
         }
         try {
             const content = fs.readFileSync(this.chatHistoryFile, 'utf8');
-            const history = JSON.parse(content);
+            const parsed = JSON.parse(content);
+            // 기존 형식(배열)을 새 형식으로 변환
+            let history;
+            if (Array.isArray(parsed)) {
+                history = {
+                    entries: parsed.map((oldEntry, index) => ({
+                        id: `${Date.now()}-${index}-${Math.random().toString(36).substring(7)}`,
+                        sessionId: 'unknown',
+                        clientId: 'legacy',
+                        userMessage: oldEntry.user || oldEntry.userMessage || '',
+                        assistantResponse: oldEntry.assistant || oldEntry.assistantResponse || '',
+                        timestamp: oldEntry.timestamp || new Date().toISOString(),
+                        agentMode: oldEntry.agentMode // 기존 데이터에서도 agentMode 포함
+                    })),
+                    lastUpdated: new Date().toISOString()
+                };
+            }
+            else if (parsed.entries && Array.isArray(parsed.entries)) {
+                history = parsed;
+            }
+            else {
+                this.log('⚠️ Unknown chat history format in getChatHistory');
+                return [];
+            }
+            // entries가 배열인지 확인
+            if (!Array.isArray(history.entries)) {
+                this.log('⚠️ history.entries is not an array in getChatHistory');
+                return [];
+            }
             let filtered = history.entries;
-            // 클라이언트 ID로 필터링
+            // 클라이언트 ID로 필터링 (clientId가 제공된 경우만)
             if (clientId) {
                 filtered = filtered.filter(entry => entry.clientId === clientId);
             }
+            // clientId가 없으면 모든 히스토리 반환 (최근 히스토리 조회용)
             // 세션 ID로 필터링
             if (sessionId) {
                 filtered = filtered.filter(entry => entry.sessionId === sessionId);
@@ -601,6 +959,57 @@ class CLIHandler {
             this.logError('Failed to load chat history', error);
             return [];
         }
+    }
+    /**
+     * 텍스트 내용을 분석하여 적절한 에이전트 모드 자동 선택
+     */
+    detectAgentMode(text) {
+        const lowerText = text.toLowerCase();
+        // Debug 모드 키워드
+        const debugKeywords = ['bug', 'error', 'fix', 'debug', 'issue', 'problem', 'crash', 'exception', 'trace', 'log'];
+        if (debugKeywords.some(keyword => lowerText.includes(keyword))) {
+            // 버그 관련 키워드가 있지만, 단순 질문인지 확인
+            if (lowerText.includes('why') || lowerText.includes('what') || lowerText.includes('how') || lowerText.includes('?')) {
+                // 질문 형태면 Ask 모드
+                if (lowerText.includes('explain') || lowerText.includes('understand') || lowerText.includes('learn')) {
+                    return 'ask';
+                }
+            }
+            return 'debug';
+        }
+        // Plan 모드 키워드
+        const planKeywords = ['plan', 'design', 'architecture', 'implement', 'create', 'build', 'feature', 'refactor', 'analyze', 'analysis', 'project', 'review', 'overview', 'structure'];
+        if (planKeywords.some(keyword => lowerText.includes(keyword))) {
+            // 복잡한 작업 키워드 확인
+            const complexKeywords = ['multiple', 'several', 'many', 'system', 'module', 'component', 'project', '전체', '모든', '전반'];
+            if (complexKeywords.some(keyword => lowerText.includes(keyword))) {
+                return 'plan';
+            }
+            // "프로젝트 분석", "전체 분석" 같은 패턴도 Plan 모드
+            if (lowerText.includes('analyze') || lowerText.includes('analysis') || lowerText.includes('분석')) {
+                return 'plan';
+            }
+        }
+        // Ask 모드 키워드 (질문, 학습, 탐색)
+        const askKeywords = ['explain', 'what is', 'how does', 'why', 'understand', 'learn', 'show me', 'tell me'];
+        if (askKeywords.some(keyword => lowerText.includes(keyword)) || lowerText.endsWith('?')) {
+            return 'ask';
+        }
+        // 기본값: Agent 모드 (코드 작성/수정 작업)
+        return null; // null이면 기본 Agent 모드 사용
+    }
+    /**
+     * 모드 이름을 사용자 친화적인 표시 이름으로 변환
+     */
+    getModeDisplayName(mode) {
+        const modeNames = {
+            'agent': 'Agent (코딩 작업)',
+            'ask': 'Ask (질문/학습)',
+            'plan': 'Plan (계획 수립)',
+            'debug': 'Debug (버그 수정)',
+            'auto': 'Auto (자동 선택)'
+        };
+        return modeNames[mode] || mode;
     }
 }
 exports.CLIHandler = CLIHandler;
