@@ -292,8 +292,58 @@ function sendToExtension(message: string) {
     sendToActiveExtension(message);
 }
 
-// Relay 서버에서 메시지 폴링
+// Relay 서버에서 메시지 폴링 및 세션 자동 감지
 async function pollMessages() {
+    // 세션 ID가 없으면 deviceId로 세션 찾기 시도
+    if (!sessionId && !isLocalMode) {
+        try {
+            const pollUrl = `${RELAY_SERVER_URL}/api/poll?deviceId=${deviceId}&deviceType=pc`;
+            const response = await fetch(pollUrl);
+            
+            const data = await response.json() as any;
+            if (data.success) {
+                // 세션을 찾았으면 자동으로 연결
+                const foundSessionId = data.data?.sessionId;
+                if (foundSessionId && foundSessionId !== sessionId) {
+                    console.log(`\n🔍 Found session for device ${deviceId}: ${foundSessionId}`);
+                    console.log(`🔄 Auto-connecting to session...`);
+                    await connectToSession(foundSessionId);
+                    return; // 연결 후 다음 폴링에서 메시지 처리
+                }
+                
+                // 메시지 처리
+                if (data.data?.messages) {
+                    const messages = data.data.messages;
+                    if (messages.length > 0) {
+                        console.log(`📥 Received ${messages.length} message(s) from relay`);
+                    }
+                    
+                    for (const msg of messages) {
+                        console.log('📨 Message from relay:', JSON.stringify(msg, null, 2));
+                        
+                        // Extension으로 전달
+                        const commandData = msg.data || msg;
+                        console.log(`📤 Sending to extension:`, JSON.stringify(commandData, null, 2));
+                        if (!sendToActiveExtension(JSON.stringify(commandData))) {
+                            console.error(`❌ Failed to send to Extension`);
+                        }
+                    }
+                }
+            } else if (data.error && !data.error.includes('sessionId or deviceId is required')) {
+                // 세션을 찾지 못한 경우는 정상 (아직 모바일 클라이언트가 연결하지 않음)
+                // 다른 에러만 로그
+                console.log(`💡 No session found yet for device ${deviceId} (waiting for mobile client...)`);
+            }
+        } catch (error) {
+            // 에러는 무시 (세션이 없을 수 있음)
+            if (error instanceof Error && !error.message.includes('fetch')) {
+                console.log(`💡 Polling for session discovery: ${error.message}`);
+            }
+        }
+        return;
+    }
+    
+    // 세션 ID가 있으면 기존 로직대로 메시지 폴링
     if (!sessionId || !isConnected) {
         console.log(`⚠️ Polling skipped: sessionId=${sessionId}, isConnected=${isConnected}`);
         return;
@@ -653,9 +703,9 @@ async function initializeServer() {
         }, 2000);
     } else {
         console.log(`\n💡 No session ID provided - Local mode is available`);
-        console.log(`   To use relay mode, start with: npm start <SESSION_ID>`);
+        console.log(`   PC Server will automatically detect and connect to sessions created by mobile clients.`);
+        console.log(`   To use relay mode manually, start with: npm start <SESSION_ID>`);
         console.log(`   Or use HTTP API: POST http://localhost:${CONFIG.HTTP_PORT}/session/connect with {"sessionId": "YOUR_SESSION_ID"}`);
-        console.log(`   Mobile app can automatically notify PC Server when creating a new session.`);
     }
     
     // 서버 시작 메시지

@@ -259,10 +259,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           setState(() {
             _sessionIdController.text = sessionId;
             _messages.add(MessageItem('✅ Session created: $sessionId', type: MessageType.system));
+            _messages.add(MessageItem('💡 PC Server will automatically connect when it detects this session', type: MessageType.system));
           });
-          
-          // PC Server에 세션 ID 전달 (자동 연결)
-          await _notifyPCServer(sessionId);
           
           // 자동으로 세션에 연결
           await _connectToSession(sessionId);
@@ -275,55 +273,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } catch (e) {
       setState(() {
         _messages.add(MessageItem('❌ Error creating session: $e', type: MessageType.system));
-      });
-    }
-  }
-  
-  // PC Server에 세션 ID 전달하여 자동 연결 요청
-  Future<void> _notifyPCServer(String sessionId) async {
-    // PC Server IP 주소가 있으면 자동으로 연결 요청
-    final pcServerIp = _localIpController.text.trim();
-    if (pcServerIp.isEmpty) {
-      // PC Server IP가 없으면 건너뛰기 (사용자가 나중에 수동으로 연결 가능)
-      setState(() {
-        _messages.add(MessageItem('💡 PC Server IP not set. PC Server will need to connect manually with session ID: $sessionId', type: MessageType.system));
-      });
-      return;
-    }
-    
-    try {
-      setState(() {
-        _messages.add(MessageItem('🔄 Notifying PC Server at $pcServerIp to connect to session $sessionId...', type: MessageType.system));
-      });
-      
-      final response = await http.post(
-        Uri.parse('http://$pcServerIp:8765/session/connect'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'sessionId': sessionId,
-        }),
-      );
-      
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['success'] == true) {
-          setState(() {
-            _messages.add(MessageItem('✅ PC Server connected to session $sessionId', type: MessageType.system));
-          });
-        } else {
-          setState(() {
-            _messages.add(MessageItem('⚠️ PC Server notification failed: ${data['error'] ?? 'Unknown error'}', type: MessageType.system));
-          });
-        }
-      } else {
-        setState(() {
-          _messages.add(MessageItem('⚠️ PC Server notification failed: HTTP ${response.statusCode}', type: MessageType.system));
-        });
-      }
-    } catch (e) {
-      // PC Server 연결 실패는 치명적이지 않음 (사용자가 나중에 수동으로 연결 가능)
-      setState(() {
-        _messages.add(MessageItem('⚠️ Could not notify PC Server: $e. You can manually connect PC Server with session ID: $sessionId', type: MessageType.system));
       });
     }
   }
