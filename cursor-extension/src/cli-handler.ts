@@ -1031,6 +1031,7 @@ export class CLIHandler {
             this.logError('Failed to load chat history', error);
             return [];
         }
+    }
     
     /**
      * 텍스트 내용을 분석하여 적절한 에이전트 모드 자동 선택
