@@ -6,6 +6,9 @@ import * as vscode from 'vscode';
 import { CommandHandler } from './command-handler';
 import { WebSocketServer } from './websocket-server';
 
+// Cursor Agent 모드 타입
+export type AgentMode = 'agent' | 'ask' | 'plan' | 'debug' | 'auto';
+
 export interface CommandMessage {
     id?: string;
     type: string;
@@ -20,6 +23,7 @@ export interface CommandMessage {
     newSession?: boolean; // 새 세션 시작 여부 (클라이언트에서 결정)
     sessionId?: string; // 세션 ID (대화 히스토리 조회용)
     limit?: number; // 조회 제한 (대화 히스토리 조회용)
+    agentMode?: AgentMode; // 에이전트 모드 (agent, ask, plan, debug, auto)
 }
 
 export interface CommandResult {

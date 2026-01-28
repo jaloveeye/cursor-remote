@@ -13,6 +13,7 @@ interface ChatHistoryEntry {
     userMessage: string;
     assistantResponse: string;
     timestamp: string;
+    agentMode?: string; // 에이전트 모드 (agent, ask, plan, debug, auto)
 }
 
 interface ChatHistory {
@@ -158,8 +159,18 @@ export class CLIHandler {
      * @param clientId 클라이언트 ID (세션 격리용, 선택사항)
      * @param newSession 새 세션 시작 여부 (클라이언트에서 결정, 기본값: false)
      */
-    async sendPrompt(text: string, execute: boolean = true, clientId?: string, newSession: boolean = false): Promise<void> {
+    async sendPrompt(text: string, execute: boolean = true, clientId?: string, newSession: boolean = false, agentMode: 'agent' | 'ask' | 'plan' | 'debug' | 'auto' = 'auto'): Promise<void> {
         this.log(`sendPrompt called - textLength: ${text.length}, execute: ${execute}, clientId: ${clientId || 'none'}, newSession: ${newSession}`);
+        
+        // 에이전트 모드 설정 (히스토리 저장 및 CLI 실행에 사용)
+        let selectedMode: string = 'agent'; // 기본값
+        if (agentMode && agentMode !== 'auto') {
+            selectedMode = agentMode;
+        } else if (agentMode === 'auto') {
+            // 자동 모드: 텍스트 내용을 분석하여 적절한 모드 선택
+            const autoMode = this.detectAgentMode(text);
+            selectedMode = autoMode || 'agent'; // 기본 Agent 모드
+        }
         
         // 대화 히스토리 저장 (사용자 메시지 전송 시)
         // 세션 ID는 나중에 응답에서 받을 수 있으므로, 임시로 저장
@@ -167,12 +178,14 @@ export class CLIHandler {
         if (clientId) {
             const currentSessionId = newSession ? null : (this.clientSessions.get(clientId) || null);
             const pendingId = `pending-${Date.now()}-${Math.random().toString(36).substring(7)}`; // 고유한 임시 ID 사용
-            this.log(`💾 Saving user message - sessionId: ${currentSessionId || pendingId}, clientId: ${clientId}, newSession: ${newSession}`);
+            this.log(`💾 Saving user message - sessionId: ${currentSessionId || pendingId}, clientId: ${clientId}, newSession: ${newSession}, agentMode: ${selectedMode}`);
+            this.log(`💾 sendPrompt agentMode param: ${agentMode}, selectedMode: ${selectedMode}`);
             this.saveChatHistoryEntry({
                 sessionId: currentSessionId || pendingId,
                 clientId: clientId,
                 userMessage: text,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                agentMode: selectedMode
             });
             // pending ID를 저장하여 나중에 실제 sessionId로 업데이트할 수 있도록
             if (!currentSessionId) {
@@ -246,6 +259,30 @@ export class CLIHandler {
                     // 세션이 없으면 새로 시작
                     this.log(`Starting new chat session for client ${clientId || 'global'} (no existing session)`);
                 }
+            }
+            
+            // 에이전트 모드 설정 (이미 위에서 결정됨)
+            if (selectedMode && selectedMode !== 'agent') {
+                args.push('--mode', selectedMode);
+                this.log(`Using agent mode: ${selectedMode}`);
+            } else if (selectedMode === 'agent') {
+                // 기본 Agent 모드는 --mode 인자 없이 사용
+                this.log(`Using default agent mode`);
+            }
+            
+            // 선택된 모드를 사용자에게 알림 (로그를 통해)
+            const modeDisplayName = this.getModeDisplayName(selectedMode);
+            this.log(`🤖 Agent Mode: ${modeDisplayName} (${selectedMode})`);
+            
+            // 자동 모드로 선택된 경우, 실제 선택된 모드를 모바일 앱에 전송
+            if (agentMode === 'auto' && this.wsServer) {
+                this.wsServer.send(JSON.stringify({
+                    type: 'agent_mode_selected',
+                    requestedMode: 'auto',
+                    actualMode: selectedMode,
+                    displayName: modeDisplayName,
+                    timestamp: new Date().toISOString()
+                }));
             }
             
             // 스트리밍 지원: stream-json 형식과 부분 출력 스트리밍 활성화
@@ -780,8 +817,14 @@ export class CLIHandler {
                 clientId: entry.clientId,
                 userMessage: entry.userMessage || '',
                 assistantResponse: entry.assistantResponse || '',
-                timestamp: entry.timestamp
+                timestamp: entry.timestamp,
+                agentMode: entry.agentMode // 에이전트 모드 추가
             };
+            
+            // 디버깅: agentMode 저장 확인
+            if (newEntry.userMessage) {
+                this.log(`💾 Creating new entry - agentMode: ${newEntry.agentMode || 'undefined'}, userMessage: ${newEntry.userMessage.substring(0, 30)}...`);
+            }
             
             // pending sessionId를 실제 sessionId로 업데이트
             if (newEntry.sessionId.startsWith('pending-') && entry.clientId) {
@@ -802,23 +845,24 @@ export class CLIHandler {
             for (let i = history.entries.length - 1; i >= 0; i--) {
                 const entry = history.entries[i];
                 if (entry.clientId === newEntry.clientId) {
+                    const timeDiff = Math.abs(new Date(entry.timestamp).getTime() - new Date(newEntry.timestamp).getTime());
                     // 사용자 메시지가 있고 응답이 없는 경우 (응답을 추가해야 함)
-                    if (entry.userMessage && !entry.assistantResponse && 
-                        Math.abs(new Date(entry.timestamp).getTime() - new Date(newEntry.timestamp).getTime()) < 30000) {
+                    if (entry.userMessage && !entry.assistantResponse && timeDiff < 30000) {
+                        this.log(`💾 Found entry to update with response - entryId: ${entry.id}, hasAgentMode: ${!!entry.agentMode}`);
                         lastEntry = entry;
                         lastEntryIndex = i;
                         break;
                     }
                     // pending ID가 실제 sessionId로 업데이트되는 경우
-                    if (entry.sessionId.startsWith('pending-') && !newEntry.sessionId.startsWith('pending-') &&
-                        Math.abs(new Date(entry.timestamp).getTime() - new Date(newEntry.timestamp).getTime()) < 30000) {
+                    if (entry.sessionId.startsWith('pending-') && !newEntry.sessionId.startsWith('pending-') && timeDiff < 30000) {
+                        this.log(`💾 Found entry to update sessionId - entryId: ${entry.id}, hasAgentMode: ${!!entry.agentMode}`);
                         lastEntry = entry;
                         lastEntryIndex = i;
                         break;
                     }
                     // 같은 sessionId인 경우 (이미 완성된 엔트리 업데이트)
-                    if (entry.sessionId === newEntry.sessionId &&
-                        Math.abs(new Date(entry.timestamp).getTime() - new Date(newEntry.timestamp).getTime()) < 30000) {
+                    if (entry.sessionId === newEntry.sessionId && timeDiff < 30000) {
+                        this.log(`💾 Found entry with same sessionId - entryId: ${entry.id}, hasAgentMode: ${!!entry.agentMode}`);
                         lastEntry = entry;
                         lastEntryIndex = i;
                         break;
@@ -828,11 +872,23 @@ export class CLIHandler {
             
             if (lastEntry) {
                 // 기존 엔트리 업데이트
+                this.log(`💾 Updating existing entry - id: ${lastEntry.id}, currentAgentMode: ${lastEntry.agentMode || 'undefined'}`);
                 if (newEntry.userMessage) {
                     lastEntry.userMessage = newEntry.userMessage;
                 }
                 if (newEntry.assistantResponse) {
                     lastEntry.assistantResponse = newEntry.assistantResponse;
+                }
+                // agentMode 업데이트 (사용자 메시지가 있고 agentMode가 제공된 경우에만)
+                // 응답만 저장하는 경우 agentMode를 덮어쓰지 않도록 주의
+                if (newEntry.userMessage && newEntry.agentMode) {
+                    lastEntry.agentMode = newEntry.agentMode;
+                    this.log(`💾 Updated agentMode for entry: ${newEntry.agentMode}`);
+                } else if (newEntry.userMessage && !newEntry.agentMode) {
+                    this.log(`⚠️ User message saved but agentMode is missing - keeping existing: ${lastEntry.agentMode || 'undefined'}`);
+                } else if (newEntry.assistantResponse && !newEntry.userMessage) {
+                    // 응답만 저장하는 경우 기존 agentMode 유지
+                    this.log(`💾 Saving response only - preserving agentMode: ${lastEntry.agentMode || 'undefined'}`);
                 }
                 // sessionId도 업데이트 (pending -> actual)
                 if (lastEntry.sessionId.startsWith('pending-') && !newEntry.sessionId.startsWith('pending-')) {
@@ -840,6 +896,7 @@ export class CLIHandler {
                 }
                 // 타임스탬프 업데이트
                 lastEntry.timestamp = newEntry.timestamp;
+                this.log(`💾 Entry updated - final agentMode: ${lastEntry.agentMode || 'undefined'}`);
             } else {
                 // 새 엔트리 추가
                 history.entries.push(newEntry);
@@ -935,7 +992,8 @@ export class CLIHandler {
                         clientId: 'legacy',
                         userMessage: oldEntry.user || oldEntry.userMessage || '',
                         assistantResponse: oldEntry.assistant || oldEntry.assistantResponse || '',
-                        timestamp: oldEntry.timestamp || new Date().toISOString()
+                        timestamp: oldEntry.timestamp || new Date().toISOString(),
+                        agentMode: oldEntry.agentMode // 기존 데이터에서도 agentMode 포함
                     })),
                     lastUpdated: new Date().toISOString()
                 };
@@ -973,5 +1031,61 @@ export class CLIHandler {
             this.logError('Failed to load chat history', error);
             return [];
         }
+    
+    /**
+     * 텍스트 내용을 분석하여 적절한 에이전트 모드 자동 선택
+     */
+    private detectAgentMode(text: string): 'agent' | 'ask' | 'plan' | 'debug' | null {
+        const lowerText = text.toLowerCase();
+        
+        // Debug 모드 키워드
+        const debugKeywords = ['bug', 'error', 'fix', 'debug', 'issue', 'problem', 'crash', 'exception', 'trace', 'log'];
+        if (debugKeywords.some(keyword => lowerText.includes(keyword))) {
+            // 버그 관련 키워드가 있지만, 단순 질문인지 확인
+            if (lowerText.includes('why') || lowerText.includes('what') || lowerText.includes('how') || lowerText.includes('?')) {
+                // 질문 형태면 Ask 모드
+                if (lowerText.includes('explain') || lowerText.includes('understand') || lowerText.includes('learn')) {
+                    return 'ask';
+                }
+            }
+            return 'debug';
+        }
+        
+        // Plan 모드 키워드
+        const planKeywords = ['plan', 'design', 'architecture', 'implement', 'create', 'build', 'feature', 'refactor', 'analyze', 'analysis', 'project', 'review', 'overview', 'structure'];
+        if (planKeywords.some(keyword => lowerText.includes(keyword))) {
+            // 복잡한 작업 키워드 확인
+            const complexKeywords = ['multiple', 'several', 'many', 'system', 'module', 'component', 'project', '전체', '모든', '전반'];
+            if (complexKeywords.some(keyword => lowerText.includes(keyword))) {
+                return 'plan';
+            }
+            // "프로젝트 분석", "전체 분석" 같은 패턴도 Plan 모드
+            if (lowerText.includes('analyze') || lowerText.includes('analysis') || lowerText.includes('분석')) {
+                return 'plan';
+            }
+        }
+        
+        // Ask 모드 키워드 (질문, 학습, 탐색)
+        const askKeywords = ['explain', 'what is', 'how does', 'why', 'understand', 'learn', 'show me', 'tell me'];
+        if (askKeywords.some(keyword => lowerText.includes(keyword)) || lowerText.endsWith('?')) {
+            return 'ask';
+        }
+        
+        // 기본값: Agent 모드 (코드 작성/수정 작업)
+        return null; // null이면 기본 Agent 모드 사용
+    }
+    
+    /**
+     * 모드 이름을 사용자 친화적인 표시 이름으로 변환
+     */
+    private getModeDisplayName(mode: string): string {
+        const modeNames: { [key: string]: string } = {
+            'agent': 'Agent (코딩 작업)',
+            'ask': 'Ask (질문/학습)',
+            'plan': 'Plan (계획 수립)',
+            'debug': 'Debug (버그 수정)',
+            'auto': 'Auto (자동 선택)'
+        };
+        return modeNames[mode] || mode;
     }
 }
