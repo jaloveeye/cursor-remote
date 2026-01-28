@@ -221,15 +221,22 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         
         // Start relay client after WebSocket server is ready
+        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Initializing relay client...`);
         if (relayClient) {
             try {
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Starting relay client...`);
                 await relayClient.start();
                 outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ Relay client started - waiting for mobile client session...`);
             } catch (error) {
                 const errorMsg = error instanceof Error ? error.message : 'Unknown error';
                 outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ⚠️ Failed to start relay client: ${errorMsg}`);
+                if (error instanceof Error && error.stack) {
+                    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Stack: ${error.stack}`);
+                }
                 // Don't show error to user - relay is optional
             }
+        } else {
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ⚠️ Relay client is null - not initialized`);
         }
     }).catch((error) => {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error';
