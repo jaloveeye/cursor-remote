@@ -222,9 +222,17 @@ async function activate(context) {
             }
             const relayMessage = JSON.stringify(parsed);
             outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 📥 Message from relay, forwarding to command handler...`);
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 📋 Relay message: ${relayMessage.substring(0, 200)}`);
             // Directly trigger the message handlers to process the command
             // This is the same handler that processes WebSocket client messages
-            wsServer.triggerMessageHandlers(relayMessage);
+            if (wsServer) {
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Calling triggerMessageHandlers...`);
+                wsServer.triggerMessageHandlers(relayMessage);
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ triggerMessageHandlers called`);
+            }
+            else {
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ⚠️ WebSocket server is null - cannot process relay message`);
+            }
         }
         catch (error) {
             // If message is not JSON, send as-is but mark source
@@ -235,7 +243,12 @@ async function activate(context) {
                 clientId: 'relay-client'
             });
             outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 📥 Message from relay (non-JSON), forwarding to command handler...`);
-            wsServer.triggerMessageHandlers(relayMessage);
+            if (wsServer) {
+                wsServer.triggerMessageHandlers(relayMessage);
+            }
+            else {
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ⚠️ WebSocket server is null - cannot process relay message`);
+            }
         }
     });
     // Auto start

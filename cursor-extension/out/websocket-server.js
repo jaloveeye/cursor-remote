@@ -235,14 +235,18 @@ class WebSocketServer {
     }
     // Trigger message handlers directly (for relay messages)
     triggerMessageHandlers(message) {
-        this.messageHandlers.forEach(handler => {
+        this.log(`Triggering ${this.messageHandlers.length} message handler(s) for relay message`);
+        this.messageHandlers.forEach((handler, index) => {
             try {
+                this.log(`Calling message handler ${index + 1}/${this.messageHandlers.length}`);
                 handler(message);
+                this.log(`Message handler ${index + 1} completed`);
             }
             catch (error) {
-                this.logError('Error in message handler', error);
+                this.logError(`Error in message handler ${index + 1}`, error);
             }
         });
+        this.log(`All message handlers processed`);
     }
     onClientChange(handler) {
         this.clientChangeHandlers.push(handler);
