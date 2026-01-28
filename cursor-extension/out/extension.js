@@ -57,8 +57,25 @@ async function activate(context) {
     outputChannel = vscode.window.createOutputChannel('Cursor Remote');
     context.subscriptions.push(outputChannel);
     outputChannel.show(true);
+    // 로그를 클라이언트에 전송하는 헬퍼 함수
+    const sendLogToClients = (level, message, error) => {
+        if (wsServer) {
+            const logData = {
+                level,
+                message,
+                timestamp: new Date().toISOString(),
+                source: 'extension',
+                ...(error && { error: error instanceof Error ? error.message : String(error) })
+            };
+            wsServer.send(JSON.stringify({
+                type: 'log',
+                ...logData
+            }));
+        }
+    };
     outputChannel.appendLine('Cursor Remote extension is now active!');
     console.log('Cursor Remote extension is now active!');
+    sendLogToClients('info', 'Cursor Remote extension is now active!');
     // Status bar manager
     statusBarManager = new status_bar_1.StatusBarManager(context);
     // WebSocket server initialization
@@ -104,10 +121,18 @@ async function activate(context) {
             statusBarManager.update(connected);
         }
         if (connected) {
-            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Client connected - Rules-based chat capture is active`);
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Client connected - Ready to receive commands`);
+            // 연결 상태 전송
+            if (wsServer) {
+                wsServer.sendConnectionStatus();
+            }
         }
         else {
             outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Client disconnected`);
+            // 연결 상태 전송
+            if (wsServer) {
+                wsServer.sendConnectionStatus();
+            }
         }
     });
     // Register commands
