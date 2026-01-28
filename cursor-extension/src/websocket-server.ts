@@ -320,6 +320,13 @@ export class WebSocketServer {
                 const parsed = JSON.parse(message);
                 // Only forward if message is not from relay
                 if (parsed.source !== 'relay') {
+                    // Skip streaming chunks in relay mode - only send final responses
+                    // This prevents duplicate/partial messages from reaching mobile app
+                    if (parsed.type === 'chat_response_chunk') {
+                        // Don't send streaming chunks to relay - wait for final chat_response
+                        return;
+                    }
+                    
                     this.relayClient.sendMessage(message).catch((error) => {
                         const errorMsg = error instanceof Error ? error.message : 'Unknown error';
                         this.logError(`Failed to send to relay: ${errorMsg}`);
