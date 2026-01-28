@@ -13,19 +13,24 @@
 4. 최신 배포 옆의 "..." 메뉴 클릭
 5. "Redeploy" 선택
 
+## 배포 전 로컬 빌드 필요
+
+Vercel에 배포하기 전에 로컬에서 Flutter web을 빌드해야 합니다:
+
+```bash
+cd mobile-app
+flutter build web --release --base-href /
+```
+
+빌드된 파일은 `build/web` 디렉토리에 생성됩니다.
+
 ## 빌드 설정 확인
 
 Settings > General > Build & Development Settings에서 다음 설정이 되어 있는지 확인:
 
 - **Root Directory**: `mobile-app` (또는 비워두기)
-- **Install Command**: 
-  ```
-  if cd flutter; then git pull && cd .. ; else git clone https://github.com/flutter/flutter.git; fi && flutter/bin/flutter doctor && flutter/bin/flutter config --enable-web
-  ```
-- **Build Command**: 
-  ```
-  flutter/bin/flutter pub get && flutter/bin/flutter build web --release --base-href /
-  ```
+- **Install Command**: (비워두기 - 로컬에서 빌드)
+- **Build Command**: `echo 'Using pre-built files'` (또는 비워두기)
 - **Output Directory**: `build/web`
 
 ## 또는 GitHub 연동으로 자동 배포
