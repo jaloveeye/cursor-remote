@@ -2906,10 +2906,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                   final timestamp = entry['timestamp'] as String? ?? '';
                                   final agentMode = entry['agentMode'] as String?;
                                   
-                                  // 디버깅: 첫 번째 항목만 로그 출력
-                                  if (index == 0) {
-                                    print('📋 History entry - agentMode: $agentMode, userMsg: ${userMsg.substring(0, userMsg.length > 20 ? 20 : userMsg.length)}...');
-                                  }
+                                  // 디버깅: 모든 항목 로그 출력 (문제 확인용)
+                                  print('📋 History entry[$index] - agentMode: $agentMode, userMsg: ${userMsg.length > 20 ? userMsg.substring(0, 20) + '...' : userMsg}');
+                                  print('📋 Full entry keys: ${entry.keys.toList()}');
                                   
                                   return Card(
                                     margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
@@ -2938,8 +2937,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                                       style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                                                     ),
                                                   ),
-                                                  // 에이전트 모드 표시 (auto가 아닌 모든 경우)
-                                                  if (agentMode != null && agentMode.isNotEmpty && agentMode != 'auto') ...[
+                                                  // 에이전트 모드 표시 (null이 아니고 비어있지 않은 경우, auto도 표시)
+                                                  if (agentMode != null && agentMode.isNotEmpty) ...[
                                                     const SizedBox(width: 4),
                                                     Container(
                                                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
