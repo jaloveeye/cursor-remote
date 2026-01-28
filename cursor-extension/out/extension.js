@@ -216,23 +216,26 @@ async function activate(context) {
         try {
             const parsed = JSON.parse(message);
             parsed.source = 'relay';
-            const relayMessage = JSON.stringify(parsed);
-            // Forward message from relay to WebSocket server clients
-            // This will trigger the onMessage handler above, which will process the command
-            if (wsServer) {
-                wsServer.send(relayMessage);
+            // clientId가 없으면 'relay'로 설정
+            if (!parsed.clientId) {
+                parsed.clientId = 'relay-client';
             }
+            const relayMessage = JSON.stringify(parsed);
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 📥 Message from relay, forwarding to command handler...`);
+            // Directly trigger the message handlers to process the command
+            // This is the same handler that processes WebSocket client messages
+            wsServer.triggerMessageHandlers(relayMessage);
         }
         catch (error) {
             // If message is not JSON, send as-is but mark source
             const relayMessage = JSON.stringify({
                 type: 'message',
                 data: message,
-                source: 'relay'
+                source: 'relay',
+                clientId: 'relay-client'
             });
-            if (wsServer) {
-                wsServer.send(relayMessage);
-            }
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 📥 Message from relay (non-JSON), forwarding to command handler...`);
+            wsServer.triggerMessageHandlers(relayMessage);
         }
     });
     // Auto start

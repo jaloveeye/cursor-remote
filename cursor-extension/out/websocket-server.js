@@ -233,6 +233,17 @@ class WebSocketServer {
     onMessage(handler) {
         this.messageHandlers.push(handler);
     }
+    // Trigger message handlers directly (for relay messages)
+    triggerMessageHandlers(message) {
+        this.messageHandlers.forEach(handler => {
+            try {
+                handler(message);
+            }
+            catch (error) {
+                this.logError('Error in message handler', error);
+            }
+        });
+    }
     onClientChange(handler) {
         this.clientChangeHandlers.push(handler);
     }
