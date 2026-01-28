@@ -2760,21 +2760,32 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       // 현재 세션 정보
                       if (_currentCursorSessionId != null)
                         Container(
-                          padding: const EdgeInsets.all(8.0),
+                          padding: const EdgeInsets.all(12.0),
                           margin: const EdgeInsets.only(bottom: 8.0),
                           decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8.0),
-                            border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                            color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+                              width: 1,
+                            ),
                           ),
                           child: Row(
                             children: [
-                              const Icon(Icons.chat_bubble_outline, size: 16, color: Colors.blue),
-                              const SizedBox(width: 8),
+                              Icon(
+                                Icons.chat_bubble_outline,
+                                size: 18,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                              const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
                                   '현재 세션: ${_currentCursorSessionId!.substring(0, 8)}...',
-                                  style: const TextStyle(fontSize: 12, color: Colors.blue),
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                    color: Theme.of(context).colorScheme.onSurface,
+                                  ),
                                 ),
                               ),
                             ],
@@ -2782,15 +2793,43 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         ),
                       
                       // 세션 목록 및 대화 히스토리
-                      ExpansionTile(
-                        title: const Text('세션 및 대화 히스토리', style: TextStyle(fontSize: 14)),
-                        leading: const Icon(Icons.history, size: 20),
+                      Container(
+                        margin: const EdgeInsets.only(top: 8.0),
+                        child: Card(
+                          child: ExpansionTile(
+                            title: Text(
+                              '세션 및 대화 히스토리',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: Theme.of(context).colorScheme.onSurface,
+                              ),
+                            ),
+                            leading: Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).colorScheme.secondaryContainer,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                Icons.history,
+                                size: 18,
+                                color: Theme.of(context).colorScheme.onSecondaryContainer,
+                              ),
+                            ),
                         children: [
                           // 세션 목록
                           if (_availableSessions.isNotEmpty) ...[
-                            const Padding(
-                              padding: EdgeInsets.all(8.0),
-                              child: Text('사용 가능한 세션:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            Padding(
+                              padding: const EdgeInsets.all(12.0),
+                              child: Text(
+                                '사용 가능한 세션',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                  color: Theme.of(context).colorScheme.onSurface,
+                                ),
+                              ),
                             ),
                             ..._availableSessions.map((sessionId) => ListTile(
                               dense: true,
@@ -2810,9 +2849,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           
                           // 대화 히스토리
                           if (_chatHistory.isNotEmpty) ...[
-                            const Padding(
-                              padding: EdgeInsets.all(8.0),
-                              child: Text('대화 히스토리:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            Padding(
+                              padding: const EdgeInsets.all(12.0),
+                              child: Text(
+                                '대화 히스토리',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                  color: Theme.of(context).colorScheme.onSurface,
+                                ),
+                              ),
                             ),
                             SizedBox(
                               height: 200,
@@ -2833,8 +2879,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                   
                                   return Card(
                                     margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      side: BorderSide(
+                                        color: Theme.of(context).colorScheme.outline.withOpacity(0.1),
+                                        width: 1,
+                                      ),
+                                    ),
                                     child: Padding(
-                                      padding: const EdgeInsets.all(8.0),
+                                      padding: const EdgeInsets.all(12.0),
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
@@ -2854,27 +2908,30 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                                   if (agentMode != null && agentMode.isNotEmpty && agentMode != 'auto') ...[
                                                     const SizedBox(width: 4),
                                                     Container(
-                                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                                                       decoration: BoxDecoration(
-                                                        color: Colors.blue.shade100,
-                                                        borderRadius: BorderRadius.circular(3),
-                                                        border: Border.all(color: Colors.blue.shade300, width: 0.5),
+                                                        color: Theme.of(context).colorScheme.primaryContainer,
+                                                        borderRadius: BorderRadius.circular(8),
+                                                        border: Border.all(
+                                                          color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                                                          width: 1,
+                                                        ),
                                                       ),
                                                       child: Row(
                                                         mainAxisSize: MainAxisSize.min,
                                                         children: [
                                                           Icon(
                                                             _getModeIcon(agentMode),
-                                                            size: 10,
-                                                            color: Colors.blue.shade700,
+                                                            size: 12,
+                                                            color: Theme.of(context).colorScheme.onPrimaryContainer,
                                                           ),
-                                                          const SizedBox(width: 2),
+                                                          const SizedBox(width: 4),
                                                           Text(
                                                             _getModeDisplayName(agentMode),
                                                             style: TextStyle(
-                                                              fontSize: 8,
-                                                              fontWeight: FontWeight.w500,
-                                                              color: Colors.blue.shade700,
+                                                              fontSize: 10,
+                                                              fontWeight: FontWeight.w600,
+                                                              color: Theme.of(context).colorScheme.onPrimaryContainer,
                                                             ),
                                                           ),
                                                         ],
