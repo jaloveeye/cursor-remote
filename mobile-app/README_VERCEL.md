@@ -31,9 +31,9 @@ vercel --prod
 2. "New Project" 클릭
 3. GitHub 저장소 연결
 4. **Root Directory**: `mobile-app` 설정
-5. **Build Command**: `flutter pub get && flutter build web --release --base-href /`
-6. **Output Directory**: `build/web`
-7. **Install Command**: (비워두기 - Flutter는 자동으로 처리)
+5. **Install Command**: `if cd flutter; then git pull && cd .. ; else git clone https://github.com/flutter/flutter.git; fi && flutter/bin/flutter doctor && flutter/bin/flutter config --enable-web`
+6. **Build Command**: `flutter/bin/flutter pub get && flutter/bin/flutter build web --release --base-href /`
+7. **Output Directory**: `build/web`
 8. Deploy 클릭
 
 ### 3. 환경 변수 (필요한 경우)
@@ -44,9 +44,9 @@ Vercel 대시보드에서 환경 변수 설정:
 ## 빌드 설정
 
 - **Framework Preset**: Other
-- **Build Command**: `flutter pub get && flutter build web --release --base-href /`
+- **Install Command**: `if cd flutter; then git pull && cd .. ; else git clone https://github.com/flutter/flutter.git; fi && flutter/bin/flutter doctor && flutter/bin/flutter config --enable-web`
+- **Build Command**: `flutter/bin/flutter pub get && flutter/bin/flutter build web --release --base-href /`
 - **Output Directory**: `build/web`
-- **Install Command**: (비워두기)
 
 ## 주의사항
 
