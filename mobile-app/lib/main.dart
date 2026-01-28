@@ -76,7 +76,7 @@ class MyApp extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
             side: BorderSide(
-              color: const Color(0xFF1A232E).withOpacity(0.1), // primary 색상 기반
+              color: const Color(0xFFCBD5E0), // outline 색상
               width: 1,
             ),
           ),
