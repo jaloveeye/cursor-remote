@@ -725,9 +725,14 @@ async function initializeServer() {
     console.log(`🔗 Extension WebSocket: ws://localhost:${CONFIG.EXTENSION_WS_PORT}`);
     if (localWSServer) {
         console.log(`📱 Local Mobile WebSocket: ws://${localIP}:${CONFIG.LOCAL_WS_PORT}`);
+        console.log(`\n💡 모바일 앱 연결 방법:`);
+        console.log(`   1. 로컬 모드: 모바일 앱에서 IP 주소 "${localIP}" 입력`);
+        console.log(`   2. 릴레이 모드: 모바일 앱에서 새 세션 생성 (PC Server가 자동으로 연결됨)`);
     } else {
         console.log(`⚠️  Local WebSocket server not started (port ${CONFIG.LOCAL_WS_PORT} unavailable)`);
         console.log(`   Local mode is not available. Use relay mode instead.`);
+        console.log(`\n💡 릴레이 모드 사용:`);
+        console.log(`   모바일 앱에서 새 세션을 생성하면 PC Server가 자동으로 연결됩니다.`);
     }
 }
 

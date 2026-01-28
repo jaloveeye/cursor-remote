@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Relay 서버 URL
 const String RELAY_SERVER_URL = 'https://relay.jaloveeye.com';
@@ -333,6 +334,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _messages.add(MessageItem('✅ Connected to local server at $ip', type: MessageType.system));
       });
       
+      // 연결 설정 저장
+      _saveConnectionSettings();
+      
       // 연결 성공 시 connect 화면 자동 닫기
       try {
         _expansionTileController.collapse();
@@ -620,6 +624,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _stopReconnect();
           _messages.add(MessageItem('✅ Connected to session $sessionId', type: MessageType.system));
         });
+        
+        // 연결 설정 저장
+        _saveConnectionSettings();
         
         // 연결 성공 시 connect 화면 자동 닫기
         try {
@@ -1680,9 +1687,65 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   @override
+  @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadConnectionSettings();
+  }
+  
+  // 연결 설정 로드 (SharedPreferences)
+  Future<void> _loadConnectionSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // 연결 타입 로드
+      final connectionTypeStr = prefs.getString('connection_type');
+      if (connectionTypeStr != null) {
+        setState(() {
+          _connectionType = connectionTypeStr == 'local' 
+              ? ConnectionType.local 
+              : ConnectionType.relay;
+        });
+      }
+      
+      // PC Server IP 주소 로드
+      final savedIp = prefs.getString('pc_server_ip');
+      if (savedIp != null && savedIp.isNotEmpty) {
+        _localIpController.text = savedIp;
+      }
+      
+      // 마지막 세션 ID 로드 (선택사항)
+      final lastSessionId = prefs.getString('last_session_id');
+      if (lastSessionId != null && lastSessionId.isNotEmpty) {
+        _sessionIdController.text = lastSessionId;
+      }
+    } catch (e) {
+      // 에러는 조용히 무시 (첫 실행 시 prefs가 없을 수 있음)
+    }
+  }
+  
+  // 연결 설정 저장 (SharedPreferences)
+  Future<void> _saveConnectionSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // 연결 타입 저장
+      await prefs.setString('connection_type', 
+          _connectionType == ConnectionType.local ? 'local' : 'relay');
+      
+      // PC Server IP 주소 저장
+      if (_localIpController.text.trim().isNotEmpty) {
+        await prefs.setString('pc_server_ip', _localIpController.text.trim());
+      }
+      
+      // 세션 ID 저장 (연결 성공 시)
+      if (_sessionId != null && _sessionId!.isNotEmpty) {
+        await prefs.setString('last_session_id', _sessionId!);
+      }
+    } catch (e) {
+      // 에러는 조용히 무시
+    }
   }
 
   @override
@@ -1946,6 +2009,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           isDense: true,
                           contentPadding: EdgeInsets.all(12),
                           prefixIcon: Icon(Icons.computer),
+                          helperText: '이전에 사용한 IP 주소가 자동으로 표시됩니다',
                         ),
                         enabled: !_isConnected,
                         keyboardType: TextInputType.number,
@@ -1953,6 +2017,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         onSubmitted: (value) {
                           if (!_isConnected) {
                             _connect();
+                          }
+                        },
+                        onChanged: (value) {
+                          // IP 주소 변경 시 자동 저장 (선택사항)
+                          if (value.trim().isNotEmpty) {
+                            _saveConnectionSettings();
                           }
                         },
                       ),
@@ -1991,6 +2061,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           isDense: true,
                           contentPadding: EdgeInsets.all(12),
                           prefixIcon: Icon(Icons.cloud),
+                          helperText: '비워두면 새 세션이 생성되고 PC Server가 자동으로 연결됩니다',
                         ),
                         enabled: !_isConnected,
                         keyboardType: TextInputType.text,
