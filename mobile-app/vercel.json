@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "flutter pub get && flutter build web --release --base-href /",
+  "buildCommand": "echo 'Flutter web build should be done locally. Deploying pre-built files.'",
   "outputDirectory": "build/web",
   "rewrites": [
     {
