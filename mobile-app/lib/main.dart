@@ -27,8 +27,51 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Cursor Remote',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF6750A4), // Material Design 3 기본 보라색
+          brightness: Brightness.light,
+        ),
+        appBarTheme: const AppBarTheme(
+          centerTitle: false,
+          elevation: 0,
+          scrolledUnderElevation: 1,
+        ),
+        cardTheme: CardTheme(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(
+              color: Colors.grey.withOpacity(0.2),
+              width: 1,
+            ),
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
       ),
       home: const HomePage(),
     );
@@ -1678,117 +1721,143 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: const Text('Cursor Remote'),
+        title: Row(
+          children: [
+            Icon(
+              Icons.code,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'Cursor Remote',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.5,
+              ),
+            ),
+          ],
+        ),
         actions: [
           // 응답 대기 중 인디케이터
           if (_isWaitingForResponse)
             Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    '응답 대기 중...',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ],
+                    const SizedBox(width: 6),
+                    Text(
+                      '응답 대기 중',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
         ],
       ),
       body: Column(
         children: [
-          // 최상단: 접었다 폈다 할 수 있는 서버 연결 섹션
-          ExpansionTile(
-            controller: _expansionTileController,
-            leading: Icon(
-              _isConnected ? Icons.cloud_done : Icons.cloud_off,
-              color: _isConnected ? Colors.green : Colors.grey,
-            ),
-            title: Text(
-              _isConnected ? 'Connected' : 'Disconnected',
-              style: TextStyle(
-                color: _isConnected ? Colors.green : Colors.grey,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            subtitle: _isConnected
-                ? Text(
-                    _connectionType == ConnectionType.local
-                        ? 'Local Mode'
-                        : (_sessionId != null ? 'Relay Mode (Session: $_sessionId)' : 'Relay Mode'),
-                    style: TextStyle(
-                      color: _isConnected ? Colors.green : Colors.grey,
-                      fontSize: 12,
-                    ),
-                  )
-                : const Text(
-                    'relay.jaloveeye.com',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
+          // 최상단: 연결 상태 및 설정 카드
+          Container(
+            margin: const EdgeInsets.all(8.0),
+            child: Card(
+              child: ExpansionTile(
+                controller: _expansionTileController,
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: _isConnected
+                        ? Theme.of(context).colorScheme.primaryContainer
+                        : Theme.of(context).colorScheme.surfaceVariant,
+                    shape: BoxShape.circle,
                   ),
-            initiallyExpanded: true,
-            children: [
+                  child: Icon(
+                    _isConnected ? Icons.cloud_done : Icons.cloud_off,
+                    color: _isConnected
+                        ? Theme.of(context).colorScheme.onPrimaryContainer
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
+                    size: 20,
+                  ),
+                ),
+                title: Text(
+                  _isConnected ? '연결됨' : '연결 안 됨',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: _isConnected
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                subtitle: Text(
+                  _isConnected
+                      ? (_connectionType == ConnectionType.local
+                          ? '로컬 서버 모드'
+                          : (_sessionId != null ? '릴레이 모드 • 세션: $_sessionId' : '릴레이 모드'))
+                      : '연결을 설정하세요',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                initiallyExpanded: !_isConnected, // 연결 안 됨일 때만 펼침
+                children: [
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // 연결 타입 선택
-                    const Text(
-                      'Connection Type',
+                    Text(
+                      '연결 타입',
                       style: TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: RadioListTile<ConnectionType>(
-                            title: const Text('Local Server'),
-                            subtitle: const Text('Direct IP connection'),
-                            value: ConnectionType.local,
-                            groupValue: _connectionType,
-                            onChanged: _isConnected ? null : (value) {
-                              if (value != null) {
-                                setState(() {
-                                  _connectionType = value;
-                                });
-                              }
-                            },
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                          ),
+                    const SizedBox(height: 12),
+                    SegmentedButton<ConnectionType>(
+                      segments: const [
+                        ButtonSegment<ConnectionType>(
+                          value: ConnectionType.local,
+                          label: Text('로컬 서버'),
+                          icon: Icon(Icons.computer, size: 18),
                         ),
-                        Expanded(
-                          child: RadioListTile<ConnectionType>(
-                            title: const Text('Relay Server'),
-                            subtitle: const Text('Session ID'),
-                            value: ConnectionType.relay,
-                            groupValue: _connectionType,
-                            onChanged: _isConnected ? null : (value) {
-                              if (value != null) {
-                                setState(() {
-                                  _connectionType = value;
-                                });
-                              }
-                            },
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                          ),
+                        ButtonSegment<ConnectionType>(
+                          value: ConnectionType.relay,
+                          label: Text('릴레이 서버'),
+                          icon: Icon(Icons.cloud, size: 18),
                         ),
                       ],
+                      selected: {_connectionType},
+                      onSelectionChanged: _isConnected
+                          ? null
+                          : (Set<ConnectionType> newSelection) {
+                              setState(() {
+                                _connectionType = newSelection.first;
+                              });
+                            },
                     ),
                     const SizedBox(height: 16),
                     // 로컬 서버 연결 UI
@@ -1925,55 +1994,60 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
+                          color: Theme.of(context).colorScheme.errorContainer.withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.error.withOpacity(0.2),
+                            width: 1,
+                          ),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.error_outline, size: 18, color: Colors.red),
-                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.error_outline,
+                              size: 20,
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                            const SizedBox(width: 12),
                             Expanded(
                               child: Text(
                                 '연결 실패: ${_lastConnectionError!.length > 50 ? _lastConnectionError!.substring(0, 50) + '...' : _lastConnectionError}',
                                 style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.red[900],
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: Theme.of(context).colorScheme.onErrorContainer,
                                 ),
                               ),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 12),
                     ],
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
                         Expanded(
-                          child: ElevatedButton(
+                          child: FilledButton.icon(
                             onPressed: _isConnected || _isReconnecting ? null : _connect,
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              backgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
-                            ),
-                            child: Text(
+                            icon: Icon(
                               _connectionType == ConnectionType.local
-                                  ? 'Connect'
-                                  : (_sessionIdController.text.trim().isEmpty ? 'Create & Connect' : 'Connect'),
+                                  ? Icons.computer
+                                  : Icons.cloud,
+                              size: 18,
+                            ),
+                            label: Text(
+                              _connectionType == ConnectionType.local
+                                  ? '연결'
+                                  : (_sessionIdController.text.trim().isEmpty ? '생성 & 연결' : '연결'),
                             ),
                           ),
                         ),
                         const SizedBox(width: 8),
                         if (!_isConnected && _lastConnectionError != null) ...[
                           Expanded(
-                            child: ElevatedButton.icon(
+                            child: OutlinedButton.icon(
                               onPressed: _isReconnecting ? null : _manualReconnect,
-                              style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                backgroundColor: Colors.orange,
-                                foregroundColor: Colors.white,
-                              ),
                               icon: const Icon(Icons.refresh, size: 18),
                               label: const Text('재연결'),
                             ),
@@ -1981,12 +2055,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           const SizedBox(width: 8),
                         ],
                         Expanded(
-                          child: ElevatedButton(
+                          child: OutlinedButton(
                             onPressed: _isConnected ? _disconnect : null,
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                            child: const Text('Disconnect'),
+                            child: const Text('연결 해제'),
                           ),
                         ),
                       ],
@@ -1997,26 +2068,33 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.green.withOpacity(0.3)),
+                          color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+                            width: 1,
+                          ),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.check_circle, size: 18, color: Colors.green),
-                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.check_circle,
+                              size: 20,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
                                     _connectionType == ConnectionType.local
-                                        ? '✅ 로컬 서버에 연결됨'
-                                        : '✅ 릴레이 서버에 연결됨',
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.green,
+                                        ? '로컬 서버에 연결됨'
+                                        : '릴레이 서버에 연결됨',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: Theme.of(context).colorScheme.onSurface,
                                     ),
                                   ),
                                   if (_connectionType == ConnectionType.relay && _sessionId != null) ...[
@@ -2061,20 +2139,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.grey.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey.withOpacity(0.3)),
+                          color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                            width: 1,
+                          ),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.cloud_off, size: 18, color: Colors.grey),
-                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.cloud_off,
+                              size: 20,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 12),
                             Expanded(
                               child: Text(
                                 '연결되지 않음',
                                 style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey[700],
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                                 ),
                               ),
                             ),
@@ -2085,9 +2171,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ],
                 ),
               ),
-            ],
+                ],
+              ),
+            ),
           ),
-          const Divider(height: 1),
           // 가운데: 메시지 로그 (가장 많은 공간 차지)
           Expanded(
             child: Card(
