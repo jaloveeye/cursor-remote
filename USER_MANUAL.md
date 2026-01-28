@@ -49,8 +49,70 @@ Cursor Remote는 모바일 기기에서 PC의 Cursor IDE를 원격으로 제어�
 |------|---------|
 | OS | Windows, macOS, Linux |
 | Cursor IDE | 최신 버전 설치 |
+| Cursor CLI | 설치 및 인증 필요 (CLI 모드 사용 시) |
 | Node.js | v18 이상 권장 |
 | npm | Node.js와 함께 설치됨 |
+
+### Cursor CLI 설치 및 인증
+
+CLI 모드를 사용하려면 Cursor CLI를 설치하고 인증해야 합니다.
+
+#### CLI 설치
+
+```bash
+curl https://cursor.com/install -fsS | bash
+```
+
+이 명령어는 Cursor CLI를 `~/.local/bin/` 디렉토리에 설치합니다.
+
+#### PATH 설정
+
+**Zsh 사용자 (macOS 기본):**
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**Bash 사용자:**
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+#### 설치 확인
+
+```bash
+which agent
+# 또는
+agent --version
+```
+
+#### 인증 (필수)
+
+```bash
+agent login
+```
+
+브라우저가 열리며 Cursor 계정으로 로그인합니다. 인증은 저장되므로 한 번만 로그인하면 됩니다.
+
+#### 인증 상태 확인
+
+```bash
+agent status
+```
+
+인증되면 다음과 같이 표시됩니다:
+```
+✅ Authenticated as: your-email@example.com
+```
+
+#### CLI 테스트
+
+```bash
+agent -p --output-format json --force 'Hello, world!'
+```
+
+JSON 응답이 출력되면 CLI 설정이 완료된 것입니다.
 
 ### 모바일 환경
 
@@ -145,6 +207,47 @@ Extension이 정상적으로 활성화되면 상태 표시줄 우측 하단에 �
 
 **상태 표시줄이 안 보인다면:**
 - 명령 팔레트 (`Cmd+Shift+P`)에서 "Start Cursor Remote Server" 실행
+
+### Cursor IDE 설정
+
+#### 설정 열기
+
+**가장 빠른 방법:**
+- `Cmd + ,` (Mac) / `Ctrl + ,` (Windows/Linux)
+
+**또는 메뉴에서:**
+- 상단 메뉴바 → Cursor → Settings → Settings
+
+**또는 명령 팔레트:**
+- `Cmd+Shift+P` → "Preferences: Open Settings"
+
+#### Cursor Remote 설정 찾기
+
+설정이 열리면 검색창에 `Cursor Remote` 또는 `cursorRemote`를 입력하세요.
+
+**설정 항목:**
+- **"Cursor Remote: Use CLI Mode"** - CLI 모드 활성화/비활성화
+
+#### 설정 파일 직접 편집 (고급)
+
+JSON 형식으로 직접 편집하려면:
+1. `Cmd+Shift+P` → "Preferences: Open User Settings (JSON)"
+2. 다음 설정 추가:
+
+```json
+{
+  "cursorRemote.useCLIMode": true
+}
+```
+
+#### 설정 확인
+
+**Output 패널 확인:**
+- `View` → `Output` (또는 `Cmd + Shift + U`)
+- 드롭다운에서 "Cursor Remote" 선택
+- 다음 메시지 확인:
+  - CLI 모드: `[Cursor Remote] CLI mode is enabled`
+  - IDE 모드: `[Cursor Remote] IDE mode is enabled`
 
 ---
 
@@ -280,6 +383,8 @@ vercel env add UPSTASH_REDIS_REST_TOKEN
 
 ### Step 2: PC 서버를 릴레이 모드로 실행
 
+#### 방법 1: 환경변수로 실행 (권장)
+
 ```bash
 cd pc-server
 npm install
@@ -289,12 +394,29 @@ npm run build
 RELAY_SERVER=https://relay.jaloveeye.com npm start
 ```
 
-또는 환경변수 파일 사용:
+#### 방법 2: 환경변수 파일 사용
+
 ```bash
 # pc-server/.env 파일 생성
 echo "RELAY_SERVER=https://relay.jaloveeye.com" > .env
 npm start
 ```
+
+#### 방법 3: 세션 ID로 직접 연결
+
+모바일 앱에서 생성한 세션 ID로 PC 서버를 시작:
+
+```bash
+cd pc-server
+npm start <SESSION_ID>
+```
+
+**예시:**
+```bash
+npm start ABC123XYZ
+```
+
+서버가 시작되면 자동으로 해당 세션에 연결을 시도합니다.
 
 **실행 결과 예시:**
 ```
@@ -305,6 +427,43 @@ npm start
 ```
 
 > 📝 **메모**: 표시되는 **세션 코드** (예: `ABC123`)를 기억하세요. 모바일 앱에서 사용합니다.
+
+#### HTTP API로 세션 연결
+
+서버가 이미 실행 중인 경우, HTTP API를 통해 세션에 연결할 수 있습니다:
+
+```bash
+curl -X POST http://localhost:8765/session/connect \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId": "ABC123XYZ"}'
+```
+
+**응답:**
+```json
+{
+  "success": true,
+  "sessionId": "ABC123XYZ",
+  "isConnected": true
+}
+```
+
+#### 새 세션 생성 및 자동 연결
+
+PC 서버에서 새 세션을 생성하고 자동으로 연결:
+
+```bash
+curl -X POST http://localhost:8765/session/create
+```
+
+**응답:**
+```json
+{
+  "success": true,
+  "sessionId": "NEW_SESSION_ID"
+}
+```
+
+생성된 세션 ID를 모바일 앱에 입력하면 연결됩니다.
 
 ### Step 3: 모바일 앱 연결
 
@@ -469,6 +628,54 @@ curl https://relay.jaloveeye.com/api/health
 - Wi-Fi 신호 강도 확인
 - 라우터 재시작
 - 릴레이 서버 사용 고려
+
+### 알려진 문제점
+
+#### 문제 1: 포트 권한 문제 (EPERM)
+
+**증상:**
+- 포트 8767, 8765에서 `EPERM: operation not permitted` 에러 발생
+- 서버는 시작되지만 실제로 포트를 사용할 수 없음
+
+**해결 방법:**
+1. Cursor IDE 재시작
+2. macOS 네트워크 권한 확인
+3. 포트를 사용 중인 프로세스 확인 및 종료
+
+#### 문제 2: Extension 연결 실패 (EPERM)
+
+**증상:**
+- PC 서버가 Extension(포트 8766)에 연결하려 할 때 EPERM 에러
+- `connect EPERM ::1:8766` 및 `connect EPERM 127.0.0.1:8766`
+
+**해결 방법:**
+1. Cursor IDE 재시작
+2. Extension이 완전히 로드될 때까지 대기
+3. 네트워크 권한 확인
+
+#### 문제 3: 에러 핸들링 개선 필요
+
+**현재 문제:**
+- 포트 에러 발생 시 서버는 계속 실행되지만 기능이 동작하지 않음
+- 사용자에게 명확한 피드백이 부족
+
+**임시 해결:**
+- 서버 로그를 확인하여 에러 메시지 확인
+- Cursor IDE 및 PC 서버 재시작
+
+#### 문제 4: 포트 충돌
+
+**증상:**
+- WebSocket 서버 생성 시 에러가 발생해도 서버는 계속 실행
+- HTTP 서버도 마찬가지
+
+**해결 방법:**
+- 포트 사용 가능 여부를 사전에 확인:
+  ```bash
+  lsof -i :8766
+  lsof -i :8767
+  ```
+- 사용 중인 프로세스가 있으면 종료 후 재시작
 
 ---
 
