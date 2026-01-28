@@ -76,7 +76,7 @@ class MyApp extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
             side: BorderSide(
-              color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+              color: const Color(0xFF1A232E).withOpacity(0.1), // primary 색상 기반
               width: 1,
             ),
           ),
@@ -1499,7 +1499,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   _formatTime(message.timestamp),
                   style: TextStyle(
                     fontSize: 11,
-                    color: Colors.grey[600],
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -1606,7 +1606,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 message.text,
                 style: TextStyle(
                   fontSize: 12,
-                  color: Colors.grey[600],
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                   fontStyle: FontStyle.italic,
                 ),
               ),
@@ -1616,7 +1616,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
               iconSize: 14,
-              color: Colors.grey[400],
+              color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.6),
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: message.text));
                 ScaffoldMessenger.of(context).showSnackBar(
