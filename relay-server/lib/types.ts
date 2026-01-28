@@ -38,6 +38,8 @@ export interface ApiResponse<T = unknown> {
 export const REDIS_KEYS = {
   // 세션 정보
   session: (sessionId: string) => `session:${sessionId}`,
+  // 세션 목록 (Set)
+  sessionList: () => `sessions:list`,
   // 디바이스 → 세션 매핑
   deviceSession: (deviceId: string) => `device:${deviceId}:session`,
   // 메시지 큐 (PC → Mobile)

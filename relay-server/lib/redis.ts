@@ -40,6 +40,9 @@ const redis = {
   rpop: <T>(...args: Parameters<Redis['rpop']>) => getRedis().rpop<T>(...args),
   llen: (...args: Parameters<Redis['llen']>) => getRedis().llen(...args),
   expire: (...args: Parameters<Redis['expire']>) => getRedis().expire(...args),
+  sadd: (...args: Parameters<Redis['sadd']>) => getRedis().sadd(...args),
+  smembers: <T>(...args: Parameters<Redis['smembers']>) => getRedis().smembers<T>(...args),
+  srem: (...args: Parameters<Redis['srem']>) => getRedis().srem(...args),
 };
 
 // 세션 생성
@@ -58,6 +61,10 @@ export async function createSession(sessionId: string): Promise<Session> {
       { ex: TTL.session }
     );
     
+    // 세션 목록에 추가
+    await redis.sadd(REDIS_KEYS.sessionList(), sessionId);
+    await redis.expire(REDIS_KEYS.sessionList(), TTL.session);
+    
     return session;
   } catch (error) {
     console.error('createSession error:', error);
@@ -73,13 +80,29 @@ export async function getSession(sessionId: string): Promise<Session | null> {
 }
 
 // PC deviceId가 없는 세션 찾기 (모바일 클라이언트가 이미 연결한 세션)
-// Redis에서 모든 세션을 검색하는 것은 비효율적이므로,
-// 실제로는 세션 목록을 별도 Set에 저장하는 것이 좋음
-// 현재는 제한적 구현
 export async function findSessionsWaitingForPC(): Promise<Session[]> {
-  // TODO: 세션 목록을 Set에 저장하여 성능 개선
-  // 현재는 빈 배열 반환 (구현 필요)
-  return [];
+  try {
+    // 세션 목록에서 모든 세션 ID 가져오기
+    const sessionIds = await redis.smembers<string[]>(REDIS_KEYS.sessionList());
+    if (!sessionIds || sessionIds.length === 0) {
+      return [];
+    }
+    
+    // 각 세션을 조회하여 PC deviceId가 없고 mobileDeviceId가 있는 세션 찾기
+    const waitingSessions: Session[] = [];
+    
+    for (const sid of sessionIds) {
+      const session = await getSession(sid);
+      if (session && !session.pcDeviceId && session.mobileDeviceId) {
+        waitingSessions.push(session);
+      }
+    }
+    
+    return waitingSessions;
+  } catch (error) {
+    console.error('findSessionsWaitingForPC error:', error);
+    return [];
+  }
 }
 
 // 세션에 디바이스 연결
@@ -192,6 +215,9 @@ export async function deleteSession(sessionId: string): Promise<void> {
   }
   
   await redis.del(...keysToDelete);
+  
+  // 세션 목록에서도 제거
+  await redis.srem(REDIS_KEYS.sessionList(), sessionId);
 }
 
 export { redis };
