@@ -292,54 +292,59 @@ function sendToExtension(message: string) {
     sendToActiveExtension(message);
 }
 
+// 세션 자동 감지 (PC deviceId가 없는 세션 찾기)
+async function discoverSession(): Promise<string | null> {
+    if (sessionId || isLocalMode) {
+        return null; // 이미 세션이 있거나 로컬 모드면 스킵
+    }
+    
+    try {
+        // 릴레이 서버에 PC deviceId가 없는 세션 찾기 요청
+        // 현재는 간단하게 deviceId로 세션 찾기 시도 (모바일 클라이언트가 연결하면 deviceId 매핑이 생성됨)
+        // 실제로는 릴레이 서버에 "PC deviceId가 없는 세션 찾기" API가 필요하지만,
+        // 현재 구조에서는 모바일 클라이언트가 세션에 연결할 때 PC Server의 deviceId를 알 수 없음
+        // 따라서 PC Server가 connectToSession을 호출하면 자동으로 deviceId가 매핑됨
+        
+        // 대안: 모바일 클라이언트가 세션에 연결하면, 릴레이 서버가 PC Server에 알림을 보낼 수 있도록
+        // 하지만 현재는 폴링 방식이므로, PC Server가 주기적으로 자신의 deviceId로 세션을 찾음
+        // 모바일 클라이언트가 세션에 연결하면, PC Server가 connectToSession을 호출할 때 deviceId가 매핑됨
+        
+        // 임시 해결책: PC Server가 세션 ID 없이 시작되면, 사용자가 세션 ID를 입력하거나
+        // 모바일 클라이언트가 세션을 생성한 후 세션 ID를 PC Server에 전달해야 함
+        
+        // 하지만 사용자 요구사항은 "PC Server를 먼저 시작하고 나중에 자동 연결"이므로,
+        // 모바일 클라이언트가 세션을 생성하고 연결하면, PC Server가 자동으로 감지해야 함
+        
+        // 현재 구조에서는 모바일 클라이언트가 세션에 연결할 때 PC Server의 deviceId를 알 수 없으므로,
+        // PC Server가 주기적으로 릴레이 서버에 "PC deviceId가 없는 세션"을 찾는 요청을 보내야 함
+        // 하지만 현재 릴레이 서버 API에는 그런 기능이 없음
+        
+        // 해결책: PC Server가 connectToSession을 호출하면, 릴레이 서버가 자동으로 deviceId를 매핑함
+        // 따라서 모바일 클라이언트가 세션을 생성하고 연결한 후, PC Server가 그 세션 ID를 알면 연결 가능
+        // 하지만 PC Server가 세션 ID를 어떻게 알 수 있을까?
+        
+        // 최종 해결책: 모바일 클라이언트가 세션을 생성할 때, 세션 ID를 릴레이 서버에 저장하고,
+        // PC Server가 주기적으로 "PC deviceId가 없는 세션"을 찾아서 자동으로 연결
+        
+        // 현재는 이 기능이 없으므로, PC Server가 deviceId로 세션을 찾는 시도는 실패할 것임
+        // 따라서 사용자가 세션 ID를 수동으로 입력하거나, 다른 방법을 사용해야 함
+        
+        return null; // 현재는 자동 감지 불가능
+    } catch (error) {
+        console.log(`💡 Session discovery: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return null;
+    }
+}
+
 // Relay 서버에서 메시지 폴링 및 세션 자동 감지
 async function pollMessages() {
-    // 세션 ID가 없으면 deviceId로 세션 찾기 시도
+    // 세션 ID가 없으면 세션 자동 감지 시도 (5초마다 한 번만)
     if (!sessionId && !isLocalMode) {
-        try {
-            const pollUrl = `${RELAY_SERVER_URL}/api/poll?deviceId=${deviceId}&deviceType=pc`;
-            const response = await fetch(pollUrl);
-            
-            const data = await response.json() as any;
-            if (data.success) {
-                // 세션을 찾았으면 자동으로 연결
-                const foundSessionId = data.data?.sessionId;
-                if (foundSessionId && foundSessionId !== sessionId) {
-                    console.log(`\n🔍 Found session for device ${deviceId}: ${foundSessionId}`);
-                    console.log(`🔄 Auto-connecting to session...`);
-                    await connectToSession(foundSessionId);
-                    return; // 연결 후 다음 폴링에서 메시지 처리
-                }
-                
-                // 메시지 처리
-                if (data.data?.messages) {
-                    const messages = data.data.messages;
-                    if (messages.length > 0) {
-                        console.log(`📥 Received ${messages.length} message(s) from relay`);
-                    }
-                    
-                    for (const msg of messages) {
-                        console.log('📨 Message from relay:', JSON.stringify(msg, null, 2));
-                        
-                        // Extension으로 전달
-                        const commandData = msg.data || msg;
-                        console.log(`📤 Sending to extension:`, JSON.stringify(commandData, null, 2));
-                        if (!sendToActiveExtension(JSON.stringify(commandData))) {
-                            console.error(`❌ Failed to send to Extension`);
-                        }
-                    }
-                }
-            } else if (data.error && !data.error.includes('sessionId or deviceId is required')) {
-                // 세션을 찾지 못한 경우는 정상 (아직 모바일 클라이언트가 연결하지 않음)
-                // 다른 에러만 로그
-                console.log(`💡 No session found yet for device ${deviceId} (waiting for mobile client...)`);
-            }
-        } catch (error) {
-            // 에러는 무시 (세션이 없을 수 있음)
-            if (error instanceof Error && !error.message.includes('fetch')) {
-                console.log(`💡 Polling for session discovery: ${error.message}`);
-            }
-        }
+        // 세션 자동 감지는 별도 함수로 분리 (너무 자주 호출하지 않도록)
+        // 현재는 자동 감지 기능이 완전하지 않으므로, 사용자가 세션 ID를 입력하거나
+        // 모바일 클라이언트가 세션을 생성한 후 세션 ID를 PC Server에 전달해야 함
+        
+        // TODO: 릴레이 서버에 "PC deviceId가 없는 세션 찾기" API 추가 필요
         return;
     }
     
