@@ -7,6 +7,27 @@
 
 ## 📋 우선순위별 작업 목록
 
+### 🔴 우선순위 0: Extension 마켓플레이스 배포 (최우선)
+
+#### 1. Extension 마켓플레이스 배포
+- **목표**: Cursor Extension을 VS Code/Cursor 마켓플레이스에 배포
+- **작업 내용**:
+  - [ ] Publisher 계정 생성 (Azure DevOps)
+  - [ ] Personal Access Token (PAT) 생성
+  - [ ] 패키지 빌드 및 테스트 (`npm run package`)
+  - [ ] 마켓플레이스에 배포 (`npm run publish`)
+  - [ ] 배포 확인 및 검토 대기
+- **예상 시간**: 1-2시간
+- **참고**: `cursor-extension/PUBLISHING.md` 가이드 참조
+- **현재 상태**:
+  - ✅ package.json 설정 완료 (publisher: "jaloveeye", version: "0.1.1")
+  - ✅ icon.png 파일 존재
+  - ✅ README.md, CHANGELOG.md, LICENSE 파일 준비됨
+  - ⚠️ Publisher 계정 생성 필요
+  - ⚠️ PAT 생성 필요
+
+---
+
 ### 🔴 우선순위 1: 즉시 해결 필요 (버그/문제)
 
 #### 1. 포트 권한 문제 (EPERM) 해결
