@@ -136,7 +136,7 @@ class RelayClient {
                 const messages = data.data.messages;
                 if (messages.length > 0) {
                     this.log(`📥 Received ${messages.length} message(s) from relay`);
-                    this.log(`📋 Messages: ${JSON.stringify(messages.map(m => ({ id: m.id, type: m.type, from: m.from })))}`);
+                    this.log(`📋 Messages: ${JSON.stringify(messages.map((m) => ({ id: m.id, type: m.type, from: m.from })))}`);
                 }
                 for (const msg of messages) {
                     this.log(`📨 Processing message: id=${msg.id}, type=${msg.type}, from=${msg.from}`);
