@@ -57,6 +57,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced `ChatHistoryEntry` interface to include optional `agentMode` field
 - Improved session management for chat history entries
 
+## [0.3.0] - 2026-01-28
+
+### Added
+- **PC Server Session Auto-Connect**: PC Server can now automatically detect and connect to sessions created by mobile clients
+- **Relay Server Session Discovery API**: New API endpoint `/api/sessions-waiting-for-pc` to find sessions waiting for PC connection
+- **Session List Management**: Redis Set-based session list for efficient session discovery
+
+### Changed
+- **PC Server Workflow**: PC Server can now start without session ID and automatically connect when mobile client creates a session
+- **Mobile Client**: Removed PC Server IP address requirement for relay mode connections
+- **Session Discovery**: PC Server polls relay server every 10 seconds to discover new sessions
+
+### Technical Details
+- Added `findSessionsWaitingForPC()` function in relay server
+- Implemented session list management in Redis
+- Enhanced `pollMessages()` function to include session auto-discovery
+- Improved `discoverSession()` function with rate limiting (10 seconds interval)
+
 ## [Unreleased]
 
 ### Planned
