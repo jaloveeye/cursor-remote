@@ -1,7 +1,6 @@
 {
   "version": 2,
-  "installCommand": "if cd flutter; then git pull && cd .. ; else git clone https://github.com/flutter/flutter.git; fi && flutter/bin/flutter doctor && flutter/bin/flutter config --enable-web",
-  "buildCommand": "flutter/bin/flutter pub get && flutter/bin/flutter build web --release --base-href /",
+  "buildCommand": "echo 'Using pre-built Flutter web files from build/web'",
   "outputDirectory": "build/web",
   "rewrites": [
     {
