@@ -1,7 +1,7 @@
 {
   "version": 2,
-  "buildCommand": "cd mobile-app && flutter pub get && flutter build web --release --base-href /",
-  "outputDirectory": "mobile-app/build/web",
+  "buildCommand": "flutter pub get && flutter build web --release --base-href /",
+  "outputDirectory": "build/web",
   "rewrites": [
     {
       "source": "/(.*)",
