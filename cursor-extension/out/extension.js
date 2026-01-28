@@ -210,6 +210,11 @@ async function activate(context) {
     outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Relay Server URL: ${config_1.CONFIG.RELAY_SERVER_URL}`);
     relayClient = new relay_client_1.RelayClient(config_1.CONFIG.RELAY_SERVER_URL, outputChannel);
     outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ RelayClient instance created`);
+    // Set relay client in WebSocket server for automatic message forwarding
+    if (wsServer && relayClient) {
+        wsServer.setRelayClient(relayClient);
+        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ Relay client set in WebSocket server`);
+    }
     // Set up message forwarding: Relay Server -> Extension WebSocket
     relayClient.setOnMessage((message) => {
         // Mark message as from relay to prevent loop

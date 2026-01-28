@@ -45,6 +45,7 @@ class WebSocketServer {
         this.clientChangeHandlers = [];
         this.clients = new Set();
         this.outputChannel = null;
+        this.relayClient = null;
         this.port = port;
         this.outputChannel = outputChannel || null;
     }
@@ -285,16 +286,45 @@ class WebSocketServer {
         });
         this.send(statusMessage);
     }
+    /**
+     * Set relay client for forwarding messages to relay server
+     */
+    setRelayClient(relayClient) {
+        this.relayClient = relayClient;
+    }
     send(message) {
-        if (!this.wss) {
-            this.log('WARNING: WebSocket server is not running');
-            return;
+        // Send to local WebSocket clients
+        if (this.wss) {
+            this.clients.forEach((client) => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(message);
+                }
+            });
         }
-        this.clients.forEach((client) => {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(message);
+        // Also send to relay server if connected to relay session
+        // Skip if message is from relay (to prevent loops)
+        if (this.relayClient && this.relayClient.isConnectedToSession()) {
+            try {
+                const parsed = JSON.parse(message);
+                // Only forward if message is not from relay
+                if (parsed.source !== 'relay') {
+                    this.relayClient.sendMessage(message).catch((error) => {
+                        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                        this.logError(`Failed to send to relay: ${errorMsg}`);
+                    });
+                }
             }
-        });
+            catch (error) {
+                // If message is not JSON, send as-is
+                // But check if it's a log message (which we don't want to forward)
+                if (!message.includes('"type":"log"')) {
+                    this.relayClient.sendMessage(message).catch((error) => {
+                        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                        this.logError(`Failed to send to relay: ${errorMsg}`);
+                    });
+                }
+            }
+        }
     }
     // HTTP POST 요청으로 메시지 수신 (hook에서 사용)
     sendFromHook(data) {
