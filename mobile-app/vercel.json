@@ -1,6 +1,5 @@
 {
   "version": 2,
-  "buildCommand": "echo 'Using pre-built Flutter web files from build/web'",
   "outputDirectory": "build/web",
   "rewrites": [
     {
