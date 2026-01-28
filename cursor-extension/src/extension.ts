@@ -208,7 +208,11 @@ export async function activate(context: vscode.ExtensionContext) {
             
             // Directly trigger the message handlers to process the command
             // This is the same handler that processes WebSocket client messages
-            wsServer.triggerMessageHandlers(relayMessage);
+            if (wsServer) {
+                wsServer.triggerMessageHandlers(relayMessage);
+            } else {
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ⚠️ WebSocket server is null - cannot process relay message`);
+            }
         } catch (error) {
             // If message is not JSON, send as-is but mark source
             const relayMessage = JSON.stringify({
@@ -218,7 +222,11 @@ export async function activate(context: vscode.ExtensionContext) {
                 clientId: 'relay-client'
             });
             outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 📥 Message from relay (non-JSON), forwarding to command handler...`);
-            wsServer.triggerMessageHandlers(relayMessage);
+            if (wsServer) {
+                wsServer.triggerMessageHandlers(relayMessage);
+            } else {
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ⚠️ WebSocket server is null - cannot process relay message`);
+            }
         }
     });
 
