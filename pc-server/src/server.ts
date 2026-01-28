@@ -654,6 +654,8 @@ async function initializeServer() {
     } else {
         console.log(`\n💡 No session ID provided - Local mode is available`);
         console.log(`   To use relay mode, start with: npm start <SESSION_ID>`);
+        console.log(`   Or use HTTP API: POST http://localhost:${CONFIG.HTTP_PORT}/session/connect with {"sessionId": "YOUR_SESSION_ID"}`);
+        console.log(`   Mobile app can automatically notify PC Server when creating a new session.`);
     }
     
     // 서버 시작 메시지
