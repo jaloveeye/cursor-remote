@@ -2962,85 +2962,47 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               ),
                             ),
                           ] else ...[
-                            const Padding(
-                              padding: EdgeInsets.all(16.0),
-                              child: Text('대화 히스토리가 없습니다.', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                            Padding(
+                              padding: const EdgeInsets.all(24.0),
+                              child: Column(
+                                children: [
+                                  Icon(
+                                    Icons.history,
+                                    size: 48,
+                                    color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.4),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    '대화 히스토리가 없습니다',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                           
                           // 새로고침 버튼
                           Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: ElevatedButton.icon(
+                            padding: const EdgeInsets.all(12.0),
+                            child: OutlinedButton.icon(
                               onPressed: () {
                                 _loadSessionInfo();
                                 _loadChatHistory();
                               },
-                              icon: const Icon(Icons.refresh, size: 16),
+                              icon: const Icon(Icons.refresh, size: 18),
                               label: const Text('새로고침'),
-                              style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                               ),
                             ),
                           ),
                         ],
                       ),
                     ],
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: (_isConnected && _commandController.text.trim().isNotEmpty) ? () {
-                              if (!mounted) return;
-                              final text = _commandController.text.trim();
-                              if (text.isNotEmpty) {
-                                setState(() {
-                                  // 버튼 클릭 상태 업데이트
-                                });
-                                _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: true, agentMode: _selectedAgentMode);
-                                _commandController.clear();
-                                if (mounted) {
-                                  setState(() {
-                                    // TextField 클리어 후 UI 업데이트
-                                  });
-                                }
-                              }
-                            } : null,
-                            icon: const Icon(Icons.refresh, size: 18),
-                            label: const Text('새 대화'),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _isConnected && _currentCursorSessionId != null ? () {
-                              if (!mounted) return;
-                              final text = _commandController.text;
-                              if (text.isNotEmpty) {
-                                setState(() {
-                                  // 버튼 클릭 상태 업데이트
-                                });
-                                _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false, agentMode: _selectedAgentMode);
-                                _commandController.clear();
-                                if (mounted) {
-                                  setState(() {
-                                    // TextField 클리어 후 UI 업데이트
-                                  });
-                                }
-                              }
-                            } : null,
-                            icon: const Icon(Icons.replay, size: 18),
-                            label: const Text('이어가기'),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
                   ],
                 ),
               ),
