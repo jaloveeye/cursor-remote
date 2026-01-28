@@ -11,12 +11,19 @@ npm i -g vercel
 # mobile-app 디렉토리로 이동
 cd mobile-app
 
-# 배포
-vercel
+# 배포 (프로젝트 이름 지정)
+vercel --name cursor-remote-web
+
+# 또는 기존 프로젝트 이름 변경 후 배포
+vercel --name cursor-remote-web --prod
 
 # 프로덕션 배포
 vercel --prod
 ```
+
+**프로젝트 이름 변경:**
+- 첫 배포 시: `vercel --name <원하는-이름>`으로 이름 지정
+- 기존 프로젝트 이름 변경: Vercel 대시보드 > Settings > General > Project Name에서 변경
 
 ### 2. Vercel 웹 대시보드 사용
 
