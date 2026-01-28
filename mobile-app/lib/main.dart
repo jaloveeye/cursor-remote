@@ -28,16 +28,43 @@ class MyApp extends StatelessWidget {
       title: 'Cursor Remote',
       theme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1A232E), // 다크 네이비 블루 (favicon 색상)
+        colorScheme: ColorScheme(
           brightness: Brightness.light,
-        ).copyWith(
+          // Primary 색상 (다크 네이비 블루)
           primary: const Color(0xFF1A232E),
-          secondary: const Color(0xFF2A3441),
-          surface: Colors.white,
           onPrimary: Colors.white,
+          primaryContainer: const Color(0xFF2A3441),
+          onPrimaryContainer: const Color(0xFFE8EAF6),
+          // Secondary 색상 (약간 밝은 네이비)
+          secondary: const Color(0xFF3A4A5E),
           onSecondary: Colors.white,
+          secondaryContainer: const Color(0xFFE3E8F0),
+          onSecondaryContainer: const Color(0xFF1A232E),
+          // Tertiary 색상 (청록색 계열 강조)
+          tertiary: const Color(0xFF00B4D8),
+          onTertiary: Colors.white,
+          tertiaryContainer: const Color(0xFFB3E5FC),
+          onTertiaryContainer: const Color(0xFF006064),
+          // Error 색상
+          error: const Color(0xFFDC3545),
+          onError: Colors.white,
+          errorContainer: const Color(0xFFFFEBEE),
+          onErrorContainer: const Color(0xFFB71C1C),
+          // Surface 색상
+          surface: Colors.white,
           onSurface: const Color(0xFF1A232E),
+          surfaceVariant: const Color(0xFFF5F7FA),
+          onSurfaceVariant: const Color(0xFF4A5568),
+          // Outline 색상
+          outline: const Color(0xFFCBD5E0),
+          outlineVariant: const Color(0xFFE2E8F0),
+          // Shadow
+          shadow: Colors.black.withOpacity(0.1),
+          scrim: Colors.black.withOpacity(0.5),
+          // Inverse
+          inverseSurface: const Color(0xFF1A232E),
+          onInverseSurface: Colors.white,
+          inversePrimary: const Color(0xFF4A5A6E),
         ),
         appBarTheme: const AppBarTheme(
           centerTitle: false,
@@ -49,7 +76,7 @@ class MyApp extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
             side: BorderSide(
-              color: Colors.grey.withOpacity(0.2),
+              color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
               width: 1,
             ),
           ),
@@ -1512,20 +1539,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     
     // 로그 메시지 스타일
     if (message.type == MessageType.log) {
-      // 로그 레벨에 따라 색상 결정
-      Color logColor = Colors.orange;
+      // 로그 레벨에 따라 색상 결정 (primary 색상 팔레트에 맞춤)
+      Color logColor = const Color(0xFFFF9800); // 오렌지 (경고)
       IconData logIcon = Icons.bug_report;
       
       // 메시지에서 레벨 추출 (간단한 방법)
       final text = message.text.toLowerCase();
       if (text.contains('[error]') || text.contains('error:')) {
-        logColor = Colors.red;
+        logColor = Theme.of(context).colorScheme.error; // 에러 색상
         logIcon = Icons.error;
       } else if (text.contains('[warn]') || text.contains('warning:')) {
-        logColor = Colors.orange;
+        logColor = const Color(0xFFFF9800); // 오렌지 (경고)
         logIcon = Icons.warning;
       } else {
-        logColor = Colors.blue;
+        logColor = Theme.of(context).colorScheme.tertiary; // 청록색 (정보)
         logIcon = Icons.info;
       }
       
@@ -2289,8 +2316,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 ],
                               ),
                               selected: _activeFilters[MessageFilter.aiResponse] ?? true,
-                              selectedColor: Colors.blue.withOpacity(0.2),
-                              checkmarkColor: Colors.blue,
+                              selectedColor: Theme.of(context).colorScheme.tertiaryContainer,
+                              checkmarkColor: Theme.of(context).colorScheme.tertiary,
                               onSelected: (selected) {
                                 setState(() {
                                   _activeFilters[MessageFilter.aiResponse] = selected;
@@ -2307,8 +2334,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 ],
                               ),
                               selected: _activeFilters[MessageFilter.userPrompt] ?? true,
-                              selectedColor: Colors.green.withOpacity(0.2),
-                              checkmarkColor: Colors.green,
+                              selectedColor: Theme.of(context).colorScheme.secondaryContainer,
+                              checkmarkColor: Theme.of(context).colorScheme.secondary,
                               onSelected: (selected) {
                                 setState(() {
                                   _activeFilters[MessageFilter.userPrompt] = selected;
@@ -2325,8 +2352,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 ],
                               ),
                               selected: _activeFilters[MessageFilter.log] ?? false,
-                              selectedColor: Colors.orange.withOpacity(0.2),
-                              checkmarkColor: Colors.orange,
+                              selectedColor: const Color(0xFFFFF3E0), // 오렌지 배경
+                              checkmarkColor: const Color(0xFFFF9800), // 오렌지
                               onSelected: (selected) {
                                 setState(() {
                                   _activeFilters[MessageFilter.log] = selected;
@@ -2343,8 +2370,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 ],
                               ),
                               selected: _activeFilters[MessageFilter.system] ?? true,
-                              selectedColor: Colors.grey.withOpacity(0.2),
-                              checkmarkColor: Colors.grey,
+                              selectedColor: Theme.of(context).colorScheme.surfaceVariant,
+                              checkmarkColor: Theme.of(context).colorScheme.onSurfaceVariant,
                               onSelected: (selected) {
                                 setState(() {
                                   _activeFilters[MessageFilter.system] = selected;
@@ -2959,7 +2986,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                           if (timestamp.isNotEmpty)
                                             Text(
                                               _formatTime(DateTime.parse(timestamp)),
-                                              style: TextStyle(fontSize: 9, color: Colors.grey[600]),
+                                              style: TextStyle(
+                                                fontSize: 9,
+                                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                              ),
                                             ),
                                         ],
                                       ),
