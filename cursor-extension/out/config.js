@@ -9,6 +9,8 @@ exports.CONFIG = {
     WEBSOCKET_PORT: 8766,
     // HTTP server port (for hooks)
     HTTP_PORT: 8768,
+    // Relay server URL
+    RELAY_SERVER_URL: process.env.RELAY_SERVER_URL || 'https://relay.jaloveeye.com',
     // Port range for finding available ports
     PORT_SEARCH_MAX_ATTEMPTS: 10,
     // File paths

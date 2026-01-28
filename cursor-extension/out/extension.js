@@ -43,6 +43,7 @@ const chat_capture_1 = require("./chat-capture");
 const http_server_1 = require("./http-server");
 const rules_manager_1 = require("./rules-manager");
 const status_bar_1 = require("./status-bar");
+const relay_client_1 = require("./relay-client");
 const config_1 = require("./config");
 let wsServer = null;
 let commandHandler = null;
@@ -51,6 +52,7 @@ let chatCapture = null;
 let httpServer = null;
 let rulesManager = null;
 let statusBarManager = null;
+let relayClient = null;
 let outputChannel;
 async function activate(context) {
     // Output channel creation
@@ -104,9 +106,18 @@ async function activate(context) {
         try {
             const command = JSON.parse(message);
             const clientId = command.clientId || 'none';
-            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Received command: ${command.type} from client: ${clientId}`);
+            const source = command.source || 'local';
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Received command: ${command.type} from client: ${clientId} (source: ${source})`);
+            // Handle command locally (whether from local WebSocket or relay)
             if (commandRouter) {
                 commandRouter.handleCommand(command);
+            }
+            // If message is from local WebSocket client (not from relay), forward to relay
+            if (source !== 'relay' && relayClient && relayClient.isConnectedToSession()) {
+                relayClient.sendMessage(message).catch((error) => {
+                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ❌ Failed to send to relay: ${errorMsg}`);
+                });
             }
         }
         catch (error) {
@@ -193,10 +204,49 @@ async function activate(context) {
         }
     });
     context.subscriptions.push(startCommand, stopCommand, toggleCommand);
+    // Initialize relay client
+    relayClient = new relay_client_1.RelayClient(config_1.CONFIG.RELAY_SERVER_URL, outputChannel);
+    // Set up message forwarding: Relay Server -> Extension WebSocket
+    relayClient.setOnMessage((message) => {
+        // Mark message as from relay to prevent loop
+        try {
+            const parsed = JSON.parse(message);
+            parsed.source = 'relay';
+            const relayMessage = JSON.stringify(parsed);
+            // Forward message from relay to WebSocket server clients
+            // This will trigger the onMessage handler above, which will process the command
+            if (wsServer) {
+                wsServer.send(relayMessage);
+            }
+        }
+        catch (error) {
+            // If message is not JSON, send as-is but mark source
+            const relayMessage = JSON.stringify({
+                type: 'message',
+                data: message,
+                source: 'relay'
+            });
+            if (wsServer) {
+                wsServer.send(relayMessage);
+            }
+        }
+    });
     // Auto start
-    wsServer.start().then(() => {
+    wsServer.start().then(async () => {
         if (statusBarManager) {
             statusBarManager.update(false); // Client not connected yet
+        }
+        // Start relay client after WebSocket server is ready
+        if (relayClient) {
+            try {
+                await relayClient.start();
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ Relay client started - waiting for mobile client session...`);
+            }
+            catch (error) {
+                const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ⚠️ Failed to start relay client: ${errorMsg}`);
+                // Don't show error to user - relay is optional
+            }
         }
     }).catch((error) => {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -211,6 +261,10 @@ async function activate(context) {
     }
 }
 function deactivate() {
+    if (relayClient) {
+        relayClient.stop();
+        relayClient = null;
+    }
     if (chatCapture) {
         chatCapture.dispose();
         chatCapture = null;
