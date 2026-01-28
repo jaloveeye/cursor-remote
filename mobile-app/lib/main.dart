@@ -29,8 +29,15 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF6750A4), // Material Design 3 기본 보라색
+          seedColor: const Color(0xFF1A232E), // 다크 네이비 블루 (favicon 색상)
           brightness: Brightness.light,
+        ).copyWith(
+          primary: const Color(0xFF1A232E),
+          secondary: const Color(0xFF2A3441),
+          surface: Colors.white,
+          onPrimary: Colors.white,
+          onSecondary: Colors.white,
+          onSurface: const Color(0xFF1A232E),
         ),
         appBarTheme: const AppBarTheme(
           centerTitle: false,
