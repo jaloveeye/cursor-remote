@@ -7,18 +7,20 @@
 
 ## 배포 방법
 
-### 1. 로컬에서 빌드 후 배포
+### 1. GitHub 푸시로 자동 배포 (권장)
+
+GitHub에 푸시하면 Vercel이 자동으로:
+1. Flutter SDK 설치
+2. Flutter web 빌드
+3. 배포
 
 ```bash
-# 1. Flutter web 빌드
-cd mobile-app
-flutter build web --release --base-href /
-
-# 2. Vercel 배포 (mobile-app 디렉토리에서)
-vercel --prod
+git add .
+git commit -m "Update Flutter web app"
+git push
 ```
 
-### 2. Vercel 대시보드에서 배포
+### 2. Vercel 대시보드에서 수동 배포
 
 1. [Vercel 대시보드](https://vercel.com/dashboard) 접속
 2. `cursor-remote-web` 프로젝트 선택
@@ -26,16 +28,21 @@ vercel --prod
 4. 최신 배포 옆의 "..." 메뉴 클릭
 5. "Redeploy" 선택
 
-**주의**: 배포 전에 로컬에서 `flutter build web --release --base-href /`를 실행하여 `build/web` 디렉토리에 빌드된 파일이 있어야 합니다.
+### 3. Vercel CLI로 배포
+
+```bash
+cd mobile-app
+vercel --prod
+```
 
 ## 빌드 설정
 
-Settings > General > Build & Development Settings:
+`vercel.json`에 자동 빌드 설정이 포함되어 있습니다:
 
-- **Root Directory**: `mobile-app`
+- **Root Directory**: `mobile-app` (Vercel 대시보드에서 설정)
+- **Install Command**: Flutter SDK 자동 설치
+- **Build Command**: `flutter/bin/flutter pub get && flutter/bin/flutter build web --release --base-href /`
 - **Output Directory**: `build/web`
-- **Build Command**: (비워두기 - 로컬에서 빌드)
-- **Install Command**: (비워두기)
 
 ## GitHub 연동 자동 배포
 
