@@ -2674,71 +2674,86 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         },
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
                         Expanded(
-                          child: ElevatedButton(
-                            onPressed: _isConnected ? () {
-                              if (!mounted) return;
-                              final text = _commandController.text;
-                              if (text.isNotEmpty) {
-                                // UI 업데이트를 위해 명시적으로 setState 호출
-                                setState(() {
-                                  // 버튼 클릭 상태 업데이트
-                                });
-                                _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false, agentMode: _selectedAgentMode);
-                                // 텍스트 클리어 후 UI 업데이트
-                                _commandController.clear();
-                                if (mounted) {
-                                  setState(() {
-                                    // TextField 클리어 후 UI 업데이트
-                                  });
-                                }
-                              }
-                            } : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
-                              foregroundColor: Colors.white,
+                          child: FilledButton.icon(
+                            onPressed: _isConnected && _commandController.text.trim().isNotEmpty && !_isWaitingForResponse
+                                ? () {
+                                    if (!mounted) return;
+                                    final text = _commandController.text.trim();
+                                    if (text.isNotEmpty) {
+                                      setState(() {});
+                                      _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false, agentMode: _selectedAgentMode);
+                                      _commandController.clear();
+                                      if (mounted) {
+                                        setState(() {});
+                                      }
+                                    }
+                                  }
+                                : null,
+                            icon: _isWaitingForResponse
+                                ? SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Theme.of(context).colorScheme.onPrimary,
+                                      ),
+                                    ),
+                                  )
+                                : const Icon(Icons.send, size: 18),
+                            label: Text(_isWaitingForResponse ? '전송 중...' : '전송'),
+                            style: FilledButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 14),
                             ),
-                            child: _isWaitingForResponse
-                                ? const Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                        ),
-                                      ),
-                                      SizedBox(width: 8),
-                                      Text('대기 중...'),
-                                    ],
-                                  )
-                                : const Text('Send to Prompt'),
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: (_isConnected && _isWaitingForResponse) ? () {
-                              if (!mounted) return;
-                              // UI 업데이트를 위해 명시적으로 setState 호출
-                              setState(() {
-                                // 버튼 클릭 상태 업데이트
-                                _isWaitingForResponse = false; // Stop 버튼 클릭 시 대기 상태 해제
-                              });
-                              _sendCommand('stop_prompt');
-                            } : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
+                        if (_isWaitingForResponse) ...[
+                          OutlinedButton.icon(
+                            onPressed: _isConnected
+                                ? () {
+                                    if (!mounted) return;
+                                    setState(() {
+                                      _isWaitingForResponse = false;
+                                    });
+                                    _sendCommand('stop_prompt');
+                                  }
+                                : null,
+                            icon: const Icon(Icons.stop, size: 18),
+                            label: const Text('중지'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
                             ),
+                          ),
+                        ] else ...[
+                          OutlinedButton.icon(
+                            onPressed: _isConnected && _commandController.text.trim().isNotEmpty
+                                ? () {
+                                    if (!mounted) return;
+                                    final text = _commandController.text.trim();
+                                    if (text.isNotEmpty) {
+                                      setState(() {});
+                                      _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: true, agentMode: _selectedAgentMode);
+                                      _commandController.clear();
+                                      if (mounted) {
+                                        setState(() {});
+                                      }
+                                    }
+                                  }
+                                : null,
+                            icon: const Icon(Icons.refresh, size: 18),
+                            label: const Text('새 대화'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                             child: const Text('Stop'),
                           ),
                         ),
