@@ -31,9 +31,11 @@ git push
 ### 3. Vercel CLI로 배포
 
 ```bash
-cd mobile-app
+cd mobile-app/web
 vercel --prod
 ```
+
+**주의**: `mobile-app/web` 디렉토리에서 배포해야 합니다. `vercel.json`이 여기에 있습니다.
 
 ## 빌드 설정
 
