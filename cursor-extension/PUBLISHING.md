@@ -1,312 +1,292 @@
-# Cursor Extension 배포 가이드
+# Cursor Remote Extension 배포 가이드
 
-이 문서는 Cursor Extension을 마켓플레이스에 배포하기 위한 단계별 가이드를 제공합니다.
+VS Code Extension Marketplace에 Cursor Remote Extension을 배포하는 방법입니다.
+
+**작성 시간**: 2025-01-27  
+**수정 시간**: 2025-01-27
 
 ## 📋 사전 준비사항
 
-### 1. 필수 파일 확인
+### 1. Azure DevOps 계정 생성
 
-다음 파일들이 준비되어 있는지 확인하세요:
+- [Azure DevOps](https://dev.azure.com)에서 계정 생성
+- Personal Access Token (PAT) 생성 필요
 
-- ✅ `package.json` - Extension 메타데이터
-- ✅ `README.md` - Extension 설명서
-- ✅ `CHANGELOG.md` - 버전 변경 이력
-- ✅ `LICENSE` - 라이선스 파일
-- ✅ `.vscodeignore` - 패키징 시 제외할 파일 목록
-- ⚠️ `icon.png` - 아이콘 파일 (128x128 또는 256x256px, 선택사항이지만 권장)
+### 2. VS Code Marketplace Publisher 계정 생성
 
-### 2. package.json 필수 필드 확인
+- [Visual Studio Marketplace](https://marketplace.visualstudio.com/manage) 접속
+- Publisher 계정 생성 (예: `jaloveeye`)
+- Publisher Profile 설정:
 
-다음 필드들이 올바르게 설정되어 있는지 확인:
+  ```
+  Software Engineer based in Seoul, connecting code and user experience. 
+  Passionate about creating tools that balance people, teams, and technology. 
+  Open source contributor to react-grid-layout and airbnb/showkase. 
+  Building developer tools to enhance productivity and remote collaboration.
+  ```
+
+### 3. 필요한 도구 설치
+
+```bash
+npm install -g @vscode/vsce
+```
+
+## 🔧 package.json 설정
+
+### 필수 필드 추가
+
+`cursor-extension/package.json`에 다음 필드들을 추가해야 합니다:
 
 ```json
 {
-  "name": "cursor-remote",           // Extension ID (소문자, 하이픈만 사용)
-  "displayName": "Cursor Remote",    // 표시 이름
-  "version": "0.1.0",                // 버전 (Semantic Versioning)
-  "publisher": "jaloveeye",          // Publisher ID (소문자)
-  "description": "...",               // Extension 설명
+  "name": "cursor-remote-extension",
+  "displayName": "Cursor Remote",
+  "description": "Remote control extension for Cursor IDE via WebSocket - Code anywhere, anytime with Cursor CLI",
+  "version": "0.1.0",
+  "publisher": "jaloveeye",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jaloveeye/cursor-remote.git"
+  },
+  "homepage": "https://github.com/jaloveeye/cursor-remote",
+  "bugs": {
+    "url": "https://github.com/jaloveeye/cursor-remote/issues"
+  },
+  "license": "MIT",
+  "icon": "icon.png",
+  "keywords": [
+    "cursor",
+    "remote",
+    "mobile",
+    "websocket",
+    "remote-control"
+  ],
+  "categories": [
+    "Other"
+  ],
   "engines": {
-    "vscode": "^1.74.0"              // 최소 VSCode 버전
+    "vscode": "^1.74.0"
   }
 }
 ```
 
-**현재 상태**: ✅ 모든 필수 필드가 설정되어 있습니다.
+### 주요 필드 설명
 
----
+- **publisher**: Marketplace에 등록된 Publisher ID (예: `jaloveeye`)
+- **repository**: GitHub 저장소 URL
+- **icon**: Extension 아이콘 (128x128px PNG 권장)
+- **keywords**: Marketplace 검색 키워드
+- **categories**: Extension 카테고리
 
-## 🔐 Step 1: Publisher 계정 생성
+## 📦 VSIX 패키지 생성
 
-### 1.1 Azure DevOps 계정 생성
-
-1. [Azure DevOps](https://dev.azure.com)에 접속
-2. Microsoft 계정으로 로그인 (또는 새로 생성)
-3. 조직(Organization) 생성
-   - 조직 이름: `jaloveeye` (또는 원하는 이름)
-   - 지역 선택
-
-### 1.2 Publisher 생성
-
-1. [Visual Studio Marketplace](https://marketplace.visualstudio.com/manage) 접속
-2. "Create Publisher" 클릭
-3. Publisher 정보 입력:
-   - **Publisher ID**: `jaloveeye` (package.json의 publisher와 일치해야 함)
-   - **Publisher Name**: `김형진` 또는 `jaloveeye`
-   - **Support URL**: `https://github.com/jaloveeye/cursor-remote/issues`
-   - **Logo**: 128x128px PNG 이미지 (선택사항)
-
-**⚠️ 중요**: Publisher ID는 한 번 생성하면 변경할 수 없습니다. package.json의 `publisher` 필드와 정확히 일치해야 합니다.
-
----
-
-## 🔑 Step 2: Personal Access Token (PAT) 생성
-
-### 2.1 PAT 생성
-
-1. [Azure DevOps](https://dev.azure.com) 접속
-2. 우측 상단 프로필 아이콘 클릭 → **Security** 선택
-3. **Personal access tokens** 클릭
-4. **+ New Token** 클릭
-5. 토큰 설정:
-   - **Name**: `VSCode Extension Publishing`
-   - **Organization**: 생성한 조직 선택
-   - **Expiration**: 원하는 만료일 설정 (최대 1년)
-   - **Scopes**: `Custom defined` 선택
-     - **Marketplace**: `Manage` 권한 선택
-6. **Create** 클릭
-7. **⚠️ 중요**: 생성된 토큰을 복사하여 안전한 곳에 보관 (다시 볼 수 없음)
-
-### 2.2 PAT 저장 (선택사항)
-
-로컬에 저장하려면:
-
-```bash
-# macOS/Linux
-echo 'YOUR_PAT_TOKEN' > ~/.vscode-publisher-token
-
-# 또는 환경 변수로 설정
-export VSCE_PAT=YOUR_PAT_TOKEN
-```
-
----
-
-## 🎨 Step 3: 아이콘 준비 (선택사항)
-
-### 3.1 icon.png 생성
-
-현재 `icon.svg` 파일이 있으므로 PNG로 변환:
-
-**방법 1: 온라인 도구 사용**
-- [CloudConvert](https://cloudconvert.com/svg-to-png)
-- [Convertio](https://convertio.co/kr/svg-png/)
-
-**방법 2: ImageMagick 사용**
-```bash
-# ImageMagick 설치 (macOS)
-brew install imagemagick
-
-# SVG를 PNG로 변환
-convert images/icon.svg -resize 256x256 images/icon.png
-```
-
-**방법 3: Figma 사용**
-- Figma에서 SVG 열기
-- Export → PNG → 256x256 선택
-
-### 3.2 아이콘 요구사항
-
-- **크기**: 128x128px (최소) 또는 256x256px (권장)
-- **형식**: PNG
-- **배경**: 투명 배경 권장
-- **위치**: `cursor-extension/` 루트 또는 `images/icon.png`
-
----
-
-## 📦 Step 4: 빌드 및 패키징
-
-### 4.1 의존성 설치
+### 1. 컴파일 확인
 
 ```bash
 cd cursor-extension
 npm install
-```
-
-### 4.2 TypeScript 컴파일
-
-```bash
 npm run compile
 ```
 
-### 4.3 패키지 생성 (테스트)
+### 2. VSIX 패키지 생성
 
 ```bash
-npm run package
+vsce package
 ```
 
-이 명령어는 `.vsix` 파일을 생성합니다. 파일이 생성되면 성공입니다.
+성공하면 `cursor-remote-extension-0.1.0.vsix` 파일이 생성됩니다.
 
-**예상 출력**:
-```
-DONE  Packaged: cursor-remote-0.1.0.vsix (XX KB)
-```
-
-### 4.4 패키지 검증 (선택사항)
-
-생성된 `.vsix` 파일을 로컬에서 테스트:
-
-1. Cursor IDE에서 `확장` → `...` → `VSIX에서 설치...` 선택
-2. 생성된 `.vsix` 파일 선택
-3. Extension이 정상적으로 작동하는지 확인
-
----
-
-## 🚀 Step 5: 마켓플레이스에 배포
-
-### 5.1 배포 명령어
+### 3. 패키지 검증 (선택사항)
 
 ```bash
-# PAT를 환경 변수로 설정한 경우
-export VSCE_PAT=YOUR_PAT_TOKEN
-npm run publish
+vsce ls
+```
 
-# 또는 직접 입력
+## 🚀 Marketplace에 배포
+
+### 방법 1: 명령줄로 배포 (권장)
+
+#### 1. Personal Access Token 생성
+
+1. [Azure DevOps](https://dev.azure.com) 접속
+2. User Settings → Personal Access Tokens
+3. "New Token" 클릭
+4. Scope: **Marketplace (Manage)** 선택
+5. Token 생성 후 복사 (한 번만 표시됨!)
+
+#### 2. 로그인
+
+```bash
+vsce login jaloveeye
+```
+
+Personal Access Token 입력
+
+#### 3. 배포
+
+```bash
 vsce publish
-# PAT 입력 프롬프트가 나타나면 토큰 입력
 ```
 
-### 5.2 배포 프로세스
+또는 특정 버전으로:
 
-1. `vsce publish` 실행
-2. PAT 입력 (또는 환경 변수에서 자동 사용)
-3. 버전 확인 (이미 배포된 버전이면 오류 발생)
-4. 패키징 및 업로드
-5. 마켓플레이스에서 검토 대기 (보통 몇 분 소요)
+```bash
+vsce publish 0.1.0
+```
 
-### 5.3 배포 확인
+### 방법 2: 웹사이트에서 업로드
+
+1. [Visual Studio Marketplace](https://marketplace.visualstudio.com/manage) 접속
+2. Publisher 선택
+3. "New Extension" → "Visual Studio Code" 선택
+4. VSIX 파일 업로드
+5. Extension 정보 확인 및 게시
+
+## 📝 버전 업데이트
+
+### 버전 번호 규칙
+
+- **Major**: 큰 기능 변경, 호환성 깨짐 (예: 1.0.0 → 2.0.0)
+- **Minor**: 새 기능 추가, 하위 호환 (예: 0.1.0 → 0.2.0)
+- **Patch**: 버그 수정 (예: 0.1.0 → 0.1.1)
+
+### 버전 업데이트 방법
+
+1. `package.json`의 `version` 필드 수정
+2. CHANGELOG.md 업데이트 (선택사항)
+3. 컴파일 및 패키징:
+
+   ```bash
+   npm run compile
+   vsce package
+   ```
+
+4. 배포:
+
+   ```bash
+   vsce publish
+   ```
+
+## 📄 CHANGELOG.md 작성 (권장)
+
+Extension 루트에 `CHANGELOG.md` 파일 생성:
+
+```markdown
+# Change Log
+
+All notable changes to the "Cursor Remote" extension will be documented in this file.
+
+## [0.1.0] - 2025-01-27
+
+### Added
+- Initial release
+- WebSocket server for mobile app communication
+- Text insertion command
+- Cursor command execution
+- AI response streaming
+```
+
+`package.json`에 추가:
+
+```json
+{
+  "contributes": {
+    // ...
+  },
+  "files": [
+    "out",
+    "icon.png",
+    "README.md",
+    "CHANGELOG.md"
+  ]
+}
+```
+
+## 🔍 배포 확인
 
 1. [Visual Studio Marketplace](https://marketplace.visualstudio.com/vscode) 접속
 2. "Cursor Remote" 검색
 3. Extension 페이지 확인
+4. 설치 테스트:
 
----
-
-## 🔄 Step 6: 버전 업데이트
-
-새 버전을 배포할 때:
-
-### 6.1 버전 업데이트
-
-`package.json`에서 버전 번호 수정:
-
-```json
-{
-  "version": "0.1.1"  // 패치 버전 증가
-  // 또는
-  "version": "0.2.0"  // 마이너 버전 증가
-  // 또는
-  "version": "1.0.0"  // 메이저 버전 증가
-}
-```
-
-### 6.2 CHANGELOG.md 업데이트
-
-```markdown
-## [0.1.1] - 2026-01-21
-
-### Fixed
-- 버그 수정 내용
-
-### Added
-- 새 기능 추가 내용
-```
-
-### 6.3 재배포
-
-```bash
-npm run compile
-npm run publish
-```
-
----
+   ```bash
+   code --install-extension jaloveeye.cursor-remote-extension
+   ```
 
 ## ⚠️ 주의사항
 
-### 버전 관리
+### 1. 아이콘 파일
 
-- **Semantic Versioning** 준수: `MAJOR.MINOR.PATCH`
-- 이미 배포된 버전은 다시 배포할 수 없음
-- 버전은 항상 증가해야 함
+- `icon.png` 파일이 `cursor-extension/` 루트에 있어야 함
+- 권장 크기: 128x128px
+- PNG 형식
 
-### 패키지 크기
+### 2. README.md
 
-- 최대 크기: 100MB
-- 현재 예상 크기: ~50KB (매우 작음)
+- Extension 루트에 `README.md` 필수
+- Marketplace에서 자동으로 표시됨
+- 마크다운 형식 지원
 
-### 검토 프로세스
+### 3. 라이선스
 
-- 첫 배포: 수동 검토 필요 (보통 몇 시간~하루 소요)
-- 업데이트: 자동 검토 (보통 몇 분 소요)
+- `LICENSE` 파일 또는 `package.json`의 `license` 필드 필수
 
----
+### 4. 파일 제외
+
+`.vscodeignore` 파일로 배포에서 제외할 파일 지정:
+
+```
+.vscode/**
+.vscode-test/**
+src/**
+.gitignore
+tsconfig.json
+.vscodeignore
+```
 
 ## 🐛 문제 해결
 
-### "Publisher not found" 오류
+### 오류: "Missing publisher name"
 
-- Publisher ID가 package.json의 `publisher`와 일치하는지 확인
-- [Marketplace Publisher 페이지](https://marketplace.visualstudio.com/manage)에서 Publisher 생성 확인
+- `package.json`에 `publisher` 필드 추가
 
-### "Invalid Personal Access Token" 오류
+### 오류: "Missing repository field"
 
-- PAT가 만료되지 않았는지 확인
-- PAT에 Marketplace `Manage` 권한이 있는지 확인
-- PAT를 다시 생성
+- `package.json`에 `repository` 필드 추가
 
-### "Version already exists" 오류
+### 오류: "Extension name not found"
 
-- package.json의 버전을 증가시킴
-- CHANGELOG.md 업데이트
+- `package.json`의 `name` 필드 확인
+- 형식: `publisher-name.extension-name` (예: `jaloveeye.cursor-remote-extension`)
 
-### 패키징 오류
+### 오류: "Personal Access Token expired"
 
-```bash
-# 빌드 파일 확인
-ls -la out/
-
-# TypeScript 컴파일 오류 확인
-npm run compile
-
-# .vscodeignore 확인
-cat .vscodeignore
-```
-
----
+- Azure DevOps에서 새 토큰 생성
+- `vsce login` 다시 실행
 
 ## 📚 참고 자료
 
-- [VSCode Extension Publishing Guide](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)
-- [vsce Documentation](https://github.com/microsoft/vscode-vsce)
-- [Semantic Versioning](https://semver.org/)
+- [VS Code Extension Publishing Guide](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)
+- [vsce CLI Documentation](https://github.com/microsoft/vscode-vsce)
+- [Marketplace Publisher Guide](https://docs.microsoft.com/en-us/azure/devops/extend/publish/overview)
+
+## ✅ 배포 체크리스트
+
+- [ ] `package.json`에 `publisher` 필드 추가
+- [ ] `package.json`에 `repository` 필드 추가
+- [ ] `package.json`에 `icon` 필드 추가
+- [ ] `icon.png` 파일 존재 확인
+- [ ] `README.md` 파일 작성
+- [ ] `CHANGELOG.md` 파일 작성 (선택사항)
+- [ ] `.vscodeignore` 파일 설정
+- [ ] Extension 컴파일 성공 확인
+- [ ] VSIX 패키지 생성 성공 확인
+- [ ] 로컬에서 Extension 테스트 완료
+- [ ] Personal Access Token 생성
+- [ ] Marketplace에 배포 완료
+- [ ] Marketplace에서 Extension 확인
+- [ ] 설치 및 동작 테스트 완료
 
 ---
 
-## ✅ 체크리스트
-
-배포 전 확인사항:
-
-- [ ] Publisher 계정 생성 완료
-- [ ] PAT 생성 및 저장 완료
-- [ ] package.json의 publisher ID 확인
-- [ ] 버전 번호 확인 (Semantic Versioning)
-- [ ] README.md 완성
-- [ ] CHANGELOG.md 업데이트
-- [ ] LICENSE 파일 확인
-- [ ] TypeScript 컴파일 성공
-- [ ] 로컬 패키지 테스트 완료
-- [ ] icon.png 준비 (선택사항)
-
----
-
-**작성 시간**: 2026년 1월 21일  
-**최종 수정**: 2026년 1월 21일
+**다음 단계**: 배포 후 사용자 피드백 수집 및 버전 업데이트 계획 수립

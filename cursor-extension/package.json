@@ -1,44 +1,20 @@
 {
   "name": "cursor-remote-extension",
   "displayName": "Cursor Remote",
-  "description": "Control Cursor AI from your mobile device. Remote control extension for Cursor IDE via WebSocket - Code anywhere, anytime with Cursor CLI. Use Cursor AI right from your smartphone or tablet!",
-  "version": "0.2.0",
+  "description": "Remote control extension for Cursor IDE",
+  "version": "0.1.0",
   "publisher": "jaloveeye",
-  "author": {
-    "name": "김형진",
-    "email": "jaloveeye@gmail.com",
-    "url": "https://jaloveeye.com"
-  },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jaloveeye/cursor-remote"
+    "url": "https://github.com/jaloveeye/cursor-remote.git"
   },
-  "homepage": "https://github.com/jaloveeye/cursor-remote#readme",
-  "bugs": {
-    "url": "https://github.com/jaloveeye/cursor-remote/issues"
-  },
-  "keywords": [
-    "cursor",
-    "remote",
-    "mobile",
-    "websocket",
-    "ai",
-    "coding",
-    "remote-control"
-  ],
   "engines": {
     "vscode": "^1.74.0"
   },
   "categories": [
-    "Other",
-    "Programming Languages"
+    "Other"
   ],
-  "icon": "icon.png",
-  "galleryBanner": {
-    "color": "#1e1e1e",
-    "theme": "dark"
-  },
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -47,53 +23,27 @@
     "commands": [
       {
         "command": "cursorRemote.start",
-        "title": "Start Cursor Remote Server",
-        "category": "Cursor Remote"
+        "title": "Start Cursor Remote Server"
       },
       {
         "command": "cursorRemote.stop",
-        "title": "Stop Cursor Remote Server",
-        "category": "Cursor Remote"
+        "title": "Stop Cursor Remote Server"
       },
       {
         "command": "cursorRemote.toggle",
-        "title": "Toggle Cursor Remote Server",
-        "category": "Cursor Remote"
+        "title": "Toggle Cursor Remote Server"
       }
-    ],
-    "configuration": {
-      "title": "Cursor Remote",
-      "properties": {
-        "cursorRemote.autoStart": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically start the remote server when Cursor opens"
-        },
-        "cursorRemote.port": {
-          "type": "number",
-          "default": 8766,
-          "description": "WebSocket server port"
-        },
-        "cursorRemote.httpPort": {
-          "type": "number",
-          "default": 8768,
-          "description": "HTTP server port for hooks (not used, Extension uses CONFIG.HTTP_PORT)"
-        }
-      }
-    }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "package": "vsce package",
-    "publish": "vsce publish"
+    "watch": "tsc -watch -p ./"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.74.0",
     "@types/ws": "^8.5.0",
-    "@vscode/vsce": "^2.22.0",
     "typescript": "^5.0.0"
   },
   "dependencies": {

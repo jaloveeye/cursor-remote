@@ -1,28 +1,23 @@
 {
-    "name": "Cursor Remote - Control Cursor AI from Your Mobile Device",
+    "name": "Cursor Remote",
     "short_name": "Cursor Remote",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#1A232E",
-    "theme_color": "#1A232E",
-    "description": "Control Cursor AI from your mobile device. Remote control extension for Cursor IDE - Code anywhere, anytime with Cursor CLI.",
+    "background_color": "#0175C2",
+    "theme_color": "#0175C2",
+    "description": "Control Cursor IDE from your mobile device. Remote control extension for Cursor IDE via WebSocket - Code anywhere, anytime with Cursor CLI.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
-    "categories": ["developer", "productivity", "utilities"],
-    "lang": "ko",
-    "dir": "ltr",
     "icons": [
         {
             "src": "icons/Icon-192.png",
             "sizes": "192x192",
-            "type": "image/png",
-            "purpose": "any"
+            "type": "image/png"
         },
         {
             "src": "icons/Icon-512.png",
             "sizes": "512x512",
-            "type": "image/png",
-            "purpose": "any"
+            "type": "image/png"
         },
         {
             "src": "icons/Icon-maskable-192.png",
