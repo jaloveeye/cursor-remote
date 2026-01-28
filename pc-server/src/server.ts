@@ -292,8 +292,63 @@ function sendToExtension(message: string) {
     sendToActiveExtension(message);
 }
 
-// Relay 서버에서 메시지 폴링
+// 세션 자동 감지 (PC deviceId가 없는 세션 찾기)
+// 모바일 클라이언트가 이미 연결한 세션을 찾아서 자동으로 연결
+let lastSessionDiscoveryTime = 0;
+const SESSION_DISCOVERY_INTERVAL = 10000; // 10초마다 한 번만
+
+async function discoverSession(): Promise<string | null> {
+    if (sessionId || isLocalMode) {
+        return null; // 이미 세션이 있거나 로컬 모드면 스킵
+    }
+    
+    // 너무 자주 호출하지 않도록 제한
+    const now = Date.now();
+    if (now - lastSessionDiscoveryTime < SESSION_DISCOVERY_INTERVAL) {
+        return null;
+    }
+    lastSessionDiscoveryTime = now;
+    
+    try {
+        // 릴레이 서버에 PC deviceId가 없는 세션 찾기 요청
+        const discoveryUrl = `${RELAY_SERVER_URL}/api/sessions-waiting-for-pc`;
+        const response = await fetch(discoveryUrl);
+        
+        if (!response.ok) {
+            return null;
+        }
+        
+        const data = await response.json() as any;
+        if (data.success && data.data?.sessions && data.data.sessions.length > 0) {
+            // 첫 번째 세션에 자동으로 연결
+            const foundSession = data.data.sessions[0];
+            if (foundSession.sessionId) {
+                console.log(`\n🔍 Found session waiting for PC: ${foundSession.sessionId}`);
+                console.log(`🔄 Auto-connecting to session...`);
+                return foundSession.sessionId;
+            }
+        }
+        
+        return null;
+    } catch (error) {
+        // 에러는 무시 (세션이 없을 수 있음)
+        return null;
+    }
+}
+
+// Relay 서버에서 메시지 폴링 및 세션 자동 감지
 async function pollMessages() {
+    // 세션 ID가 없으면 세션 자동 감지 시도
+    if (!sessionId && !isLocalMode) {
+        const discoveredSessionId = await discoverSession();
+        if (discoveredSessionId) {
+            await connectToSession(discoveredSessionId);
+            return; // 연결 후 다음 폴링에서 메시지 처리
+        }
+        return; // 세션을 찾지 못했으면 다음 폴링에서 다시 시도
+    }
+    
+    // 세션 ID가 있으면 기존 로직대로 메시지 폴링
     if (!sessionId || !isConnected) {
         console.log(`⚠️ Polling skipped: sessionId=${sessionId}, isConnected=${isConnected}`);
         return;
@@ -653,7 +708,9 @@ async function initializeServer() {
         }, 2000);
     } else {
         console.log(`\n💡 No session ID provided - Local mode is available`);
-        console.log(`   To use relay mode, start with: npm start <SESSION_ID>`);
+        console.log(`   PC Server will automatically detect and connect to sessions created by mobile clients.`);
+        console.log(`   To use relay mode manually, start with: npm start <SESSION_ID>`);
+        console.log(`   Or use HTTP API: POST http://localhost:${CONFIG.HTTP_PORT}/session/connect with {"sessionId": "YOUR_SESSION_ID"}`);
     }
     
     // 서버 시작 메시지
