@@ -1,5 +1,5 @@
 name: cursor_remote
-description: Mobile app for controlling Cursor IDE remotely
+description: Control Cursor AI from your mobile device. Remote control extension for Cursor IDE - Code anywhere, anytime with Cursor CLI.
 publish_to: 'none'
 version: 0.1.0+1
 
@@ -9,8 +9,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  web_socket_channel: ^2.4.0
+  http: ^1.2.0
+  web_socket_channel: ^3.0.0
   cupertino_icons: ^1.0.6
+  shared_preferences: ^2.2.2
 
 dev_dependencies:
   flutter_test:

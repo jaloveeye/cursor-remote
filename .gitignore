@@ -46,3 +46,14 @@ mobile-app/.android/
 
 # TypeScript
 *.tsbuildinfo
+
+# Cursor Remote extension files
+.cursor/
+
+# Flutter iOS
+mobile-app/macos/Podfile.lock
+mobile-app/ios/Podfile.lock
+
+# Test scripts and temporary docs
+test-connection.sh
+ISSUES_AND_SOLUTIONS.md

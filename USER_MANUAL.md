@@ -1,0 +1,724 @@
+# Cursor Remote 사용자 매뉴얼
+
+**모바일에서 Cursor IDE를 원격 제어하기 위한 완벽 가이드**
+
+---
+
+## 목차
+
+1. [개요](#1-개요)
+2. [사전 요구사항](#2-사전-요구사항)
+3. [연결 방식 비교](#3-연결-방식-비교)
+4. [Cursor Extension 설치](#4-cursor-extension-설치)
+5. [로컬 서버 연결 방법](#5-로컬-서버-연결-방법)
+6. [릴레이 서버 연결 방법](#6-릴레이-서버-연결-방법)
+7. [모바일 앱 설정](#7-모바일-앱-설정)
+8. [문제 해결](#8-문제-해결)
+
+---
+
+## 1. 개요
+
+### Cursor Remote란?
+
+Cursor Remote는 모바일 기기에서 PC의 Cursor IDE를 원격으로 제어할 수 있는 시스템입니다.
+
+**주요 기능:**
+- 📝 모바일에서 Cursor IDE에 텍스트 입력
+- ⚡ Cursor IDE 명령 원격 실행
+- 🤖 AI 응답 실시간 확인
+- 📊 작업 결과 모바일에서 확인
+
+### 시스템 구성
+
+```
+┌─────────────┐                    ┌─────────────┐                    ┌─────────────┐
+│   Mobile    │◄───────────────────►│   Server    │◄───────────────────►│  Cursor IDE │
+│     App     │     WebSocket       │  (Local or  │     Extension API   │  Extension  │
+└─────────────┘                     │   Relay)    │                     └─────────────┘
+                                    └─────────────┘
+```
+
+---
+
+## 2. 사전 요구사항
+
+### PC 환경
+
+| 항목 | 요구사항 |
+|------|---------|
+| OS | Windows, macOS, Linux |
+| Cursor IDE | 최신 버전 설치 |
+| Cursor CLI | 설치 및 인증 필요 (CLI 모드 사용 시) |
+| Node.js | v18 이상 권장 |
+| npm | Node.js와 함께 설치됨 |
+
+### Cursor CLI 설치 및 인증
+
+CLI 모드를 사용하려면 Cursor CLI를 설치하고 인증해야 합니다.
+
+#### CLI 설치
+
+```bash
+curl https://cursor.com/install -fsS | bash
+```
+
+이 명령어는 Cursor CLI를 `~/.local/bin/` 디렉토리에 설치합니다.
+
+#### PATH 설정
+
+**Zsh 사용자 (macOS 기본):**
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**Bash 사용자:**
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+#### 설치 확인
+
+```bash
+which agent
+# 또는
+agent --version
+```
+
+#### 인증 (필수)
+
+```bash
+agent login
+```
+
+브라우저가 열리며 Cursor 계정으로 로그인합니다. 인증은 저장되므로 한 번만 로그인하면 됩니다.
+
+#### 인증 상태 확인
+
+```bash
+agent status
+```
+
+인증되면 다음과 같이 표시됩니다:
+```
+✅ Authenticated as: your-email@example.com
+```
+
+#### CLI 테스트
+
+```bash
+agent -p --output-format json --force 'Hello, world!'
+```
+
+JSON 응답이 출력되면 CLI 설정이 완료된 것입니다.
+
+### 모바일 환경
+
+| 항목 | 요구사항 |
+|------|---------|
+| Android | 5.0 이상 |
+| iOS | 12.0 이상 |
+| 네트워크 | Wi-Fi 또는 모바일 데이터 |
+
+### 네트워크 요구사항
+
+| 연결 방식 | 네트워크 조건 |
+|-----------|--------------|
+| 로컬 서버 | PC와 모바일이 **같은 Wi-Fi** 네트워크에 연결 |
+| 릴레이 서버 | 인터넷 연결만 있으면 됨 (네트워크 무관) |
+
+---
+
+## 3. 연결 방식 비교
+
+Cursor Remote는 두 가지 연결 방식을 지원합니다.
+
+### 로컬 서버 vs 릴레이 서버
+
+| 특성 | 로컬 서버 | 릴레이 서버 |
+|------|----------|------------|
+| **네트워크** | 같은 Wi-Fi 필수 | 어디서나 연결 가능 |
+| **응답 속도** | ⚡ 매우 빠름 | 🔄 약간의 지연 |
+| **설정 난이도** | 쉬움 | 약간 복잡 |
+| **보안** | 로컬 네트워크 내 | 인터넷 통신 (암호화됨) |
+| **서버 관리** | PC에서 직접 실행 | Vercel 클라우드 사용 |
+| **외부 접속** | ❌ 불가 | ✅ 가능 |
+
+### 언제 어떤 방식을 선택할까?
+
+**로컬 서버 권장:**
+- 집이나 사무실에서 같은 Wi-Fi 사용 시
+- 빠른 응답 속도가 중요할 때
+- 간단한 설정을 원할 때
+
+**릴레이 서버 권장:**
+- 외부에서 PC에 접속해야 할 때
+- 모바일 데이터를 사용할 때
+- 네트워크 환경이 다를 때
+
+---
+
+## 4. Cursor Extension 설치
+
+> ⚠️ **중요**: 로컬 서버든 릴레이 서버든, Extension 설치는 **반드시 필요**합니다.
+
+### Step 1: 소스 코드 다운로드
+
+```bash
+# 프로젝트 클론
+git clone https://github.com/your-repo/cursor-remote.git
+cd cursor-remote
+```
+
+### Step 2: Extension 컴파일
+
+```bash
+cd cursor-extension
+npm install
+npm run compile
+```
+
+### Step 3: Cursor IDE에 Extension 로드
+
+**방법 A: 개발자 모드로 로드 (권장)**
+
+1. Cursor IDE 실행
+2. `Cmd+Shift+P` (Mac) / `Ctrl+Shift+P` (Windows/Linux)
+3. "Developer: Install Extension from Location..." 검색 및 선택
+4. `cursor-extension` 폴더 선택
+
+**방법 B: F5로 개발 호스트 실행**
+
+1. VS Code/Cursor에서 `cursor-extension` 폴더 열기
+2. `F5` 키를 눌러 Extension Development Host 실행
+3. 새 창이 열리면서 Extension 활성화
+
+### Step 4: Extension 활성화 확인
+
+Extension이 정상적으로 활성화되면 상태 표시줄 우측 하단에 다음이 표시됩니다:
+
+| 상태 | 의미 |
+|------|------|
+| ☁️ **Cursor Remote: Waiting** | 서버 실행 중, 연결 대기 |
+| ☁️ **Cursor Remote: Connected** | 클라이언트 연결됨 |
+| 🚫 **Cursor Remote: Stopped** | 서버 중지됨 |
+
+**상태 표시줄이 안 보인다면:**
+- 명령 팔레트 (`Cmd+Shift+P`)에서 "Start Cursor Remote Server" 실행
+
+### Cursor IDE 설정
+
+#### 설정 열기
+
+**가장 빠른 방법:**
+- `Cmd + ,` (Mac) / `Ctrl + ,` (Windows/Linux)
+
+**또는 메뉴에서:**
+- 상단 메뉴바 → Cursor → Settings → Settings
+
+**또는 명령 팔레트:**
+- `Cmd+Shift+P` → "Preferences: Open Settings"
+
+#### Cursor Remote 설정 찾기
+
+설정이 열리면 검색창에 `Cursor Remote` 또는 `cursorRemote`를 입력하세요.
+
+**설정 항목:**
+- **"Cursor Remote: Use CLI Mode"** - CLI 모드 활성화/비활성화
+
+#### 설정 파일 직접 편집 (고급)
+
+JSON 형식으로 직접 편집하려면:
+1. `Cmd+Shift+P` → "Preferences: Open User Settings (JSON)"
+2. 다음 설정 추가:
+
+```json
+{
+  "cursorRemote.useCLIMode": true
+}
+```
+
+#### 설정 확인
+
+**Output 패널 확인:**
+- `View` → `Output` (또는 `Cmd + Shift + U`)
+- 드롭다운에서 "Cursor Remote" 선택
+- 다음 메시지 확인:
+  - CLI 모드: `[Cursor Remote] CLI mode is enabled`
+  - IDE 모드: `[Cursor Remote] IDE mode is enabled`
+
+---
+
+## 5. 로컬 서버 연결 방법
+
+### 아키텍처
+
+```
+┌─────────────┐     WebSocket      ┌─────────────┐     Extension API   ┌─────────────┐
+│   Mobile    │◄──────────────────►│  PC Server  │◄───────────────────►│  Cursor IDE │
+│     App     │    Port 8767       │  (Node.js)  │     Port 8766       │  Extension  │
+└─────────────┘                    └─────────────┘                     └─────────────┘
+
+※ PC와 모바일이 같은 Wi-Fi 네트워크에 있어야 합니다
+```
+
+### Step 1: Extension 실행 확인
+
+1. Cursor IDE 실행
+2. 상태 표시줄에서 "Cursor Remote: Waiting" 확인
+3. 안 보이면: `Cmd+Shift+P` → "Start Cursor Remote Server"
+
+### Step 2: PC 서버 실행
+
+```bash
+cd pc-server
+npm install
+npm run build
+npm start
+```
+
+**실행 결과 예시:**
+```
+[2026-01-21 10:00:00] PC Server started
+[2026-01-21 10:00:00] Local IP: 192.168.0.10
+[2026-01-21 10:00:00] WebSocket server listening on port 8767
+[2026-01-21 10:00:01] Connected to Cursor Extension on port 8766
+```
+
+> 📝 **메모**: 표시되는 IP 주소 (예: `192.168.0.10`)를 기억하세요. 모바일 앱에서 사용합니다.
+
+### Step 3: 모바일 앱 연결
+
+1. 모바일 앱 실행
+2. **연결 모드**: "로컬 서버" 선택
+3. **서버 주소**: PC 서버의 IP 주소 입력 (예: `192.168.0.10`)
+4. **Connect** 버튼 클릭
+
+### Step 4: 연결 확인
+
+**성공 시:**
+- 모바일 앱: 연결 상태 아이콘이 녹색으로 변경
+- PC 서버: "Mobile client connected" 로그 출력
+- Cursor Extension: "Cursor Remote: Connected" 표시
+
+### 포트 정보
+
+| 포트 | 프로토콜 | 용도 |
+|------|----------|------|
+| 8766 | WebSocket | Extension ↔ PC 서버 |
+| 8767 | WebSocket | PC 서버 ↔ 모바일 앱 |
+
+---
+
+## 6. 릴레이 서버 연결 방법
+
+### 아키텍처
+
+```
+┌─────────────┐                    ┌─────────────────┐                    ┌─────────────┐
+│   Mobile    │◄── HTTP/SSE ──────►│  Vercel Relay   │◄── HTTP/SSE ──────►│  PC Server  │
+│     App     │    (인터넷)         │     Server      │    (인터넷)         │  (Node.js)  │
+└─────────────┘                    │                 │                    └──────┬──────┘
+                                   │  ┌───────────┐  │                           │
+                                   │  │  Upstash  │  │                           │
+                                   │  │   Redis   │  │                    ┌──────┴──────┐
+                                   │  └───────────┘  │                    │  Cursor IDE │
+                                   └─────────────────┘                    │  Extension  │
+                                                                          └─────────────┘
+
+※ PC와 모바일이 다른 네트워크에 있어도 연결 가능
+```
+
+### 사전 준비: 릴레이 서버 배포 (한 번만)
+
+> 💡 이미 배포된 릴레이 서버가 있다면 이 단계는 건너뛰세요.
+> 기본 제공 서버: `https://relay.jaloveeye.com`
+
+#### A. Upstash Redis 설정
+
+1. [Upstash Console](https://console.upstash.com) 접속 및 회원가입
+2. "Create Database" 클릭
+3. 데이터베이스 이름 입력 (예: `cursor-remote-relay`)
+4. 리전 선택 (가까운 곳 권장)
+5. 생성 후 **REST API** 섹션에서 다음 정보 복사:
+   - `UPSTASH_REDIS_REST_URL`
+   - `UPSTASH_REDIS_REST_TOKEN`
+
+#### B. Vercel에 릴레이 서버 배포
+
+```bash
+# Vercel CLI 설치 (처음 한 번만)
+npm install -g vercel
+
+# 릴레이 서버 디렉토리로 이동
+cd relay-server
+
+# 의존성 설치
+npm install
+
+# Vercel 로그인
+vercel login
+
+# 배포
+vercel --prod
+```
+
+**환경변수 설정:**
+```bash
+vercel env add UPSTASH_REDIS_REST_URL
+# 프롬프트에서 Upstash URL 입력
+
+vercel env add UPSTASH_REDIS_REST_TOKEN
+# 프롬프트에서 Upstash Token 입력
+```
+
+배포 완료 후 URL을 확인하세요 (예: `https://your-relay.vercel.app`)
+
+### Step 1: Extension 실행 확인
+
+1. Cursor IDE 실행
+2. 상태 표시줄에서 "Cursor Remote: Waiting" 확인
+
+### Step 2: PC 서버를 릴레이 모드로 실행
+
+#### 방법 1: 환경변수로 실행 (권장)
+
+```bash
+cd pc-server
+npm install
+npm run build
+
+# 릴레이 서버 URL과 함께 실행
+RELAY_SERVER=https://relay.jaloveeye.com npm start
+```
+
+#### 방법 2: 환경변수 파일 사용
+
+```bash
+# pc-server/.env 파일 생성
+echo "RELAY_SERVER=https://relay.jaloveeye.com" > .env
+npm start
+```
+
+#### 방법 3: 세션 ID로 직접 연결
+
+모바일 앱에서 생성한 세션 ID로 PC 서버를 시작:
+
+```bash
+cd pc-server
+npm start <SESSION_ID>
+```
+
+**예시:**
+```bash
+npm start ABC123XYZ
+```
+
+서버가 시작되면 자동으로 해당 세션에 연결을 시도합니다.
+
+**실행 결과 예시:**
+```
+[2026-01-21 10:00:00] PC Server started (Relay Mode)
+[2026-01-21 10:00:00] Relay Server: https://relay.jaloveeye.com
+[2026-01-21 10:00:01] Session created: ABC123
+[2026-01-21 10:00:01] Waiting for mobile connection...
+```
+
+> 📝 **메모**: 표시되는 **세션 코드** (예: `ABC123`)를 기억하세요. 모바일 앱에서 사용합니다.
+
+#### HTTP API로 세션 연결
+
+서버가 이미 실행 중인 경우, HTTP API를 통해 세션에 연결할 수 있습니다:
+
+```bash
+curl -X POST http://localhost:8765/session/connect \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId": "ABC123XYZ"}'
+```
+
+**응답:**
+```json
+{
+  "success": true,
+  "sessionId": "ABC123XYZ",
+  "isConnected": true
+}
+```
+
+#### 새 세션 생성 및 자동 연결
+
+PC 서버에서 새 세션을 생성하고 자동으로 연결:
+
+```bash
+curl -X POST http://localhost:8765/session/create
+```
+
+**응답:**
+```json
+{
+  "success": true,
+  "sessionId": "NEW_SESSION_ID"
+}
+```
+
+생성된 세션 ID를 모바일 앱에 입력하면 연결됩니다.
+
+### Step 3: 모바일 앱 연결
+
+1. 모바일 앱 실행
+2. **연결 모드**: "릴레이 서버" 선택
+3. **릴레이 서버 URL**: 배포한 릴레이 서버 주소 입력
+   - 기본: `https://relay.jaloveeye.com`
+4. **세션 코드**: PC 서버에 표시된 6자리 코드 입력 (예: `ABC123`)
+5. **Connect** 버튼 클릭
+
+### Step 4: 연결 확인
+
+**성공 시:**
+- 모바일 앱: 연결 상태 아이콘이 녹색으로 변경
+- PC 서버: "Mobile connected via relay" 로그 출력
+
+### 릴레이 서버 API 엔드포인트
+
+| 엔드포인트 | 메서드 | 설명 |
+|-----------|--------|------|
+| `/api/health` | GET | 서버 상태 확인 |
+| `/api/session` | POST | 새 세션 생성 |
+| `/api/connect` | POST | 세션에 연결 |
+| `/api/send` | POST | 메시지 전송 |
+| `/api/stream` | GET | SSE 스트림 연결 |
+
+### 세션 및 메시지 유효 기간
+
+| 항목 | 유효 기간 |
+|------|----------|
+| 세션 | 24시간 |
+| 메시지 | 5분 |
+
+---
+
+## 7. 모바일 앱 설정
+
+### 앱 빌드 및 설치
+
+```bash
+cd mobile-app
+flutter pub get
+flutter build apk        # Android
+flutter build ios        # iOS
+```
+
+### 앱 설정 화면
+
+앱 실행 후 설정에서 다음을 구성:
+
+| 설정 항목 | 로컬 서버 모드 | 릴레이 서버 모드 |
+|----------|---------------|-----------------|
+| 연결 모드 | Local | Relay |
+| 서버 주소 | PC IP (예: 192.168.0.10) | 릴레이 URL |
+| 세션 코드 | - (불필요) | 6자리 코드 |
+| 포트 | 8767 | - (불필요) |
+
+### 기본 사용법
+
+1. **텍스트 전송**
+   - 텍스트 입력 후 "Send" 버튼
+   - Cursor IDE 에디터에 텍스트 삽입됨
+
+2. **명령 실행**
+   - "Save", "Undo", "Redo" 등 명령 버튼 클릭
+   - Cursor IDE에서 해당 명령 실행됨
+
+3. **AI 프롬프트 전송**
+   - 프롬프트 입력 후 "Ask AI" 버튼
+   - AI 응답이 앱에 표시됨
+
+---
+
+## 8. 문제 해결
+
+### Extension 관련
+
+#### Extension이 활성화되지 않는 경우
+
+```bash
+# 다시 컴파일
+cd cursor-extension
+npm install
+npm run compile
+```
+
+- Cursor IDE 재시작
+- 명령 팔레트에서 "Developer: Reload Window"
+
+#### 상태 표시줄이 보이지 않는 경우
+
+1. `Cmd+Shift+P` → "Start Cursor Remote Server" 실행
+2. 안 되면 Extension 다시 로드
+
+### 로컬 서버 관련
+
+#### PC 서버가 Extension에 연결되지 않는 경우
+
+```bash
+# 포트 사용 확인
+lsof -i :8766
+
+# 다른 프로세스가 사용 중이면 종료
+kill -9 <PID>
+```
+
+#### 모바일 앱이 PC 서버에 연결되지 않는 경우
+
+1. **같은 Wi-Fi인지 확인**
+   - PC와 모바일이 같은 네트워크에 있는지 확인
+   
+2. **방화벽 확인**
+   - Mac: 시스템 환경설정 → 보안 및 개인 정보 보호 → 방화벽
+   - Windows: Windows Defender 방화벽 → 앱 허용
+
+3. **IP 주소 확인**
+   ```bash
+   # Mac/Linux
+   ifconfig | grep "inet "
+   
+   # Windows
+   ipconfig
+   ```
+
+### 릴레이 서버 관련
+
+#### 세션이 만료된 경우
+
+- PC 서버를 재시작하면 새 세션 코드가 생성됩니다
+- 모바일 앱에서 새 세션 코드로 다시 연결
+
+#### SSE 연결이 자주 끊기는 경우
+
+- Vercel Free 플랜: SSE 타임아웃 10초
+- Vercel Pro 플랜: SSE 타임아웃 60초
+- 앱이 자동으로 재연결을 시도합니다
+
+#### 릴레이 서버 상태 확인
+
+```bash
+curl https://relay.jaloveeye.com/api/health
+```
+
+응답:
+```json
+{
+  "status": "ok",
+  "timestamp": 1705123456789
+}
+```
+
+### 공통 문제
+
+#### 메시지가 전달되지 않는 경우
+
+1. 모든 연결 상태 확인 (Extension, PC 서버, 모바일)
+2. 각 컴포넌트 로그 확인
+3. 네트워크 연결 상태 확인
+
+#### 연결이 불안정한 경우
+
+- Wi-Fi 신호 강도 확인
+- 라우터 재시작
+- 릴레이 서버 사용 고려
+
+### 알려진 문제점
+
+#### 문제 1: 포트 권한 문제 (EPERM)
+
+**증상:**
+- 포트 8767, 8765에서 `EPERM: operation not permitted` 에러 발생
+- 서버는 시작되지만 실제로 포트를 사용할 수 없음
+
+**해결 방법:**
+1. Cursor IDE 재시작
+2. macOS 네트워크 권한 확인
+3. 포트를 사용 중인 프로세스 확인 및 종료
+
+#### 문제 2: Extension 연결 실패 (EPERM)
+
+**증상:**
+- PC 서버가 Extension(포트 8766)에 연결하려 할 때 EPERM 에러
+- `connect EPERM ::1:8766` 및 `connect EPERM 127.0.0.1:8766`
+
+**해결 방법:**
+1. Cursor IDE 재시작
+2. Extension이 완전히 로드될 때까지 대기
+3. 네트워크 권한 확인
+
+#### 문제 3: 에러 핸들링 개선 필요
+
+**현재 문제:**
+- 포트 에러 발생 시 서버는 계속 실행되지만 기능이 동작하지 않음
+- 사용자에게 명확한 피드백이 부족
+
+**임시 해결:**
+- 서버 로그를 확인하여 에러 메시지 확인
+- Cursor IDE 및 PC 서버 재시작
+
+#### 문제 4: 포트 충돌
+
+**증상:**
+- WebSocket 서버 생성 시 에러가 발생해도 서버는 계속 실행
+- HTTP 서버도 마찬가지
+
+**해결 방법:**
+- 포트 사용 가능 여부를 사전에 확인:
+  ```bash
+  lsof -i :8766
+  lsof -i :8767
+  ```
+- 사용 중인 프로세스가 있으면 종료 후 재시작
+
+---
+
+## 부록: 빠른 참조
+
+### 로컬 서버 빠른 시작
+
+```bash
+# 1. Extension 설치
+cd cursor-extension && npm install && npm run compile
+
+# 2. Cursor IDE 실행 및 Extension 로드
+
+# 3. PC 서버 실행
+cd pc-server && npm install && npm run build && npm start
+
+# 4. 모바일 앱에서 PC IP로 연결
+```
+
+### 릴레이 서버 빠른 시작
+
+```bash
+# 1. Extension 설치
+cd cursor-extension && npm install && npm run compile
+
+# 2. Cursor IDE 실행 및 Extension 로드
+
+# 3. PC 서버 릴레이 모드 실행
+cd pc-server
+RELAY_SERVER=https://relay.jaloveeye.com npm start
+
+# 4. 표시된 세션 코드를 모바일 앱에 입력
+```
+
+### 포트 요약
+
+| 포트 | 용도 | 사용 시점 |
+|------|------|----------|
+| 8766 | Extension WebSocket | 항상 |
+| 8767 | PC 서버 ↔ 모바일 (로컬) | 로컬 모드만 |
+| 443 | HTTPS (릴레이 서버) | 릴레이 모드만 |
+
+---
+
+**작성 시간**: 2026년 1월 21일  
+**수정 시간**: 2026년 1월 21일

@@ -1,0 +1,33 @@
+{
+  "name": "cursor-cli",
+  "version": "1.0.0",
+  "description": "CLI client for Cursor Remote - Control Cursor IDE chat from command line",
+  "main": "dist/index.js",
+  "bin": {
+    "cursor-chat": "./dist/index.js",
+    "cursor-remote": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts"
+  },
+  "keywords": [
+    "cursor",
+    "ide",
+    "chat",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.14.2",
+    "commander": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.2"
+  }
+}

@@ -1,0 +1,46 @@
+# Flutter build artifacts
+build/
+.dart_tool/
+.packages
+.pub/
+.pub-cache/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Dependencies
+pubspec.lock
+
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/ServiceDefinitions.json
+ios/Runner/GeneratedPluginRegistrant.*
+
+# macOS
+macos/Pods/
+macos/.symlinks/
+macos/Flutter/Flutter.framework
+macos/Flutter/Flutter.podspec
+macos/ServiceDefinitions.json
+macos/Runner/GeneratedPluginRegistrant.*
+
+# Test
+test/
+coverage/
+
+# Metadata
+.metadata

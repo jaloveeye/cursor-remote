@@ -1,45 +1,133 @@
 import * as vscode from 'vscode';
 import { WebSocketServer } from './websocket-server';
 import { CommandHandler } from './command-handler';
+import { CommandRouter } from './command-router';
+import { ChatCapture } from './chat-capture';
+import { HttpServer } from './http-server';
+import { RulesManager } from './rules-manager';
+import { StatusBarManager } from './status-bar';
+import { CONFIG } from './config';
 
 let wsServer: WebSocketServer | null = null;
 let commandHandler: CommandHandler | null = null;
-let statusBarItem: vscode.StatusBarItem;
+let commandRouter: CommandRouter | null = null;
+let chatCapture: ChatCapture | null = null;
+let httpServer: HttpServer | null = null;
+let rulesManager: RulesManager | null = null;
+let statusBarManager: StatusBarManager | null = null;
+let outputChannel: vscode.OutputChannel;
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
+    // Output channel creation
+    outputChannel = vscode.window.createOutputChannel('Cursor Remote');
+    context.subscriptions.push(outputChannel);
+    outputChannel.show(true);
+    
+    // 로그를 클라이언트에 전송하는 헬퍼 함수
+    const sendLogToClients = (level: 'info' | 'warn' | 'error', message: string, error?: any) => {
+        if (wsServer) {
+            const logData = {
+                level,
+                message,
+                timestamp: new Date().toISOString(),
+                source: 'extension',
+                ...(error && { error: error instanceof Error ? error.message : String(error) })
+            };
+            wsServer.send(JSON.stringify({
+                type: 'log',
+                ...logData
+            }));
+        }
+    };
+    
+    outputChannel.appendLine('Cursor Remote extension is now active!');
     console.log('Cursor Remote extension is now active!');
+    sendLogToClients('info', 'Cursor Remote extension is now active!');
 
-    // 상태 표시줄 아이템 생성
-    statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    statusBarItem.command = 'cursorRemote.toggle';
-    statusBarItem.tooltip = 'Toggle Cursor Remote Server';
-    context.subscriptions.push(statusBarItem);
+    // Status bar manager
+    statusBarManager = new StatusBarManager(context);
 
-    // WebSocket 서버 초기화
-    wsServer = new WebSocketServer(8766);
-    commandHandler = new CommandHandler();
+    // WebSocket server initialization
+    wsServer = new WebSocketServer(CONFIG.WEBSOCKET_PORT, outputChannel);
+    statusBarManager.setWebSocketServer(wsServer);
+    
+    // CLI mode is always enabled (IDE mode is deprecated)
+    const useCLIMode = true;
+    
+    commandHandler = new CommandHandler(outputChannel, wsServer, useCLIMode);
+    commandRouter = new CommandRouter(commandHandler, wsServer, outputChannel);
+    
+    outputChannel.appendLine('[Cursor Remote] CLI mode is enabled - using Cursor CLI');
+    
+    // HTTP server for hooks
+    httpServer = new HttpServer(outputChannel, wsServer);
+    await httpServer.start().catch((error) => {
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ❌ Failed to start HTTP server: ${errorMsg}`);
+        vscode.window.showErrorMessage(`Cursor Remote: HTTP server start failed - ${errorMsg}`);
+    });
 
-    // WebSocket 메시지 핸들러
+    // Rules manager (CHAT_SUMMARY hook 제거됨 - stdout 응답만 사용)
+    // rulesManager는 hooks.json 관리를 위해 유지하지만, CHAT_SUMMARY 감시는 제거
+    rulesManager = new RulesManager(outputChannel, httpServer);
+
+    // Chat capture
+    chatCapture = new ChatCapture(outputChannel, wsServer);
+    chatCapture.setup(context);
+
+    // WebSocket message handler
     wsServer.onMessage((message: string) => {
         try {
             const command = JSON.parse(message);
-            handleCommand(command);
+            const clientId = command.clientId || 'none';
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Received command: ${command.type} from client: ${clientId}`);
+            if (commandRouter) {
+                commandRouter.handleCommand(command);
+            }
         } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Error parsing message: ${errorMsg}`);
             console.error('Error parsing message:', error);
         }
     });
 
-    // 클라이언트 연결/해제 이벤트 처리
+    // Client connection/disconnection event handling
     wsServer.onClientChange((connected: boolean) => {
-        updateStatusBar(connected);
+        if (statusBarManager) {
+            statusBarManager.update(connected);
+        }
+        
+        if (connected) {
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Client connected - Ready to receive commands`);
+            // 연결 상태 전송
+            if (wsServer) {
+                wsServer.sendConnectionStatus();
+            }
+        } else {
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Client disconnected`);
+            // 연결 상태 전송
+            if (wsServer) {
+                wsServer.sendConnectionStatus();
+            }
+        }
     });
 
-    // 명령 등록
+    // Register commands
     const startCommand = vscode.commands.registerCommand('cursorRemote.start', () => {
         if (wsServer && !wsServer.isRunning()) {
-            wsServer.start();
-            updateStatusBar(false);
-            vscode.window.showInformationMessage('Cursor Remote server started on port 8766');
+            wsServer.start().then(() => {
+                if (statusBarManager) {
+                    statusBarManager.update(false);
+                }
+                vscode.window.showInformationMessage(`Cursor Remote server started on port ${CONFIG.WEBSOCKET_PORT}`);
+            }).catch((error) => {
+                const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ❌ Failed to start WebSocket server: ${errorMsg}`);
+                vscode.window.showErrorMessage(`Cursor Remote: Server start failed - ${errorMsg}`);
+                if (statusBarManager) {
+                    statusBarManager.update(false);
+                }
+            });
         } else {
             vscode.window.showInformationMessage('Cursor Remote server is already running');
         }
@@ -48,7 +136,9 @@ export function activate(context: vscode.ExtensionContext) {
     const stopCommand = vscode.commands.registerCommand('cursorRemote.stop', () => {
         if (wsServer && wsServer.isRunning()) {
             wsServer.stop();
-            updateStatusBar(false);
+            if (statusBarManager) {
+                statusBarManager.update(false);
+            }
             vscode.window.showInformationMessage('Cursor Remote server stopped');
         } else {
             vscode.window.showInformationMessage('Cursor Remote server is not running');
@@ -59,115 +149,69 @@ export function activate(context: vscode.ExtensionContext) {
         if (wsServer) {
             if (wsServer.isRunning()) {
                 wsServer.stop();
-                updateStatusBar(false);
+                if (statusBarManager) {
+                    statusBarManager.update(false);
+                }
             } else {
-                wsServer.start();
-                updateStatusBar(false);
+                wsServer.start().then(() => {
+                    if (statusBarManager) {
+                        statusBarManager.update(false);
+                    }
+                }).catch((error) => {
+                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ❌ Failed to start WebSocket server: ${errorMsg}`);
+                    vscode.window.showErrorMessage(`Cursor Remote: Server start failed - ${errorMsg}`);
+                    if (statusBarManager) {
+                        statusBarManager.update(false);
+                    }
+                });
             }
         }
     });
 
     context.subscriptions.push(startCommand, stopCommand, toggleCommand);
 
-    // 자동 시작
-    wsServer.start();
-    updateStatusBar(false);
-    statusBarItem.show();
-}
-
-function updateStatusBar(connected: boolean) {
-    if (!statusBarItem) return;
-    
-    if (wsServer && wsServer.isRunning()) {
-        if (connected) {
-            statusBarItem.text = '$(cloud) Cursor Remote: Connected';
-            statusBarItem.backgroundColor = undefined;
-        } else {
-            statusBarItem.text = '$(cloud) Cursor Remote: Waiting';
-            statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+    // Auto start
+    wsServer.start().then(() => {
+        if (statusBarManager) {
+            statusBarManager.update(false); // Client not connected yet
         }
-    } else {
-        statusBarItem.text = '$(cloud-off) Cursor Remote: Stopped';
-        statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+    }).catch((error) => {
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ❌ Failed to start WebSocket server: ${errorMsg}`);
+        vscode.window.showErrorMessage(`Cursor Remote: Server start failed - ${errorMsg}`);
+        if (statusBarManager) {
+            statusBarManager.update(false);
+        }
+    });
+    
+    if (statusBarManager) {
+        statusBarManager.show();
     }
 }
 
 export function deactivate() {
+    if (chatCapture) {
+        chatCapture.dispose();
+        chatCapture = null;
+    }
+    
+    if (httpServer) {
+        httpServer.stop();
+        httpServer = null;
+    }
+    
     if (wsServer) {
         wsServer.stop();
+        wsServer = null;
     }
+    
     if (commandHandler) {
         commandHandler.dispose();
+        commandHandler = null;
     }
-}
-
-async function handleCommand(command: any) {
-    if (!commandHandler || !wsServer) {
-        return;
-    }
-
-    const commandId = command.id || Date.now().toString();
-
-    try {
-        let result: any = null;
-
-        switch (command.type) {
-            case 'insert_text':
-                try {
-                    // prompt 옵션이 있으면 프롬프트 입력창에, 없으면 에디터에 삽입
-                    if (command.prompt === true) {
-                        await commandHandler.insertToPrompt(command.text);
-                        result = { success: true, message: 'Text inserted to prompt' };
-                    } else {
-                        await commandHandler.insertText(command.text);
-                        result = { success: true, message: 'Text inserted' };
-                    }
-                } catch (error) {
-                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-                    result = { success: false, error: errorMsg };
-                    // 에러를 다시 throw하지 않고 result에 포함
-                }
-                break;
-            case 'execute_command':
-                result = await commandHandler.executeCommand(command.command, ...(command.args || []));
-                result = { success: true, result: result };
-                break;
-            case 'get_ai_response':
-                const response = await commandHandler.getAIResponse();
-                result = { success: true, data: response };
-                break;
-            case 'get_active_file':
-                result = await commandHandler.getActiveFile();
-                break;
-            case 'save_file':
-                result = await commandHandler.saveFile();
-                break;
-            default:
-                console.warn('Unknown command type:', command.type);
-                wsServer.send(JSON.stringify({ 
-                    id: commandId,
-                    type: 'command_result', 
-                    success: false,
-                    error: `Unknown command type: ${command.type}`
-                }));
-                return;
-        }
-
-        // 성공 응답 전송
-        wsServer.send(JSON.stringify({ 
-            id: commandId,
-            type: 'command_result', 
-            success: true,
-            ...result
-        }));
-
-    } catch (error) {
-        console.error('Error handling command:', error);
-        wsServer.send(JSON.stringify({ 
-            id: commandId,
-            type: 'command_result', 
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error' 
-        }));
-    }
+    
+    commandRouter = null;
+    rulesManager = null;
+    statusBarManager = null;
 }
