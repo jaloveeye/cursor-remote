@@ -294,6 +294,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _messages.add(MessageItem('Connecting to local server at $ip:8767...', type: MessageType.system));
       });
       
+      // 먼저 HTTP 서버로 연결 가능 여부 확인 (선택사항)
+      try {
+        final httpUrl = 'http://$ip:8765/status';
+        final response = await http.get(Uri.parse(httpUrl)).timeout(
+          const Duration(seconds: 3),
+        );
+        if (response.statusCode == 200) {
+          setState(() {
+            _messages.add(MessageItem('✅ PC Server detected at $ip', type: MessageType.system));
+          });
+        }
+      } catch (e) {
+        // HTTP 확인 실패는 무시 (WebSocket 연결은 계속 시도)
+        setState(() {
+          _messages.add(MessageItem('⚠️ HTTP check failed, trying WebSocket connection...', type: MessageType.system));
+        });
+      }
+      
       // WebSocket 연결 (PC 서버의 WebSocket 포트는 8767)
       final wsUrl = 'ws://$ip:8767';
       _localWebSocket = WebSocketChannel.connect(Uri.parse(wsUrl));
