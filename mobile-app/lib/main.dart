@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Relay 서버 URL
 const String RELAY_SERVER_URL = 'https://relay.jaloveeye.com';
@@ -223,12 +224,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
   final ExpansionTileController _expansionTileController = ExpansionTileController();
   
-  // 필터 상태 (기본값: 모두 활성화)
+  // 필터 상태 (기본값: AI 응답 + 사용자 프롬프트만 활성화)
   final Map<MessageFilter, bool> _activeFilters = {
     MessageFilter.aiResponse: true,
     MessageFilter.userPrompt: true,
-    MessageFilter.system: true,
-    MessageFilter.log: false, // 로그는 기본적으로 숨김
+    MessageFilter.system: false,
+    MessageFilter.log: false,
   };
   
   // 필터링된 메시지 목록
@@ -259,7 +260,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           setState(() {
             _sessionIdController.text = sessionId;
             _messages.add(MessageItem('✅ Session created: $sessionId', type: MessageType.system));
-            _messages.add(MessageItem('💡 PC Server will automatically connect when it detects this session', type: MessageType.system));
+            _messages.add(MessageItem('💡 Extension이 자동으로 이 세션을 감지하여 연결합니다 (최대 10초 소요)', type: MessageType.system));
+            _messages.add(MessageItem('📋 세션 ID: $sessionId', type: MessageType.system));
           });
           
           // 자동으로 세션에 연결
@@ -289,11 +291,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     
     try {
       setState(() {
-        _messages.add(MessageItem('Connecting to local server at $ip:8767...', type: MessageType.system));
+        _messages.add(MessageItem('Connecting to Extension WebSocket server at $ip:8766...', type: MessageType.system));
       });
       
-      // WebSocket 연결 (PC 서버의 WebSocket 포트는 8767)
-      final wsUrl = 'ws://$ip:8767';
+      // Extension의 WebSocket 서버에 직접 연결 (포트 8766)
+      // HTTP 확인은 생략 (Extension은 HTTP 서버를 제공하지 않음)
+      final wsUrl = 'ws://$ip:8766';
       _localWebSocket = WebSocketChannel.connect(Uri.parse(wsUrl));
       
       _localWebSocket!.stream.listen(
@@ -330,8 +333,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _reconnectAttempts = 0;
         _lastConnectionError = null;
         _stopReconnect();
-        _messages.add(MessageItem('✅ Connected to local server at $ip', type: MessageType.system));
+        _messages.add(MessageItem('✅ Connected to Extension WebSocket server at $ip:8766', type: MessageType.system));
       });
+      
+      // 연결 설정 저장
+      _saveConnectionSettings();
       
       // 연결 성공 시 connect 화면 자동 닫기
       try {
@@ -456,7 +462,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               logPrefix = '🔌 [Extension]';
               break;
             case 'pc-server':
-              logPrefix = '🖥️ [PC Server]';
+              logPrefix = '🖥️ [Extension]';
               break;
             default:
               logPrefix = '📝 [Log]';
@@ -620,6 +626,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _stopReconnect();
           _messages.add(MessageItem('✅ Connected to session $sessionId', type: MessageType.system));
         });
+        
+        // 연결 설정 저장
+        _saveConnectionSettings();
         
         // 연결 성공 시 connect 화면 자동 닫기
         try {
@@ -969,7 +978,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             logPrefix = '🔌 [Extension]';
             break;
           case 'pc-server':
-            logPrefix = '🖥️ [PC Server]';
+            logPrefix = '🖥️ [Extension]';
             break;
           default:
             logPrefix = '📝 [Log]';
@@ -1680,9 +1689,65 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   @override
+  @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadConnectionSettings();
+  }
+  
+  // 연결 설정 로드 (SharedPreferences)
+  Future<void> _loadConnectionSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // 연결 타입 로드
+      final connectionTypeStr = prefs.getString('connection_type');
+      if (connectionTypeStr != null) {
+        setState(() {
+          _connectionType = connectionTypeStr == 'local' 
+              ? ConnectionType.local 
+              : ConnectionType.relay;
+        });
+      }
+      
+      // PC(Extension) IP 주소 로드
+      final savedIp = prefs.getString('pc_server_ip');
+      if (savedIp != null && savedIp.isNotEmpty) {
+        _localIpController.text = savedIp;
+      }
+      
+      // 마지막 세션 ID 로드 (선택사항)
+      final lastSessionId = prefs.getString('last_session_id');
+      if (lastSessionId != null && lastSessionId.isNotEmpty) {
+        _sessionIdController.text = lastSessionId;
+      }
+    } catch (e) {
+      // 에러는 조용히 무시 (첫 실행 시 prefs가 없을 수 있음)
+    }
+  }
+  
+  // 연결 설정 저장 (SharedPreferences)
+  Future<void> _saveConnectionSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // 연결 타입 저장
+      await prefs.setString('connection_type', 
+          _connectionType == ConnectionType.local ? 'local' : 'relay');
+      
+      // PC(Extension) IP 주소 저장
+      if (_localIpController.text.trim().isNotEmpty) {
+        await prefs.setString('pc_server_ip', _localIpController.text.trim());
+      }
+      
+      // 세션 ID 저장 (연결 성공 시)
+      if (_sessionId != null && _sessionId!.isNotEmpty) {
+        await prefs.setString('last_session_id', _sessionId!);
+      }
+    } catch (e) {
+      // 에러는 조용히 무시
+    }
   }
 
   @override
@@ -1940,12 +2005,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         controller: _localIpController,
                         focusNode: _localIpFocusNode,
                         decoration: const InputDecoration(
-                          labelText: 'PC Server IP Address',
+                          labelText: 'PC IP (Extension이 실행 중인 PC)',
                           hintText: '192.168.0.10',
                           border: OutlineInputBorder(),
                           isDense: true,
                           contentPadding: EdgeInsets.all(12),
                           prefixIcon: Icon(Icons.computer),
+                          helperText: '이전에 사용한 IP 주소가 자동으로 표시됩니다',
                         ),
                         enabled: !_isConnected,
                         keyboardType: TextInputType.number,
@@ -1953,6 +2019,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         onSubmitted: (value) {
                           if (!_isConnected) {
                             _connect();
+                          }
+                        },
+                        onChanged: (value) {
+                          // IP 주소 변경 시 자동 저장 (선택사항)
+                          if (value.trim().isNotEmpty) {
+                            _saveConnectionSettings();
                           }
                         },
                       ),
@@ -1991,6 +2063,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           isDense: true,
                           contentPadding: EdgeInsets.all(12),
                           prefixIcon: Icon(Icons.cloud),
+                          helperText: '비워두면 새 세션이 생성되고 Extension이 자동으로 연결됩니다',
                         ),
                         enabled: !_isConnected,
                         keyboardType: TextInputType.text,

@@ -298,9 +298,10 @@ let lastSessionDiscoveryTime = 0;
 const SESSION_DISCOVERY_INTERVAL = 10000; // 10초마다 한 번만
 
 async function discoverSession(): Promise<string | null> {
-    if (sessionId || isLocalMode) {
-        return null; // 이미 세션이 있거나 로컬 모드면 스킵
+    if (sessionId) {
+        return null; // 이미 세션이 있으면 스킵
     }
+    // 로컬 모드여도 릴레이 세션 자동 감지는 계속 진행 (로컬 모드와 병행 가능)
     
     // 너무 자주 호출하지 않도록 제한
     const now = Date.now();
@@ -339,9 +340,13 @@ async function discoverSession(): Promise<string | null> {
 // Relay 서버에서 메시지 폴링 및 세션 자동 감지
 async function pollMessages() {
     // 세션 ID가 없으면 세션 자동 감지 시도
-    if (!sessionId && !isLocalMode) {
+    // 로컬 모드여도 릴레이 모드 세션 자동 감지는 계속 진행 (로컬 모드와 병행 가능)
+    if (!sessionId) {
         const discoveredSessionId = await discoverSession();
         if (discoveredSessionId) {
+            // 세션을 찾았으면 릴레이 모드로 전환
+            console.log('🔄 Switching to relay mode - session discovered');
+            isLocalMode = false;
             await connectToSession(discoveredSessionId);
             return; // 연결 후 다음 폴링에서 메시지 처리
         }
@@ -417,6 +422,7 @@ async function connectToSession(sid: string) {
             // 폴링 시작
             startPolling();
             console.log(`✅ Message polling started (every ${CONFIG.POLL_INTERVAL / 1000} seconds)`);
+            console.log(`\n💡 모바일 앱에서 이 세션 ID를 사용하여 연결하세요: ${sessionId}`);
         } else {
             console.error(`\n❌ Failed to connect: ${data.error}`);
             if (data.error) {
@@ -593,15 +599,20 @@ function setupLocalWebSocketHandlers() {
         const args = process.argv.slice(2);
         if (args.length === 0 || !args[0]) {
             // 세션 ID가 없으면 로컬 모드로 전환
+            // 하지만 릴레이 모드 세션 자동 감지는 계속 진행 (로컬 모드와 병행 가능)
             isLocalMode = true;
             isConnected = true;
             
-            // 기존 릴레이 연결 정리
+            // 기존 릴레이 연결이 있으면 정리
             if (sessionId) {
                 console.log('🔄 Switching from relay mode to local mode');
                 stopPolling();
                 sessionId = null;
             }
+            
+            // 로컬 모드로 전환했지만, 릴레이 모드 세션 자동 감지는 계속 진행
+            // (로컬 모드와 릴레이 모드를 동시에 지원)
+            console.log('💡 Local mode active. Relay mode session discovery will continue in background.');
         } else {
             // 세션 ID가 있으면 릴레이 모드 유지 (로컬 클라이언트는 무시)
             console.log('⚠️  Session ID provided - Relay mode active. Local client will be ignored.');
@@ -711,6 +722,12 @@ async function initializeServer() {
         console.log(`   PC Server will automatically detect and connect to sessions created by mobile clients.`);
         console.log(`   To use relay mode manually, start with: npm start <SESSION_ID>`);
         console.log(`   Or use HTTP API: POST http://localhost:${CONFIG.HTTP_PORT}/session/connect with {"sessionId": "YOUR_SESSION_ID"}`);
+        
+        // 세션 ID 없이 시작할 때도 폴링을 시작하여 세션 자동 감지
+        // 로컬 모드와 릴레이 모드를 동시에 지원 (로컬 모드로 시작해도 릴레이 세션 자동 감지)
+        console.log(`\n🔄 Starting session discovery polling (every ${CONFIG.POLL_INTERVAL / 1000} seconds)...`);
+        console.log(`   PC Server will check for new relay sessions in the background.`);
+        startPolling();
     }
     
     // 서버 시작 메시지
@@ -725,9 +742,14 @@ async function initializeServer() {
     console.log(`🔗 Extension WebSocket: ws://localhost:${CONFIG.EXTENSION_WS_PORT}`);
     if (localWSServer) {
         console.log(`📱 Local Mobile WebSocket: ws://${localIP}:${CONFIG.LOCAL_WS_PORT}`);
+        console.log(`\n💡 모바일 앱 연결 방법:`);
+        console.log(`   1. 로컬 모드: 모바일 앱에서 IP 주소 "${localIP}" 입력`);
+        console.log(`   2. 릴레이 모드: 모바일 앱에서 새 세션 생성 (PC Server가 자동으로 연결됨)`);
     } else {
         console.log(`⚠️  Local WebSocket server not started (port ${CONFIG.LOCAL_WS_PORT} unavailable)`);
         console.log(`   Local mode is not available. Use relay mode instead.`);
+        console.log(`\n💡 릴레이 모드 사용:`);
+        console.log(`   모바일 앱에서 새 세션을 생성하면 PC Server가 자동으로 연결됩니다.`);
     }
 }
 

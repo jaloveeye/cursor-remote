@@ -59,21 +59,13 @@ Cursor Remote is an open-source system that allows you to remotely control Curso
 
 ### Architecture
 
+**Local mode** (same network):
+
 ```
 ┌─────────────┐     WebSocket      ┌─────────────┐
-│   Mobile    │◄──────────────────►│  PC Server   │
-│     App     │     Port 8767       │  (Node.js)   │
+│   Mobile/   │◄──────────────────►│  Extension  │
+│   Web App   │     Port 8766       │ (CLI Mode) │
 └─────────────┘                    └──────┬──────┘
-                                          │
-                                          │ Extension API
-                                          │ HTTP / WebSocket
-                                          │
-                                   ┌──────┴──────┐
-                                   │  Extension  │
-                                   │  (CLI Mode) │
-                                   └──────┬──────┘
-                                          │
-                                          │ Process
                                           │
                                    ┌──────┴──────┐
                                    │ Cursor CLI  │
@@ -81,12 +73,20 @@ Cursor Remote is an open-source system that allows you to remotely control Curso
                                    └─────────────┘
 ```
 
+**Relay mode** (remote):
+
+```
+Mobile/Web App  ←→  Relay Server  ←→  Extension (RelayClient)
+```
+
+No separate PC server is required. The extension includes relay client and WebSocket server.
+
 #### Connection Modes
 
 | Mode | Description | Network Requirements |
 |------|-------------|---------------------|
-| **Local Mode** | PC and mobile connected to same Wi-Fi | Same network |
-| **Relay Server Mode** | External access through relay server | Internet connection |
+| **Local Mode** | App connects directly to Extension WebSocket (port 8766) | Same network |
+| **Relay Mode** | App and Extension connect via relay server (session ID) | Internet connection |
 
 ### Project Structure
 
@@ -100,13 +100,7 @@ cursor-remote/
 │   │   └── cli-handler.ts      # CLI mode handler
 │   ├── package.json
 │   └── README.md
-├── pc-server/          # PC bridge server (Node.js)
-│   ├── src/
-│   │   ├── server.ts
-│   │   ├── cursor-api.ts
-│   │   └── message-handler.ts
-│   ├── package.json
-│   └── README.md
+├── relay-server/       # Relay server (Vercel, optional for remote mode)
 ├── mobile-app/         # Mobile app (Flutter)
 │   ├── lib/
 │   │   ├── main.dart
@@ -233,36 +227,9 @@ npm run compile
 
 ---
 
-### Step 3: PC Server Setup
+### Step 3: Mobile App Installation
 
-The PC server acts as a bridge between the mobile app and the Extension.
-
-#### 3.1 Build and Run Server
-
-```bash
-cd pc-server
-npm install
-npm run build
-npm start
-```
-
-#### 3.2 Verify Server Start
-
-You'll see the following message in the terminal:
-
-```
-✅ Cursor Remote PC Server started!
-📱 Mobile app should connect to: 192.168.0.10:8767
-🔌 WebSocket server (Mobile): ws://192.168.0.10:8767
-```
-
-**⚠️ Important**: Note the displayed IP address (e.g., `192.168.0.10`). You'll need it for mobile app connection.
-
----
-
-### Step 4: Mobile App Installation
-
-#### 4.1 Build and Install
+#### 3.1 Build and Install
 
 **Android:**
 
@@ -296,27 +263,27 @@ flutter run
 
 ### Local Mode (Same Wi-Fi Network)
 
-Use this when PC and mobile are connected to the same Wi-Fi.
+Use this when PC and mobile are on the same Wi-Fi. The app connects directly to the Extension's WebSocket server.
 
 #### Setup
 
-1. **Launch app**
-2. **Enter PC server IP** (e.g., `192.168.0.10`)
-3. **Verify port** (default: `8767`)
-4. **Click "Connect" button**
+1. **Launch app** and choose **Local** connection.
+2. **Enter PC IP** (e.g., `192.168.0.10`) — the machine running Cursor.
+3. **Port** is fixed at **8766** (Extension WebSocket).
+4. **Click "Connect"**.
 
 #### Verify Connection
 
-- **Mobile app**: Green cloud icon displayed
-- **PC server terminal**: "📱 Mobile client connected" message
+- **Mobile app**: Green cloud icon displayed.
+- **Cursor**: Output channel shows "Client connected".
 
 #### Network Requirements
 
 | Item | Description |
 |------|-------------|
-| Same network | PC and mobile connected to same Wi-Fi |
-| Port open | Allow port 8767 in PC firewall |
-| IP check | Need to know PC's local IP address |
+| Same network | PC and mobile on same Wi-Fi |
+| Port open | Allow port 8766 in PC firewall |
+| IP check | Need PC's local IP address |
 
 #### How to Find PC IP Address
 
@@ -350,16 +317,7 @@ Use this when PC and mobile are on different networks, connecting through a rela
    - Default relay server: `https://relay.jaloveeye.com`
    - Can be changed via environment variable: `RELAY_SERVER_URL`
 
-2. **PC Server Setup**
-
-   ```bash
-   # Set relay server URL via environment variable (optional)
-   export RELAY_SERVER_URL=https://relay.jaloveeye.com
-   cd pc-server
-   npm start
-   ```
-
-3. **Connect from Mobile App**
+2. **Connect from Mobile App**
    - Select relay server mode
    - Enter relay server URL (or use default)
    - Connect
@@ -367,7 +325,7 @@ Use this when PC and mobile are on different networks, connecting through a rela
 #### How It Works
 
 ```
-Mobile App → Relay Server → PC Server → Extension → Cursor CLI
+Mobile App → Relay Server → Extension (RelayClient) → Cursor CLI
 ```
 
 The relay server forwards messages, so you can connect even when PC and mobile are on different networks.
@@ -436,7 +394,7 @@ Select "Cursor Remote" channel in Cursor IDE's Output panel to see logs like:
 | Port | Protocol | Purpose |
 |------|----------|---------|
 | 8766 | WebSocket | Extension WebSocket server (PC server connects as client) |
-| 8767 | WebSocket | Mobile app ↔ PC server (real-time bidirectional communication) |
+| 8766 | WebSocket | Mobile/Web app ↔ Extension (real-time bidirectional communication) |
 | 8765 | HTTP | Extension → Server (command delivery, for future expansion) |
 
 ---
@@ -476,7 +434,7 @@ agent login
 
 ### Server Issues
 
-#### PC Server Not Connecting to Extension
+#### App Not Connecting to Extension (Local Mode)
 
 ```bash
 # Check port 8766 conflict
@@ -488,45 +446,25 @@ lsof -i :8766
 #### Cannot Connect
 
 - Verify PC and mobile are on same Wi-Fi network
-- Allow port 8767 in PC firewall
-- Verify PC server IP address is correct
+- Allow port 8766 in PC firewall
+- Verify PC IP address is correct (same network)
 
 ---
 
 ## Tech Stack
 
-- **Cursor Extension**: TypeScript, VSCode Extension API
-- **PC Server**: Node.js, WebSocket (ws)
+- **Cursor Extension**: TypeScript, VSCode Extension API, WebSocket (8766), RelayClient
 - **Mobile App**: Flutter, Dart
+- **Relay Server** (optional): Vercel, Redis (Upstash)
 
 ---
 
 ## Documentation
 
-All documentation is organized in the [docs/](./docs/) folder.
-
-### Main Guides
-
-- [Quick Start Guide](./docs/guides/QUICK_START.md) - Quick setup and execution
-- [Extension Setup Guide](./docs/guides/EXTENSION_SETUP.md) - Extension installation and activation
-- [Protocol](./docs/guides/PROTOCOL.md) - WebSocket message format and protocol
-- [Test Guide](./docs/guides/TEST_GUIDE.md) - Full system testing
-
-### CLI Mode
-
-- [How CLI Mode Works](./docs/cli/CLI_MODE_HOW_IT_WORKS.md) - CLI mode operation
-- [Cursor CLI Guide](./docs/cli/CURSOR_CLI_GUIDE.md) - Cursor CLI usage
-- [CLI Authentication Guide](./docs/cli/CLI_AUTHENTICATION.md) - CLI authentication
-
-### Testing
-
-- [CLI Mode Test](./docs/testing/CLI_MODE_TEST.md) - CLI mode testing
-
-### Troubleshooting
-
-- [CLI Mode Troubleshooting](./docs/troubleshooting/CLI_MODE_NOT_WORKING_FIX.md) - CLI mode issue resolution
-
-See [docs/README.md](./docs/README.md) for detailed documentation list.
+- [PROTOCOL.md](./PROTOCOL.md) - WebSocket message format and protocol
+- [USER_MANUAL.md](./USER_MANUAL.md) - Installation, setup, and usage
+- [cursor-extension/README.md](./cursor-extension/README.md) - Extension setup and publishing
+- [relay-server/README.md](./relay-server/README.md) - Relay server deployment
 
 ---
 
@@ -632,27 +570,7 @@ Cursor Remote는 모바일 기기에서 Cursor AI를 원격으로 제어할 수 
 
 ### 아키텍처
 
-```
-┌─────────────┐     WebSocket      ┌─────────────┐
-│   Mobile    │◄──────────────────►│  PC Server   │
-│     App     │     Port 8767       │  (Node.js)   │
-└─────────────┘                    └──────┬──────┘
-                                          │
-                                          │ Extension API
-                                          │ HTTP / WebSocket
-                                          │
-                                   ┌──────┴──────┐
-                                   │  Extension  │
-                                   │  (CLI Mode) │
-                                   └──────┬──────┘
-                                          │
-                                          │ Process
-                                          │
-                                   ┌──────┴──────┐
-                                   │ Cursor CLI  │
-                                   │   (agent)   │
-                                   └─────────────┘
-```
+**로컬 모드**: 모바일/웹 앱이 Extension WebSocket(8766)에 직접 연결. **릴레이 모드**: 앱 ↔ 릴레이 서버 ↔ Extension(RelayClient). PC 서버는 사용하지 않습니다.
 
 #### 연결 모드
 
@@ -673,13 +591,7 @@ cursor-remote/
 │   │   └── cli-handler.ts      # CLI 모드 핸들러
 │   ├── package.json
 │   └── README.md
-├── pc-server/          # PC 브릿지 서버 (Node.js)
-│   ├── src/
-│   │   ├── server.ts
-│   │   ├── cursor-api.ts
-│   │   └── message-handler.ts
-│   ├── package.json
-│   └── README.md
+├── relay-server/       # 릴레이 서버 (Vercel, 원격 모드용)
 ├── mobile-app/         # 모바일 앱 (Flutter)
 │   ├── lib/
 │   │   ├── main.dart
@@ -806,36 +718,9 @@ npm run compile
 
 ---
 
-### Step 3: PC 서버 설정
+### Step 3: 모바일 앱 설치
 
-PC 서버는 모바일 앱과 Extension 간의 브릿지 역할을 합니다.
-
-#### 3.1 서버 빌드 및 실행
-
-```bash
-cd pc-server
-npm install
-npm run build
-npm start
-```
-
-#### 3.2 서버 시작 확인
-
-터미널에 다음과 같은 메시지가 표시됩니다:
-
-```
-✅ Cursor Remote PC Server started!
-📱 Mobile app should connect to: 192.168.0.10:8767
-🔌 WebSocket server (Mobile): ws://192.168.0.10:8767
-```
-
-**⚠️ 중요**: 표시된 IP 주소 (예: `192.168.0.10`)를 메모하세요. 모바일 앱 연결에 필요합니다.
-
----
-
-### Step 4: 모바일 앱 설치
-
-#### 4.1 빌드 및 설치
+#### 3.1 빌드 및 설치
 
 **Android:**
 
@@ -873,22 +758,22 @@ PC와 모바일이 같은 Wi-Fi에 연결된 경우 사용합니다.
 
 #### 설정 방법
 
-1. **앱 실행**
-2. **PC 서버 IP 입력** (예: `192.168.0.10`)
-3. **포트 확인** (기본값: `8767`)
+1. **앱 실행** 후 **로컬** 연결 선택
+2. **PC IP 입력** (예: `192.168.0.10`) — Cursor가 실행 중인 PC
+3. **포트**는 **8766** (Extension WebSocket)
 4. **"Connect" 버튼 클릭**
 
 #### 연결 확인
 
 - **모바일 앱**: 녹색 구름 아이콘 표시
-- **PC 서버 터미널**: "📱 Mobile client connected" 메시지 확인
+- **Cursor**: Output 채널에 "Client connected" 표시
 
 #### 네트워크 요구사항
 
 | 항목 | 설명 |
 |------|------|
 | 동일 네트워크 | PC와 모바일이 같은 Wi-Fi에 연결 |
-| 포트 개방 | PC 방화벽에서 포트 8767 허용 |
+| 포트 개방 | PC 방화벽에서 포트 8766 허용 |
 | IP 확인 | PC의 로컬 IP 주소 확인 필요 |
 
 #### PC IP 주소 확인 방법
@@ -923,16 +808,7 @@ PC와 모바일이 다른 네트워크에 있을 때 릴레이 서버를 통해 
    - 기본 릴레이 서버: `https://relay.jaloveeye.com`
    - 환경 변수로 변경 가능: `RELAY_SERVER_URL`
 
-2. **PC 서버 설정**
-
-   ```bash
-   # 환경 변수로 릴레이 서버 URL 설정 (선택사항)
-   export RELAY_SERVER_URL=https://relay.jaloveeye.com
-   cd pc-server
-   npm start
-   ```
-
-3. **모바일 앱에서 연결**
+2. **모바일 앱에서 연결**
    - 릴레이 서버 모드 선택
    - 릴레이 서버 URL 입력 (또는 기본값 사용)
    - 연결
@@ -940,7 +816,7 @@ PC와 모바일이 다른 네트워크에 있을 때 릴레이 서버를 통해 
 #### 작동 방식
 
 ```
-모바일 앱 → 릴레이 서버 → PC 서버 → Extension → Cursor CLI
+모바일 앱 → 릴레이 서버 → Extension (RelayClient) → Cursor CLI
 ```
 
 릴레이 서버가 중간에서 메시지를 전달하므로, PC와 모바일이 서로 다른 네트워크에 있어도 연결할 수 있습니다.
@@ -1009,8 +885,8 @@ Cursor IDE의 Output 패널에서 "Cursor Remote" 채널을 선택하면 다음�
 | 포트 | 프로토콜 | 용도 |
 |------|----------|------|
 | 8766 | WebSocket | Extension WebSocket 서버 (PC 서버가 클라이언트로 연결) |
-| 8767 | WebSocket | 모바일 앱 ↔ PC 서버 (실시간 양방향 통신) |
-| 8765 | HTTP | Extension → Server (명령 전달, 향후 확장용) |
+| 8766 | WebSocket | 모바일/웹 앱 ↔ Extension (실시간 양방향 통신) |
+| 8768 | HTTP | Extension 훅 서버 (Rules 기반 채팅 등) |
 
 ---
 
@@ -1061,16 +937,16 @@ lsof -i :8766
 #### 연결되지 않는 경우
 
 - PC와 모바일이 같은 Wi-Fi 네트워크에 있는지 확인
-- PC 방화벽에서 포트 8767 허용
-- PC 서버 IP 주소가 올바른지 확인
+- PC 방화벽에서 포트 8766 허용
+- PC IP 주소가 올바른지 확인 (동일 네트워크)
 
 ---
 
 ## 기술 스택
 
-- **Cursor Extension**: TypeScript, VSCode Extension API
-- **PC Server**: Node.js, WebSocket (ws)
+- **Cursor Extension**: TypeScript, VSCode Extension API, WebSocket (8766), RelayClient
 - **Mobile App**: Flutter, Dart
+- **Relay Server** (optional): Vercel, Redis (Upstash)
 
 ---
 

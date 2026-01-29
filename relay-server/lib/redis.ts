@@ -79,7 +79,7 @@ export async function getSession(sessionId: string): Promise<Session | null> {
   return typeof data === 'string' ? JSON.parse(data) : data;
 }
 
-// PC deviceId가 없는 세션 찾기 (모바일 클라이언트가 이미 연결한 세션)
+// PC deviceId가 없는 세션 찾기 (모바일 클라이언트가 이미 연결한 세션 또는 세션만 생성한 경우)
 export async function findSessionsWaitingForPC(): Promise<Session[]> {
   try {
     // 세션 목록에서 모든 세션 ID 가져오기
@@ -88,15 +88,28 @@ export async function findSessionsWaitingForPC(): Promise<Session[]> {
       return [];
     }
     
-    // 각 세션을 조회하여 PC deviceId가 없고 mobileDeviceId가 있는 세션 찾기
+    // 각 세션을 조회하여 PC deviceId가 없는 세션 찾기
+    // mobileDeviceId가 있으면 모바일 클라이언트가 연결한 세션
+    // mobileDeviceId가 없으면 세션만 생성하고 아직 연결하지 않은 세션
     const waitingSessions: Session[] = [];
     
     for (const sid of sessionIds) {
       const session = await getSession(sid);
-      if (session && !session.pcDeviceId && session.mobileDeviceId) {
+      if (session && !session.pcDeviceId) {
+        // PC deviceId가 없으면 대기 중인 세션
+        // mobileDeviceId가 있으면 우선순위 높음 (이미 모바일 클라이언트가 연결함)
         waitingSessions.push(session);
       }
     }
+    
+    // mobileDeviceId가 있는 세션을 우선순위로 정렬 (최신순)
+    waitingSessions.sort((a, b) => {
+      // mobileDeviceId가 있는 세션 우선
+      if (a.mobileDeviceId && !b.mobileDeviceId) return -1;
+      if (!a.mobileDeviceId && b.mobileDeviceId) return 1;
+      // 둘 다 같으면 최신순
+      return b.createdAt - a.createdAt;
+    });
     
     return waitingSessions;
   } catch (error) {

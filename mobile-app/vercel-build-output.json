@@ -1,6 +1,5 @@
 {
   "version": 2,
-  "_comment": "Vercel has no Flutter. Build locally: flutter build web, then copy vercel-build-output.json to build/web/vercel.json and run 'cd build/web && vercel --prod'",
   "rewrites": [
     {
       "source": "/(.*)",

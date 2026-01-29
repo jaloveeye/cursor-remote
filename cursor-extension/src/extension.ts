@@ -6,6 +6,7 @@ import { ChatCapture } from './chat-capture';
 import { HttpServer } from './http-server';
 import { RulesManager } from './rules-manager';
 import { StatusBarManager } from './status-bar';
+import { RelayClient } from './relay-client';
 import { CONFIG } from './config';
 
 let wsServer: WebSocketServer | null = null;
@@ -15,6 +16,7 @@ let chatCapture: ChatCapture | null = null;
 let httpServer: HttpServer | null = null;
 let rulesManager: RulesManager | null = null;
 let statusBarManager: StatusBarManager | null = null;
+let relayClient: RelayClient | null = null;
 let outputChannel: vscode.OutputChannel;
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -41,6 +43,7 @@ export async function activate(context: vscode.ExtensionContext) {
     };
     
     outputChannel.appendLine('Cursor Remote extension is now active!');
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Extension activation started`);
     console.log('Cursor Remote extension is now active!');
     sendLogToClients('info', 'Cursor Remote extension is now active!');
 
@@ -80,9 +83,21 @@ export async function activate(context: vscode.ExtensionContext) {
         try {
             const command = JSON.parse(message);
             const clientId = command.clientId || 'none';
-            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Received command: ${command.type} from client: ${clientId}`);
+            const source = command.source || 'local';
+            
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Received command: ${command.type} from client: ${clientId} (source: ${source})`);
+            
+            // Handle command locally (whether from local WebSocket or relay)
             if (commandRouter) {
                 commandRouter.handleCommand(command);
+            }
+            
+            // If message is from local WebSocket client (not from relay), forward to relay
+            if (source !== 'relay' && relayClient && relayClient.isConnectedToSession()) {
+                relayClient.sendMessage(message).catch((error) => {
+                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ❌ Failed to send to relay: ${errorMsg}`);
+                });
             }
         } catch (error) {
             const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -171,10 +186,89 @@ export async function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(startCommand, stopCommand, toggleCommand);
 
+    // Initialize relay client
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Creating RelayClient instance...`);
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Relay Server URL: ${CONFIG.RELAY_SERVER_URL}`);
+    relayClient = new RelayClient(CONFIG.RELAY_SERVER_URL, outputChannel);
+    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ RelayClient instance created`);
+    
+    // Set relay client in WebSocket server for automatic message forwarding
+    if (wsServer && relayClient) {
+        wsServer.setRelayClient(relayClient);
+        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ Relay client set in WebSocket server`);
+    }
+    // Status bar: reflect relay connection (클라이언트 접속 시 "Connected" 표시)
+    if (statusBarManager && relayClient) {
+        statusBarManager.setRelayClient(relayClient);
+        relayClient.setOnSessionConnected(() => {
+            if (statusBarManager) statusBarManager.refresh();
+        });
+    }
+    
+    // Set up message forwarding: Relay Server -> Extension WebSocket
+    relayClient.setOnMessage((message: string) => {
+        // Mark message as from relay to prevent loop
+        try {
+            const parsed = JSON.parse(message);
+            parsed.source = 'relay';
+            // clientId가 없으면 'relay'로 설정
+            if (!parsed.clientId) {
+                parsed.clientId = 'relay-client';
+            }
+            const relayMessage = JSON.stringify(parsed);
+            
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 📥 Message from relay, forwarding to command handler...`);
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 📋 Relay message: ${relayMessage.substring(0, 200)}`);
+            
+            // Directly trigger the message handlers to process the command
+            // This is the same handler that processes WebSocket client messages
+            if (wsServer) {
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Calling triggerMessageHandlers...`);
+                wsServer.triggerMessageHandlers(relayMessage);
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ triggerMessageHandlers called`);
+            } else {
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ⚠️ WebSocket server is null - cannot process relay message`);
+            }
+        } catch (error) {
+            // If message is not JSON, send as-is but mark source
+            const relayMessage = JSON.stringify({
+                type: 'message',
+                data: message,
+                source: 'relay',
+                clientId: 'relay-client'
+            });
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 📥 Message from relay (non-JSON), forwarding to command handler...`);
+            if (wsServer) {
+                wsServer.triggerMessageHandlers(relayMessage);
+            } else {
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ⚠️ WebSocket server is null - cannot process relay message`);
+            }
+        }
+    });
+
     // Auto start
-    wsServer.start().then(() => {
+    wsServer.start().then(async () => {
         if (statusBarManager) {
             statusBarManager.update(false); // Client not connected yet
+        }
+        
+        // Start relay client after WebSocket server is ready
+        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Initializing relay client...`);
+        if (relayClient) {
+            try {
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Starting relay client...`);
+                await relayClient.start();
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ Relay client started - waiting for mobile client to create session...`);
+            } catch (error) {
+                const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ⚠️ Failed to start relay client: ${errorMsg}`);
+                if (error instanceof Error && error.stack) {
+                    outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Stack: ${error.stack}`);
+                }
+                // Don't show error to user - relay is optional
+            }
+        } else {
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ⚠️ Relay client is null - not initialized`);
         }
     }).catch((error) => {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -191,6 +285,11 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
+    if (relayClient) {
+        relayClient.stop();
+        relayClient = null;
+    }
+    
     if (chatCapture) {
         chatCapture.dispose();
         chatCapture = null;
