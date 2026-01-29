@@ -32,6 +32,7 @@ export class RelayClient {
     private isConnected: boolean = false;
     private outputChannel: vscode.OutputChannel;
     private onMessageCallback: ((message: string) => void) | null = null;
+    private onSessionConnectedCallback: (() => void) | null = null;
     private lastSessionDiscoveryTime: number = 0;
     private readonly SESSION_DISCOVERY_INTERVAL = 10000; // 10초마다 한 번만
     private readonly POLL_INTERVAL = 2000; // 2초마다 폴링
@@ -67,6 +68,13 @@ export class RelayClient {
     }
 
     /**
+     * Set callback for when session is connected (e.g. to update status bar)
+     */
+    setOnSessionConnected(callback: () => void) {
+        this.onSessionConnectedCallback = callback;
+    }
+
+    /**
      * Start relay client - begin session discovery and polling
      */
     async start(): Promise<void> {
@@ -76,7 +84,7 @@ export class RelayClient {
 
         // Start polling for session discovery
         this.startPolling();
-        this.log('Relay client started - waiting for mobile client session...');
+        this.log('Relay client started - waiting for mobile client to create session...');
     }
 
     /**
@@ -112,7 +120,7 @@ export class RelayClient {
         if (!this.sessionId) {
             const discoveredSessionId = await this.discoverSession();
             if (discoveredSessionId) {
-                this.log(`🔍 Found session waiting for PC: ${discoveredSessionId}`);
+                this.log(`🔍 Found session waiting for Extension: ${discoveredSessionId}`);
                 await this.connectToSession(discoveredSessionId);
                 return;
             }
@@ -170,7 +178,7 @@ export class RelayClient {
     }
 
     /**
-     * Discover sessions waiting for PC connection
+     * Discover sessions waiting for Extension (this client) to connect
      */
     private async discoverSession(): Promise<string | null> {
         if (this.sessionId) {
@@ -230,7 +238,10 @@ export class RelayClient {
                 this.sessionId = sid;
                 this.isConnected = true;
                 this.log(`✅ Connected to session: ${this.sessionId}`);
-                this.log(`💡 Mobile client can now connect using session ID: ${this.sessionId}`);
+                this.log(`💡 Mobile client can connect with session ID: ${this.sessionId}`);
+                if (this.onSessionConnectedCallback) {
+                    this.onSessionConnectedCallback();
+                }
             } else {
                 this.logError(`Failed to connect: ${data.error}`);
             }

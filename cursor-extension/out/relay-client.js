@@ -47,6 +47,7 @@ class RelayClient {
         this.pollInterval = null;
         this.isConnected = false;
         this.onMessageCallback = null;
+        this.onSessionConnectedCallback = null;
         this.lastSessionDiscoveryTime = 0;
         this.SESSION_DISCOVERY_INTERVAL = 10000; // 10초마다 한 번만
         this.POLL_INTERVAL = 2000; // 2초마다 폴링
@@ -73,6 +74,12 @@ class RelayClient {
         this.onMessageCallback = callback;
     }
     /**
+     * Set callback for when session is connected (e.g. to update status bar)
+     */
+    setOnSessionConnected(callback) {
+        this.onSessionConnectedCallback = callback;
+    }
+    /**
      * Start relay client - begin session discovery and polling
      */
     async start() {
@@ -81,7 +88,7 @@ class RelayClient {
         this.log(`Device ID: ${this.deviceId}`);
         // Start polling for session discovery
         this.startPolling();
-        this.log('Relay client started - waiting for mobile client session...');
+        this.log('Relay client started - waiting for mobile client to create session...');
     }
     /**
      * Stop relay client
@@ -114,7 +121,7 @@ class RelayClient {
         if (!this.sessionId) {
             const discoveredSessionId = await this.discoverSession();
             if (discoveredSessionId) {
-                this.log(`🔍 Found session waiting for PC: ${discoveredSessionId}`);
+                this.log(`🔍 Found session waiting for Extension: ${discoveredSessionId}`);
                 await this.connectToSession(discoveredSessionId);
                 return;
             }
@@ -170,7 +177,7 @@ class RelayClient {
         }
     }
     /**
-     * Discover sessions waiting for PC connection
+     * Discover sessions waiting for Extension (this client) to connect
      */
     async discoverSession() {
         if (this.sessionId) {
@@ -219,7 +226,10 @@ class RelayClient {
                 this.sessionId = sid;
                 this.isConnected = true;
                 this.log(`✅ Connected to session: ${this.sessionId}`);
-                this.log(`💡 Mobile client can now connect using session ID: ${this.sessionId}`);
+                this.log(`💡 Mobile client can connect with session ID: ${this.sessionId}`);
+                if (this.onSessionConnectedCallback) {
+                    this.onSessionConnectedCallback();
+                }
             }
             else {
                 this.logError(`Failed to connect: ${data.error}`);

@@ -1,14 +1,27 @@
 {
   "name": "cursor-remote-extension",
   "displayName": "Cursor Remote",
-  "description": "Remote control extension for Cursor IDE",
-  "version": "0.1.0",
+  "description": "Remote control extension for Cursor IDE via WebSocket - Code anywhere, anytime with Cursor CLI",
+  "version": "0.3.0",
   "publisher": "jaloveeye",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/jaloveeye/cursor-remote.git"
   },
+  "homepage": "https://github.com/jaloveeye/cursor-remote",
+  "bugs": {
+    "url": "https://github.com/jaloveeye/cursor-remote/issues"
+  },
+  "icon": "icon.png",
+  "keywords": [
+    "cursor",
+    "remote",
+    "mobile",
+    "websocket",
+    "cli",
+    "agent"
+  ],
   "engines": {
     "vscode": "^1.74.0"
   },

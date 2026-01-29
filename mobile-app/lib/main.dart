@@ -224,12 +224,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
   final ExpansionTileController _expansionTileController = ExpansionTileController();
   
-  // 필터 상태 (기본값: 모두 활성화)
+  // 필터 상태 (기본값: AI 응답 + 사용자 프롬프트만 활성화)
   final Map<MessageFilter, bool> _activeFilters = {
     MessageFilter.aiResponse: true,
     MessageFilter.userPrompt: true,
-    MessageFilter.system: true,
-    MessageFilter.log: false, // 로그는 기본적으로 숨김
+    MessageFilter.system: false,
+    MessageFilter.log: false,
   };
   
   // 필터링된 메시지 목록
@@ -260,7 +260,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           setState(() {
             _sessionIdController.text = sessionId;
             _messages.add(MessageItem('✅ Session created: $sessionId', type: MessageType.system));
-            _messages.add(MessageItem('💡 PC Server가 자동으로 이 세션을 감지하여 연결합니다 (최대 10초 소요)', type: MessageType.system));
+            _messages.add(MessageItem('💡 Extension이 자동으로 이 세션을 감지하여 연결합니다 (최대 10초 소요)', type: MessageType.system));
             _messages.add(MessageItem('📋 세션 ID: $sessionId', type: MessageType.system));
           });
           
@@ -462,7 +462,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               logPrefix = '🔌 [Extension]';
               break;
             case 'pc-server':
-              logPrefix = '🖥️ [PC Server]';
+              logPrefix = '🖥️ [Extension]';
               break;
             default:
               logPrefix = '📝 [Log]';
@@ -978,7 +978,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             logPrefix = '🔌 [Extension]';
             break;
           case 'pc-server':
-            logPrefix = '🖥️ [PC Server]';
+            logPrefix = '🖥️ [Extension]';
             break;
           default:
             logPrefix = '📝 [Log]';
@@ -1711,7 +1711,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         });
       }
       
-      // PC Server IP 주소 로드
+      // PC(Extension) IP 주소 로드
       final savedIp = prefs.getString('pc_server_ip');
       if (savedIp != null && savedIp.isNotEmpty) {
         _localIpController.text = savedIp;
@@ -1736,7 +1736,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await prefs.setString('connection_type', 
           _connectionType == ConnectionType.local ? 'local' : 'relay');
       
-      // PC Server IP 주소 저장
+      // PC(Extension) IP 주소 저장
       if (_localIpController.text.trim().isNotEmpty) {
         await prefs.setString('pc_server_ip', _localIpController.text.trim());
       }
@@ -2005,7 +2005,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         controller: _localIpController,
                         focusNode: _localIpFocusNode,
                         decoration: const InputDecoration(
-                          labelText: 'PC Server IP Address',
+                          labelText: 'PC IP (Extension이 실행 중인 PC)',
                           hintText: '192.168.0.10',
                           border: OutlineInputBorder(),
                           isDense: true,
@@ -2063,7 +2063,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           isDense: true,
                           contentPadding: EdgeInsets.all(12),
                           prefixIcon: Icon(Icons.cloud),
-                          helperText: '비워두면 새 세션이 생성되고 PC Server가 자동으로 연결됩니다',
+                          helperText: '비워두면 새 세션이 생성되고 Extension이 자동으로 연결됩니다',
                         ),
                         enabled: !_isConnected,
                         keyboardType: TextInputType.text,

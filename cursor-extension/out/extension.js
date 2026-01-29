@@ -215,6 +215,14 @@ async function activate(context) {
         wsServer.setRelayClient(relayClient);
         outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ Relay client set in WebSocket server`);
     }
+    // Status bar: reflect relay connection (클라이언트 접속 시 "Connected" 표시)
+    if (statusBarManager && relayClient) {
+        statusBarManager.setRelayClient(relayClient);
+        relayClient.setOnSessionConnected(() => {
+            if (statusBarManager)
+                statusBarManager.refresh();
+        });
+    }
     // Set up message forwarding: Relay Server -> Extension WebSocket
     relayClient.setOnMessage((message) => {
         // Mark message as from relay to prevent loop
@@ -267,7 +275,7 @@ async function activate(context) {
             try {
                 outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Starting relay client...`);
                 await relayClient.start();
-                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ Relay client started - waiting for mobile client session...`);
+                outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ Relay client started - waiting for mobile client to create session...`);
             }
             catch (error) {
                 const errorMsg = error instanceof Error ? error.message : 'Unknown error';
