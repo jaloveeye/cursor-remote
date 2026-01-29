@@ -75,6 +75,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced `pollMessages()` function to include session auto-discovery
 - Improved `discoverSession()` function with rate limiting (10 seconds interval)
 
+## [0.3.1] - 2026-01-28
+
+### Changed
+- **Extension-only architecture**: No separate PC server; Extension includes WebSocket server (8766) and RelayClient. All UI/copy updated from "PC Server" to "Extension".
+- **CLI mode**: Cursor CLI accepts only `--mode plan` and `--mode ask`. Debug/agent modes no longer pass `--mode` to avoid CLI errors.
+- **Status bar**: Shows "Connected" when a client is connected via local WebSocket or relay session (was "Waiting" until now in relay mode). Added `setOnSessionConnected` and status bar refresh on relay connect.
+- **Status bar copy**: "Waiting" → "Ready (waiting for client)"; tooltip updated to "Extension WebSocket server".
+- **Relay logs**: "waiting for mobile client session" → "waiting for mobile client to create session"; "Found session waiting for PC" → "Found session waiting for Extension".
+
+### Fixed
+- **CLI error visibility**: When CLI fails (e.g. invalid `--mode`), stderr is now sent to the user as `[CLI Error]` chat_response so the app does not stay without a response.
+- **Debug mode**: Selecting Debug in the app no longer causes CLI to fail; Extension does not pass `--mode debug` to the CLI.
+
+### Technical Details
+- `RelayClient`: added `setOnSessionConnected(callback)`.
+- `StatusBarManager`: added `setRelayClient()`, `refresh()`; status reflects both local clients and relay session.
+- `cli-handler`: `cliMode` derived from `selectedMode` (debug → agent for CLI); stderr used as response when stdout is empty.
+
 ## [Unreleased]
 
 ### Planned

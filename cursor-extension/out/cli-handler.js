@@ -253,16 +253,17 @@ class CLIHandler {
                     this.log(`Starting new chat session for client ${clientId || 'global'} (no existing session)`);
                 }
             }
-            // 에이전트 모드 설정 (이미 위에서 결정됨)
-            if (selectedMode && selectedMode !== 'agent') {
-                args.push('--mode', selectedMode);
-                this.log(`Using agent mode: ${selectedMode}`);
+            // CLI에는 plan/ask만 전달. debug는 CLI가 지원하지 않으므로 agent로 대체해 전달하지 않음
+            const cliMode = selectedMode === 'debug' ? 'agent' : selectedMode;
+            const cliAllowedModes = ['plan', 'ask'];
+            if (cliMode && cliAllowedModes.includes(cliMode)) {
+                args.push('--mode', cliMode);
+                this.log(`Using agent mode for CLI: ${cliMode}`);
             }
-            else if (selectedMode === 'agent') {
-                // 기본 Agent 모드는 --mode 인자 없이 사용
-                this.log(`Using default agent mode`);
+            else {
+                this.log(`CLI: no --mode (display mode=${selectedMode}, cliMode=${cliMode})`);
             }
-            // 선택된 모드를 사용자에게 알림 (로그를 통해)
+            // 선택된 모드를 사용자에게 알림 (로그를 통해, 표시용으로는 selectedMode 유지)
             const modeDisplayName = this.getModeDisplayName(selectedMode);
             this.log(`🤖 Agent Mode: ${modeDisplayName} (${selectedMode})`);
             // 자동 모드로 선택된 경우, 실제 선택된 모드를 모바일 앱에 전송
@@ -489,6 +490,11 @@ class CLIHandler {
             if (!responseText) {
                 responseText = stdout.trim();
             }
+            // CLI 에러 시 stderr를 사용자에게 전달 (응답이 비어 있을 때)
+            if (!responseText && stderr.trim()) {
+                responseText = `[CLI Error]\n${stderr.trim()}`;
+                this.log(`Using stderr as response (CLI failed): ${stderr.substring(0, 100)}`);
+            }
             // session_id 저장 (JSON에서 추출한 경우)
             if (extractedSessionId) {
                 if (clientId) {
@@ -548,8 +554,8 @@ class CLIHandler {
                     this.log('⚠️ Streaming was active, skipping duplicate chat_response');
                 }
             }
-            else {
-                this.logError('wsServer is null or responseText is empty');
+            else if (this.wsServer && !responseText) {
+                this.logError('wsServer is null or responseText is empty (no stdout/stderr to send)');
             }
         }
         catch (error) {
