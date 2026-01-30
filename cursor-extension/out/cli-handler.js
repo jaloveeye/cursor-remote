@@ -62,21 +62,43 @@ class CLIHandler {
             this.chatHistoryFile = path.join(cursorDir, 'CHAT_HISTORY.json');
         }
     }
-    log(message) {
+    log(message, sendToClient = false) {
         const timestamp = new Date().toLocaleTimeString();
         const logMessage = `[${timestamp}] [CLI] ${message}`;
         if (this.outputChannel) {
             this.outputChannel.appendLine(logMessage);
         }
         console.log(logMessage);
+        // 중요 로그는 클라이언트에게 전송
+        if (sendToClient && this.wsServer) {
+            this.wsServer.broadcast(JSON.stringify({
+                type: 'log',
+                level: 'info',
+                message: `[CLI] ${message}`,
+                timestamp: new Date().toISOString(),
+                source: 'cli'
+            }));
+        }
     }
-    logError(message, error) {
+    logError(message, error, sendToClient = true) {
         const timestamp = new Date().toLocaleTimeString();
-        const logMessage = `[${timestamp}] [CLI] ERROR: ${message}${error ? ` - ${error}` : ''}`;
+        const errorStr = error instanceof Error ? error.message : String(error || '');
+        const logMessage = `[${timestamp}] [CLI] ERROR: ${message}${errorStr ? ` - ${errorStr}` : ''}`;
         if (this.outputChannel) {
             this.outputChannel.appendLine(logMessage);
         }
         console.error(logMessage);
+        // 에러는 기본적으로 클라이언트에게 전송
+        if (sendToClient && this.wsServer) {
+            this.wsServer.broadcast(JSON.stringify({
+                type: 'log',
+                level: 'error',
+                message: `[CLI] ${message}`,
+                timestamp: new Date().toISOString(),
+                source: 'cli',
+                error: errorStr
+            }));
+        }
     }
     /**
      * Cursor CLI가 설치되어 있는지 확인
@@ -265,7 +287,7 @@ class CLIHandler {
             }
             // 선택된 모드를 사용자에게 알림 (로그를 통해, 표시용으로는 selectedMode 유지)
             const modeDisplayName = this.getModeDisplayName(selectedMode);
-            this.log(`🤖 Agent Mode: ${modeDisplayName} (${selectedMode})`);
+            this.log(`🤖 Agent Mode: ${modeDisplayName} (${selectedMode})`, true);
             // 자동 모드로 선택된 경우, 실제 선택된 모드를 모바일 앱에 전송
             if (agentMode === 'auto' && this.wsServer) {
                 this.wsServer.send(JSON.stringify({
@@ -281,7 +303,7 @@ class CLIHandler {
             // --output-format stream-json: 스트리밍 JSON 형식
             // --stream-partial-output: 부분 출력 스트리밍
             args.push('-p', '--output-format', 'stream-json', '--stream-partial-output', '--force', text);
-            this.log(`Executing: ${cliCommand} ${args.join(' ')}`);
+            this.log(`Executing CLI command...`, true);
             // 현재 작업 디렉토리 설정
             const cwd = this.workspaceRoot || process.cwd();
             // stdout 버퍼링 최소화를 위한 환경 변수 설정
@@ -296,7 +318,7 @@ class CLIHandler {
                 shell: false,
                 env: env
             });
-            this.log(`CLI process spawned (PID: ${this.currentProcess.pid})`);
+            this.log(`CLI process started`, true);
             this.log(`CLI process stdout: ${this.currentProcess.stdout ? 'exists' : 'null'}`);
             this.log(`CLI process stderr: ${this.currentProcess.stderr ? 'exists' : 'null'}`);
             let stdout = '';
@@ -548,7 +570,7 @@ class CLIHandler {
                         this.log(`   Session ID: ${currentSessionId}, Client ID: ${clientId || 'none'}`);
                     }
                     this.wsServer.send(JSON.stringify(responseMessage));
-                    this.log('✅ Chat response sent to WebSocket');
+                    this.log('✅ AI response received', true);
                 }
                 else {
                     this.log('⚠️ Streaming was active, skipping duplicate chat_response');

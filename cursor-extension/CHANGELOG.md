@@ -75,6 +75,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced `pollMessages()` function to include session auto-discovery
 - Improved `discoverSession()` function with rate limiting (10 seconds interval)
 
+## [0.3.2] - 2026-01-30
+
+### Added
+- **Real-time Log Display**: Important CLI logs (agent mode, command execution, AI response) are now sent to mobile clients in real-time
+- **Broadcast Method**: Added `broadcast()` method to WebSocketServer for sending messages to all clients including relay
+
+### Changed
+- **Log Transmission**: Key operational logs are now transmitted to clients with `sendToClient` flag
+- **Relay Log Support**: Log messages are now also sent to relay server when connected
+
+### Technical Details
+- `cli-handler.ts`: Added `sendToClient` parameter to `log()` and `logError()` methods
+- `websocket-server.ts`: Added `broadcast()` method that sends to both local WebSocket clients and relay server
+- Important logs marked with `sendToClient: true`: Agent mode selection, CLI execution start, AI response received
+
 ## [0.3.1] - 2026-01-28
 
 ### Changed

@@ -144,13 +144,21 @@ enum MessageFilter {
   log,          // 실시간 로그
 }
 
+// 로그 레벨
+enum LogLevel {
+  error,   // 에러
+  warning, // 경고
+  info,    // 정보
+}
+
 class MessageItem {
   final String text;
   final String type; // MessageType 상수 사용
   final DateTime timestamp;
   String? agentMode; // 에이전트 모드 (userPrompt 타입일 때만 사용)
+  LogLevel? logLevel; // 로그 레벨 (log 타입일 때만 사용)
   
-  MessageItem(this.text, {this.type = MessageType.normal, this.agentMode}) : timestamp = DateTime.now();
+  MessageItem(this.text, {this.type = MessageType.normal, this.agentMode, this.logLevel}) : timestamp = DateTime.now();
   
   // 필터 카테고리 결정
   MessageFilter? get filterCategory {
@@ -218,6 +226,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final List<MessageItem> _messages = [];
   final TextEditingController _commandController = TextEditingController();
   final TextEditingController _sessionIdController = TextEditingController();
+  
+  // 입력창 상태 관리
+  String _commandText = ''; // 입력창 텍스트 상태
+  int _textFieldKey = 0; // TextField 재생성용 Key
   final FocusNode _sessionIdFocusNode = FocusNode();
   final FocusNode _localIpFocusNode = FocusNode();
   final FocusNode _commandFocusNode = FocusNode();
@@ -232,11 +244,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     MessageFilter.log: false,
   };
   
+  // 로그 레벨별 필터 상태 (기본값: 모두 활성화)
+  final Map<LogLevel, bool> _logLevelFilters = {
+    LogLevel.error: true,
+    LogLevel.warning: true,
+    LogLevel.info: true,
+  };
+  
   // 필터링된 메시지 목록
   List<MessageItem> get _filteredMessages {
     return _messages.where((msg) {
       final category = msg.filterCategory;
       if (category == null) return true;
+      
+      // 로그 메시지인 경우 레벨별 필터도 적용
+      if (category == MessageFilter.log && (_activeFilters[MessageFilter.log] ?? false)) {
+        final level = msg.logLevel ?? LogLevel.info;
+        if (!(_logLevelFilters[level] ?? true)) return false;
+      }
+      
       return _activeFilters[category] ?? true;
     }).toList();
   }
@@ -451,10 +477,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
         } else if (type == 'log') {
           // 실시간 로그 메시지 처리
-          final logLevel = data['level'] ?? 'info';
+          final logLevelStr = data['level'] ?? 'info';
           final logMessage = data['message'] ?? '';
           final logSource = data['source'] ?? 'unknown';
           final logError = data['error'];
+          
+          // 로그 레벨 파싱
+          LogLevel parsedLogLevel;
+          switch (logLevelStr) {
+            case 'error':
+              parsedLogLevel = LogLevel.error;
+              break;
+            case 'warn':
+            case 'warning':
+              parsedLogLevel = LogLevel.warning;
+              break;
+            default:
+              parsedLogLevel = LogLevel.info;
+          }
           
           String logPrefix = '';
           switch (logSource) {
@@ -462,7 +502,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               logPrefix = '🔌 [Extension]';
               break;
             case 'pc-server':
-              logPrefix = '🖥️ [Extension]';
+              logPrefix = '🖥️ [PC Server]';
               break;
             default:
               logPrefix = '📝 [Log]';
@@ -473,7 +513,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             logText += ' - Error: $logError';
           }
           
-          _messages.add(MessageItem(logText, type: MessageType.log));
+          _messages.add(MessageItem(logText, type: MessageType.log, logLevel: parsedLogLevel));
         } else if (type == 'agent_mode_selected') {
           // 자동 모드로 선택된 실제 모드 정보
           final requestedMode = data['requestedMode'] ?? 'auto';
@@ -967,10 +1007,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       } else if (type == 'log') {
         // 실시간 로그 메시지 처리
-        final logLevel = messageData['level'] ?? 'info';
+        final logLevelStr = messageData['level'] ?? 'info';
         final logMessage = messageData['message'] ?? '';
         final logSource = messageData['source'] ?? 'unknown';
         final logError = messageData['error'];
+        
+        // 로그 레벨 파싱
+        LogLevel parsedLogLevel;
+        switch (logLevelStr) {
+          case 'error':
+            parsedLogLevel = LogLevel.error;
+            break;
+          case 'warn':
+          case 'warning':
+            parsedLogLevel = LogLevel.warning;
+            break;
+          default:
+            parsedLogLevel = LogLevel.info;
+        }
         
         String logPrefix = '';
         switch (logSource) {
@@ -978,7 +1032,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             logPrefix = '🔌 [Extension]';
             break;
           case 'pc-server':
-            logPrefix = '🖥️ [Extension]';
+            logPrefix = '🖥️ [PC Server]';
             break;
           default:
             logPrefix = '📝 [Log]';
@@ -990,7 +1044,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
         
         setState(() {
-          _messages.add(MessageItem(logText, type: MessageType.log));
+          _messages.add(MessageItem(logText, type: MessageType.log, logLevel: parsedLogLevel));
         });
         _scrollToBottom();
       }
@@ -1550,21 +1604,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     
     // 로그 메시지 스타일
     if (message.type == MessageType.log) {
-      // 로그 레벨에 따라 색상 결정 (primary 색상 팔레트에 맞춤)
-      Color logColor = const Color(0xFFFF9800); // 오렌지 (경고)
-      IconData logIcon = Icons.bug_report;
+      // 로그 레벨에 따라 색상 결정
+      Color logColor;
+      IconData logIcon;
       
-      // 메시지에서 레벨 추출 (간단한 방법)
-      final text = message.text.toLowerCase();
-      if (text.contains('[error]') || text.contains('error:')) {
-        logColor = Theme.of(context).colorScheme.error; // 에러 색상
-        logIcon = Icons.error;
-      } else if (text.contains('[warn]') || text.contains('warning:')) {
-        logColor = const Color(0xFFFF9800); // 오렌지 (경고)
-        logIcon = Icons.warning;
-      } else {
-        logColor = Theme.of(context).colorScheme.tertiary; // 청록색 (정보)
-        logIcon = Icons.info;
+      switch (message.logLevel ?? LogLevel.info) {
+        case LogLevel.error:
+          logColor = Theme.of(context).colorScheme.error;
+          logIcon = Icons.error;
+        case LogLevel.warning:
+          logColor = const Color(0xFFFF9800); // 오렌지
+          logIcon = Icons.warning;
+        case LogLevel.info:
+          logColor = Theme.of(context).colorScheme.tertiary;
+          logIcon = Icons.info;
       }
       
       return Container(
@@ -1689,11 +1742,45 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   @override
-  @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadConnectionSettings();
+    // 입력창 변경 감지 리스너 추가
+    _commandController.addListener(_onCommandTextChanged);
+  }
+  
+  // 입력창 텍스트 변경 시 UI 업데이트
+  void _onCommandTextChanged() {
+    if (mounted) {
+      final newText = _commandController.text;
+      if (_commandText != newText) {
+        setState(() {
+          _commandText = newText;
+        });
+      }
+    }
+  }
+  
+  // 입력창 클리어 (한글 IME composing 버퍼 완전 초기화)
+  void _clearCommandInput() {
+    // 상태 초기화
+    _commandText = '';
+    
+    // Controller 텍스트 클리어
+    _commandController.clear();
+    
+    // Key를 변경하여 TextField 완전 재생성 (IME 상태 완전 리셋)
+    setState(() {
+      _textFieldKey++;
+    });
+    
+    // 새 TextField에 포커스 요청
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _commandFocusNode.requestFocus();
+      }
+    });
   }
   
   // 연결 설정 로드 (SharedPreferences)
@@ -1846,6 +1933,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _stopPolling();
     _localWebSocket?.sink.close();
+    _commandController.removeListener(_onCommandTextChanged);
     _commandController.dispose();
     _sessionIdController.dispose();
     _localIpController.dispose();
@@ -2432,9 +2520,82 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               onSelected: (selected) {
                                 setState(() {
                                   _activeFilters[MessageFilter.log] = selected;
+                                  // 로그 필터 활성화 시 레벨 필터 모두 체크
+                                  if (selected) {
+                                    _logLevelFilters[LogLevel.error] = true;
+                                    _logLevelFilters[LogLevel.warning] = true;
+                                    _logLevelFilters[LogLevel.info] = true;
+                                  }
                                 });
                               },
                             ),
+                            // 로그 레벨 필터 (로그 필터 활성화 시에만 표시)
+                            if (_activeFilters[MessageFilter.log] ?? false) ...[
+                              const SizedBox(width: 4),
+                              Container(
+                                height: 24,
+                                width: 1,
+                                color: Theme.of(context).colorScheme.outlineVariant,
+                              ),
+                              const SizedBox(width: 4),
+                              FilterChip(
+                                label: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.error, size: 12, color: Color(0xFFDC3545)),
+                                    SizedBox(width: 2),
+                                    Text('Error', style: TextStyle(fontSize: 10)),
+                                  ],
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                selected: _logLevelFilters[LogLevel.error] ?? true,
+                                selectedColor: const Color(0xFFFFEBEE),
+                                checkmarkColor: const Color(0xFFDC3545),
+                                onSelected: (selected) {
+                                  setState(() {
+                                    _logLevelFilters[LogLevel.error] = selected;
+                                  });
+                                },
+                              ),
+                              FilterChip(
+                                label: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.warning, size: 12, color: Color(0xFFFF9800)),
+                                    SizedBox(width: 2),
+                                    Text('Warn', style: TextStyle(fontSize: 10)),
+                                  ],
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                selected: _logLevelFilters[LogLevel.warning] ?? true,
+                                selectedColor: const Color(0xFFFFF3E0),
+                                checkmarkColor: const Color(0xFFFF9800),
+                                onSelected: (selected) {
+                                  setState(() {
+                                    _logLevelFilters[LogLevel.warning] = selected;
+                                  });
+                                },
+                              ),
+                              FilterChip(
+                                label: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.info, size: 12, color: Theme.of(context).colorScheme.tertiary),
+                                    const SizedBox(width: 2),
+                                    const Text('Info', style: TextStyle(fontSize: 10)),
+                                  ],
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                selected: _logLevelFilters[LogLevel.info] ?? true,
+                                selectedColor: Theme.of(context).colorScheme.tertiaryContainer,
+                                checkmarkColor: Theme.of(context).colorScheme.tertiary,
+                                onSelected: (selected) {
+                                  setState(() {
+                                    _logLevelFilters[LogLevel.info] = selected;
+                                  });
+                                },
+                              ),
+                            ],
                             FilterChip(
                               label: const Row(
                                 mainAxisSize: MainAxisSize.min,
@@ -2722,32 +2883,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             !HardwareKeyboard.instance.isShiftPressed &&
                             _commandFocusNode.hasFocus &&
                             _isConnected) {
-                          final text = _commandController.text.trim();
+                          final text = _commandText.trim();
                           if (text.isNotEmpty) {
-                            // Enter 키 기본 동작(줄바꿈) 방지
-                            // Send to Prompt 실행
-                            setState(() {
-                              // 버튼 클릭 상태 업데이트
-                            });
                             _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false, agentMode: _selectedAgentMode);
-                            // 텍스트 클리어 후 UI 업데이트
-                            _commandController.clear();
-                            if (mounted) {
-                              setState(() {
-                                // TextField 클리어 후 UI 업데이트
-                              });
-                            }
+                            _clearCommandInput();
                           }
                         }
                       },
                       child: TextField(
+                        key: ValueKey(_textFieldKey), // Key 변경 시 TextField 재생성
                         controller: _commandController,
                         focusNode: _commandFocusNode,
                         decoration: InputDecoration(
                           labelText: '프롬프트 입력',
                           hintText: 'Cursor에게 요청할 내용을 입력하세요...',
                           prefixIcon: const Icon(Icons.edit_note),
-                          suffixIcon: _commandController.text.isNotEmpty
+                          suffixIcon: _commandText.isNotEmpty
                               ? IconButton(
                                   icon: Icon(
                                     Icons.clear,
@@ -2755,8 +2906,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                                   ),
                                   onPressed: () {
-                                    _commandController.clear();
-                                    setState(() {});
+                                    _clearCommandInput();
                                   },
                                 )
                               : null,
@@ -2768,17 +2918,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         enableSuggestions: true,
                         autocorrect: true,
                         textCapitalization: TextCapitalization.none,
-                        // 한영전환 문제 해결을 위한 설정
                         onChanged: (value) {
-                          // 입력 변경 시 UI 강제 업데이트
-                          if (mounted) {
+                          // 상태 변수 업데이트로 UI 확실하게 갱신
+                          if (mounted && _commandText != value) {
                             setState(() {
-                              // TextField 상태 업데이트를 위해 setState 호출
+                              _commandText = value;
                             });
-                            // 포커스 유지
-                            if (!_commandFocusNode.hasFocus) {
-                              _commandFocusNode.requestFocus();
-                            }
                           }
                         },
                       ),
@@ -2788,17 +2933,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       children: [
                         Expanded(
                           child: FilledButton.icon(
-                            onPressed: _isConnected && _commandController.text.trim().isNotEmpty && !_isWaitingForResponse
+                            onPressed: _isConnected && _commandText.trim().isNotEmpty && !_isWaitingForResponse
                                 ? () {
                                     if (!mounted) return;
-                                    final text = _commandController.text.trim();
+                                    final text = _commandText.trim();
                                     if (text.isNotEmpty) {
-                                      setState(() {});
                                       _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false, agentMode: _selectedAgentMode);
-                                      _commandController.clear();
-                                      if (mounted) {
-                                        setState(() {});
-                                      }
+                                      _clearCommandInput();
                                     }
                                   }
                                 : null,
@@ -2840,17 +2981,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           ),
                         ] else ...[
                           OutlinedButton.icon(
-                            onPressed: _isConnected && _commandController.text.trim().isNotEmpty
+                            onPressed: _isConnected && _commandText.trim().isNotEmpty
                                 ? () {
                                     if (!mounted) return;
-                                    final text = _commandController.text.trim();
+                                    final text = _commandText.trim();
                                     if (text.isNotEmpty) {
-                                      setState(() {});
                                       _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: true, agentMode: _selectedAgentMode);
-                                      _commandController.clear();
-                                      if (mounted) {
-                                        setState(() {});
-                                      }
+                                      _clearCommandInput();
                                     }
                                   }
                                 : null,

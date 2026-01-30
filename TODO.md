@@ -1,256 +1,155 @@
-# Cursor Remote - 해야 할 일 목록
+# Cursor Remote - 앞으로 할 일
 
-**작성일**: 2026-01-27  
-**최종 수정**: 2026-01-28
-
----
-
-## 📋 우선순위별 작업 목록
-
-### 🔴 우선순위 0: Extension 마켓플레이스 배포 (최우선)
-
-#### 1. Extension 마켓플레이스 배포
-- **목표**: Cursor Extension을 VS Code/Cursor 마켓플레이스에 배포
-- **작업 내용**:
-  - [ ] Publisher 계정 생성 (Azure DevOps)
-  - [ ] Personal Access Token (PAT) 생성
-  - [ ] 패키지 빌드 및 테스트 (`npm run package`)
-  - [ ] 마켓플레이스에 배포 (`npm run publish`)
-  - [ ] 배포 확인 및 검토 대기
-- **예상 시간**: 1-2시간
-- **참고**: `cursor-extension/PUBLISHING.md` 가이드 참조
-- **현재 상태**:
-  - ✅ package.json 설정 완료 (publisher: "jaloveeye", version: "0.1.1")
-  - ✅ icon.png 파일 존재
-  - ✅ README.md, CHANGELOG.md, LICENSE 파일 준비됨
-  - ⚠️ Publisher 계정 생성 필요
-  - ⚠️ PAT 생성 필요
+**최종 수정**: 2026-01-30 18:00
 
 ---
 
-### 🔴 우선순위 1: 즉시 해결 필요 (버그/문제)
+## ✅ 최근 완료 (참고)
 
-#### 1. 포트 권한 문제 (EPERM) 해결
-- **문제**: 포트 8767, 8765에서 `EPERM: operation not permitted` 에러 발생
-- **영향**: 서버는 시작되지만 실제로 포트를 사용할 수 없음
-- **해결 방안**:
-  - [ ] 포트 사용 가능 여부를 사전에 확인하는 로직 추가
-  - [ ] 사용 불가능한 경우 명확한 에러 메시지와 함께 종료
-  - [ ] macOS 네트워크 권한 확인 방법 문서화
-
-#### 2. Extension 연결 실패 문제
-- **문제**: PC 서버가 Extension(포트 8766)에 연결하려 할 때 EPERM 에러
-- **영향**: Extension과 PC 서버 간 통신 불가
-- **해결 방안**:
-  - [ ] Extension이 완전히 시작될 때까지 대기 로직 개선
-  - [ ] 재연결 로직 강화
-  - [ ] 연결 상태 모니터링 추가
-
-#### 3. 에러 핸들링 개선
-- **문제**: 포트 에러 발생 시 서버는 계속 실행되지만 기능이 동작하지 않음
-- **영향**: 사용자에게 명확한 피드백 부족
-- **해결 방안**:
-  - [ ] 포트 에러 발생 시 서버 종료 또는 재시도 로직 추가
-  - [ ] 더 명확한 에러 메시지 및 해결 방법 안내
-  - [ ] 에러 타입별 처리 로직 구현
+- Cursor 2.4 호환성 확인 및 문서화 완료
+- 프롬프트 입력창 한글/영어 입력 버그 수정
+- 로그 레벨별 필터 기능 추가 (Error/Warn/Info)
+- iOS/macOS Pods 디렉토리 gitignore 추가
+- Extension 0.3.1 준비 (버전·CHANGELOG·vsix)
+- Extension 단일 구조 (PC Server 제거, 문구·상태바 반영)
+- CLI 모드: debug/agent 시 `--mode` 미전달, 에러 시 stderr 전달
+- 문서 정리 (PROTOCOL.md 루트, docs/ 제거, README 갱신)
+- Vercel 배포: 로컬 빌드 후 배포 방식으로 정리
+- 모바일: 기본 필터 AI 응답 + User Prompt, 문구 Extension 기준으로 변경
 
 ---
 
-### 🟡 우선순위 2: Phase 2 고급 기능 (README.md)
+## 📋 우선순위별 할 일
 
-#### 1. AI 응답 스트리밍
-- **목표**: AI 응답을 실시간으로 스트리밍하여 사용자 경험 개선
-- **작업 내용**:
-  - [ ] Extension: `cli-handler.ts`에 스트리밍 로직 구현
-  - [ ] Extension: WebSocket으로 청크 단위 전송
-  - [ ] PC Server: 스트리밍 메시지 라우팅
-  - [ ] Flutter App: 스트리밍 UI 구현 (실시간 텍스트 업데이트)
-- **예상 시간**: 2시간 (Subagents 병렬 작업)
-- **참고**: `docs/features/CURSOR_2.4_FEATURE_IMPROVEMENTS.md`
+### 🔴 우선순위 1: 배포·운영
 
-#### 2. 파일 편집 기능
-- **목표**: 모바일에서 파일을 직접 편집할 수 있는 기능
-- **작업 내용**:
-  - [ ] Extension: 파일 읽기/쓰기 API 추가
-  - [ ] Extension: 권한 관리 시스템 구현
-  - [ ] PC Server: 파일 작업 메시지 라우팅
-  - [ ] Flutter App: 파일 편집 UI 구현 (코드 에디터 위젯)
-  - [ ] Flutter App: 파일 트리 뷰 추가
-- **예상 시간**: 3시간
-
-#### 3. 작업 결과 표시
-- **목표**: AI가 수행한 작업 결과를 모바일에서 확인
-- **작업 내용**:
-  - [ ] Extension: 작업 결과 수집 로직
-  - [ ] PC Server: 작업 결과 메시지 전송
-  - [ ] Flutter App: 작업 결과 UI 구현
-- **예상 시간**: 2시간
-
-#### 4. 권한 요청 시스템
-- **목표**: 파일 접근, 명령 실행 등에 대한 권한 요청 및 응답
-- **작업 내용**:
-  - [ ] Extension: 권한 요청 로직 구현
-  - [ ] PC Server: 권한 메시지 라우팅
-  - [ ] Flutter App: 권한 요청/응답 UI 구현
-- **예상 시간**: 2시간
+| # | 작업 | 상태 | 비고 |
+|---|------|------|------|
+| 1 | **Extension 0.3.1 마켓플레이스 배포** | [x] | ✅ 완료 |
+| 2 | **클라이언트 웹 재배포 (Vercel)** | [x] | ✅ 완료 |
+| 3 | **릴레이 서버 운영 점검** | [x] | ✅ 완료 (2026-01-30) |
 
 ---
 
-### 🟢 우선순위 3: Phase 3 UX 개선 (README.md)
+### 🟡 우선순위 2: 안정성·UX
 
-#### 1. 실시간 로그 표시
-- **목표**: Extension과 PC 서버의 로그를 모바일에서 실시간 확인
-- **작업 내용**:
-  - [ ] Extension: 로그 스트리밍 API 추가
-  - [ ] Extension: 로그 레벨 필터링
-  - [ ] PC Server: 로그 메시지 라우팅
-  - [ ] Flutter App: 로그 뷰어 UI 구현
-  - [ ] Flutter App: 로그 필터링 및 검색
-  - [ ] Flutter App: 로그 레벨별 색상 구분
-- **예상 시간**: 1.5시간
-- **기대 효과**: 디버깅 시간 60% 단축
-
-#### 2. 에러 처리 및 재시도
-- **목표**: 네트워크 오류, 연결 끊김 등에 대한 자동 재시도
-- **작업 내용**:
-  - [ ] Extension: 재시도 로직 구현
-  - [ ] Extension: 에러 타입별 처리
-  - [ ] Flutter App: 재연결 UI 구현
-  - [ ] Flutter App: 에러 메시지 표시
-  - [ ] Flutter App: 재시도 버튼 추가
-  - [ ] PC Server: 연결 상태 모니터링
-  - [ ] PC Server: 자동 재연결 로직
-- **예상 시간**: 2시간
-- **기대 효과**: 안정성 80% 향상
-
-#### 3. 연결 상태 관리
-- **목표**: 연결 상태를 명확하게 표시하고 관리
-- **작업 내용**:
-  - [ ] Extension: 연결 상태 API
-  - [ ] PC Server: 연결 상태 모니터링
-  - [ ] Flutter App: 연결 상태 UI 개선
-- **예상 시간**: 1시간
-
-#### 4. 대화 히스토리
-- **상태**: ✅ 완료
-- **참고**: 이미 구현됨
+| # | 작업 | 상태 | 비고 |
+|---|------|------|------|
+| 1 | **포트/권한 에러 처리** | [x] | ✅ 완료 - Extension에서 EADDRINUSE 시 다음 포트 자동 시도 |
+| 2 | **릴레이 끊김 시 재연결** | [x] | ✅ 완료 - 모바일 앱 지수 백오프 재연결 (최대 5회), UI 표시 |
+| 3 | **에러 메시지 정리** | [x] | ✅ 완료 - USER_MANUAL 문제 해결 섹션 재정리 |
 
 ---
 
-### 🔵 우선순위 4: 사용자 경험 개선
+### 🟢 우선순위 3: 기능 개선
 
-#### 1. 모바일 앱 UI/UX 개선
-- **상태**: ✅ 부분 완료
-- **완료된 작업**:
-  - [x] Material Design 3 적용 (ThemeData, ColorScheme)
-  - [x] 테마 색상 통합 (favicon 기반 색상 팔레트)
-  - [x] UI 컴포넌트 개선 (AppBar, Card, Button, Input 등)
-  - [x] Agent 모드 표시 개선
-  - [x] 대화 히스토리 UI 개선
-  - [x] Favicon 및 앱 아이콘 적용
-  - [x] Vercel 배포 설정
-- **남은 작업**:
-  - [ ] Image Generation으로 UI 목업 생성
-  - [ ] 사용자 피드백 수집 및 반영
-- **예상 시간**: 1시간 (남은 작업)
-
-#### 2. 연결 설정 자동화
-- **목표**: 사용자가 쉽게 연결할 수 있도록 자동화
-- **작업 내용**:
-  - [ ] 연결 마법사 구현
-  - [ ] IP 주소 자동 감지
-  - [ ] 세션 ID 자동 생성/연결
-  - [ ] Clarification Questions 활용
-- **예상 시간**: 2시간
-- **기대 효과**: 온보딩 시간 70% 단축
-
-#### 3. 에러 메시지 명확화
-- **목표**: 에러 발생 시 사용자가 쉽게 해결할 수 있도록 안내
-- **작업 내용**:
-  - [ ] 에러 타입별 질문 템플릿 정의
-  - [ ] 해결 방법 데이터베이스 구축
-  - [ ] 자동 진단 스크립트 실행
-  - [ ] Clarification Questions 활용
-- **예상 시간**: 2시간
-- **기대 효과**: 문제 해결 시간 50% 단축
-
-#### 4. 온보딩 프로세스 개선
-- **목표**: 새 사용자가 쉽게 시작할 수 있도록 안내
-- **작업 내용**:
-  - [ ] 온보딩 가이드 구현
-  - [ ] 단계별 안내 화면
-  - [ ] 자동 설정 검증
-- **예상 시간**: 2시간
+| # | 작업 | 상태 | 비고 |
+|---|------|------|------|
+| 1 | **AI 응답 스트리밍 (웹/앱)** | [ ] | 릴레이에서는 최종 응답만 전송 중. 스트리밍 원하면 설계 후 적용 |
+| 2 | **실시간 로그 표시** | [x] | ✅ 완료 - Extension/CLI 로그를 앱에 전송, 필터 UI 제공, 레벨별 필터(Error/Warn/Info) 추가 |
+| 3 | **연결 설정 단순화** | [ ] | IP 자동 감지, 세션 ID 저장·복원 등 (이전 세션 유지 시도했으나 롤백된 상태) |
 
 ---
 
-### 🟣 우선순위 5: 개발 효율성 향상 (Skills 활용)
+### 🔵 우선순위 4: Cursor 2.4 대응
 
-#### 1. 개발 워크플로우 자동화
-- **목표**: 반복적인 개발 작업을 자동화
-- **작업 내용**:
-  - [ ] 새 기능 추가 워크플로우 Skills 정의
-  - [ ] 버그 수정 워크플로우 Skills 정의
-  - [ ] 자동 테스트 실행
-- **예상 시간**: 3시간
+| # | 작업 | 상태 | 비고 |
+|---|------|------|------|
+| 1 | **CLI 2.4 호환성 확인** | [x] | ✅ 완료 - `agent -p`, `--mode plan/ask`, `--resume` 정상 동작 확인 (2.4.21) |
+| 2 | **Clarification Questions 원격** | [x] | ✅ 완료 - `assistant` 타입으로 전달, `--resume`으로 세션 재개 및 답변 가능 |
+| 3 | **Skills·2.4 문서화** | [x] | ✅ 완료 - USER_MANUAL에 Cursor 2.4 섹션 추가 |
+| 4 | (선택) 이미지 생성 결과 안내 | [ ] | `assets/` 저장 시 모바일에서 안내 표시 여부 결정 |
 
-#### 2. 코드 리뷰 자동화
-- **목표**: 코드 변경 시 자동으로 리뷰 및 개선 제안
-- **작업 내용**:
-  - [ ] 코드 리뷰 체크리스트 Skills 정의
-  - [ ] TypeScript 베스트 프랙티스 검증
-  - [ ] Flutter Material Design 가이드라인 검증
-  - [ ] 에러 핸들링 적절성 검증
-- **예상 시간**: 2시간
+#### Cursor 2.4 핵심 기능 요약
 
-#### 3. 문서 자동 업데이트
-- **목표**: 코드 변경 시 관련 문서 자동 업데이트
-- **작업 내용**:
-  - [ ] 문서 업데이트 워크플로우 Skills 정의
-  - [ ] API 문서 자동 생성
-  - [ ] 예제 코드 자동 추가
-- **예상 시간**: 2시간
+**참고**: [Cursor Changelog 2.4](https://cursor.com/changelog/2-4) (Subagents, Skills, Image Generation)
+
+| 기능 | 설명 | Editor | CLI |
+|------|------|--------|-----|
+| **Subagents** | 부모 에이전트의 하위 작업을 병렬로 처리하는 전용 에이전트. 코드베이스 조사·터미널·병렬 작업용 기본 서브에이전트 포함 | ✅ | ✅ |
+| **Skills** | `SKILL.md`로 정의. 커스텀 명령·스크립트·절차 지시. 슬래시 메뉴로 호출 가능 | ✅ | ✅ |
+| **Image Generation** | 텍스트/참조 이미지 → 이미지 생성(기본 저장: `assets/`). UI 목업·다이어그램 등 | ✅ | (CLI 지원 여부 확인 필요) |
+| **Clarification Questions** | 에이전트가 대화 중 사용자에게 질문 가능. 대기 중에도 파일 읽기·편집·명령 계속 가능 | ✅ | ✅ |
+| **Cursor Blame** | Enterprise. git blame에 AI 생성 여부·대화 링크 표시 | ✅ | - |
+
+#### Cursor Remote 관점 영향
+
+**그대로 활용되는 부분**:
+- **Subagents**: Cursor CLI가 서브에이전트를 사용하므로, Extension에서 `agent -p ...` 호출만 해도 2.4 동작이 반영됨. **추가 작업 없이** 모바일/웹에서 더 나은 응답 품질 기대 가능.
+- **Skills**: 워크스페이스에 `SKILL.md`를 두면 에이전트(및 CLI)가 자동으로 발견·적용. 원격에서도 같은 워크스페이스 기준으로 동작하면 그대로 적용됨.
+
+**검증·호환성 작업**:
+
+| # | 작업 | 목표 | 우선순위 |
+|---|------|------|----------|
+| 1 | CLI 2.4 호환성 확인 | `agent -p`, `--mode plan/ask`, `--resume` 등 현재 호출 방식이 2.4 CLI에서 정상 동작하는지 확인 | 높음 |
+| 2 | Clarification Questions 원격 대응 | 에이전트가 질문을 던졌을 때, 모바일에서 보낸 다음 메시지가 같은 세션으로 전달되는지 확인. 필요 시 세션/컨텍스트 유지 정리 | 높음 |
+| 3 | Skills 문서화 | 원격 사용 시 `SKILL.md` 활용 방법을 USER_MANUAL 또는 README에 짧게 안내 | 중간 |
+
+**선택 개선 (Cursor 2.4 연계)**:
+
+| # | 작업 | 목표 | 우선순위 |
+|---|------|------|----------|
+| 1 | 이미지 생성 결과 안내 | 에이전트가 이미지 생성 시 `assets/`에 저장됨. 채팅 응답에 "이미지 생성됨: assets/xxx.png" 등 안내가 오는지 확인 후, 필요 시 모바일에서 표시 개선 | 낮음 |
+| 2 | Cursor Remote용 Skill 예시 | 원격 작업에 유용한 플로우(예: "모바일에서 요청한 내용만 컨텍스트로 제한")를 `SKILL.md` 예시로 제공 | 낮음 |
+| 3 | Subagents 설정 노출 | 사용자가 서브에이전트 on/off 또는 커스텀 설정을 쓰는 경우, CLI 인자/설정이 바뀌면 Extension 호출 방식 점검 | 낮음 |
+
+#### 구체적 할 일
+
+**Phase A: 호환성·동작 확인 (우선)**
+
+1. Cursor 2.4 + Cursor CLI 설치 환경에서
+   - [ ] Extension → `agent -p`, `--mode plan/ask`, `--resume` 호출로 채팅 전송
+   - [ ] 모바일(또는 웹) → 릴레이 → Extension → CLI 흐름으로 한 번에 질문·추가 질문 보내기
+   - [ ] Clarification Questions 발생 시, 모바일에서 답변 메시지 보냈을 때 같은 세션에 반영되는지 확인
+
+2. 문서
+   - [ ] "Cursor 2.4 사용 시" 짧은 문단 추가 (USER_MANUAL 또는 README). Skills/Subagents는 기본 동작, 원격에서도 동일하게 적용됨을 명시
+
+**Phase B: 2.4 기능 활용 (선택)**
+
+1. Skills
+   - [ ] 프로젝트 루트 또는 `.cursor/`에 Cursor Remote용 `SKILL.md` 예시 추가 (선택)
+   - [ ] USER_MANUAL에 "원격 작업 시 Skills(SKILL.md) 활용" 한 줄 안내
+
+2. 이미지 생성
+   - [ ] 에이전트 이미지 생성 시 응답/에러 메시지에 `assets/` 경로가 포함되는지 확인
+   - [ ] 포함된다면 모바일 쪽에서 "이미지 생성됨" 등으로 표시할지 결정 후, 필요 시만 구현
+
+3. Subagents
+   - [ ] CLI/공식 문서에서 서브에이전트 관련 플래그나 설정이 바뀌면 Extension 쪽 `agent` 호출 인자 검토
+
+#### 참고 링크
+
+- [Cursor 2.4 Changelog](https://cursor.com/changelog/2-4)
+- [Cursor CLI Overview](https://cursor.com/docs/cli/overview)
+- [Subagents](https://cursor.com/docs/context/subagents)
+- [Agent Skills (SKILL.md)](https://cursor.com/docs/context/skills)
 
 ---
 
-## 📊 진행 상황 요약
+### 🟣 우선순위 5: 선택 기능
 
-### Phase 1: 기본 통신 인프라
-- [x] Cursor Extension 개발 (WebSocket 서버)
-- [x] PC 서버 개발 (브릿지)
-- [x] 모바일 앱 기본 UI
-- [x] 기본 명령 전송 (텍스트 삽입)
-
-### Phase 2: 고급 기능
-- [ ] AI 응답 스트리밍
-- [ ] 파일 편집 기능
-- [ ] 작업 결과 표시
-- [ ] 권한 요청 시스템
-
-### Phase 3: UX 개선
-- [ ] 실시간 로그 표시
-- [ ] 에러 처리 및 재시도
-- [ ] 연결 상태 관리
-- [x] 대화 히스토리 (완료)
-- [x] 모바일 앱 UI/UX 개선 (부분 완료 - Material Design 3, 테마 적용)
+| # | 작업 | 상태 | 비고 |
+|---|------|------|------|
+| 1 | 파일 편집 (모바일→에디터) | [ ] | 읽기/쓰기 API·권한·UI |
+| 2 | 작업 결과 표시 | [ ] | AI가 수정한 파일·명령 결과 요약 |
+| 3 | 권한 요청/응답 플로우 | [ ] | 파일 접근·명령 실행 전 확인 |
+| 4 | 온보딩·첫 설정 가이드 | [ ] | 단계별 안내·설정 검증 |
 
 ---
 
-## 🎯 즉시 시작 가능한 작업 (추천)
+## 🏗 아키텍처 요약 (현재)
 
-1. **AI 응답 스트리밍** (2시간) - 사용자 경험 크게 개선
-2. **실시간 로그 표시** (1.5시간) - 디버깅 시간 60% 단축
-3. **포트 권한 문제 해결** (1시간) - 안정성 향상
-
----
-
-## 📝 참고 문서
-
-- [개발 계획 상세](./docs/features/CURSOR_2.4_FEATURE_IMPROVEMENTS.md)
-- [알려진 문제점](./docs/troubleshooting/KNOWN_ISSUES.md)
-- [README 개발 로드맵](../README.md#development-roadmap)
+- **로컬**: 앱 ↔ Extension WebSocket(8766) ↔ Cursor CLI
+- **릴레이**: 앱 ↔ 릴레이 서버 ↔ Extension(RelayClient) ↔ Cursor CLI
+- **PC Server**: 사용하지 않음 (역할은 Extension에 통합됨)
 
 ---
 
-**작성 시간**: 2026년 1월 27일  
-**최종 수정**: 2026년 1월 27일
+## 📝 참고
+
+- [PROTOCOL.md](./PROTOCOL.md) - 메시지 형식
+- [USER_MANUAL.md](./USER_MANUAL.md) - 설치·사용
+- [cursor-extension/PUBLISHING.md](./cursor-extension/PUBLISHING.md) - Extension 배포
+- [mobile-app/DEPLOY_INSTRUCTIONS.md](./mobile-app/DEPLOY_INSTRUCTIONS.md) - 웹(Vercel) 배포

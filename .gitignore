@@ -53,6 +53,8 @@ mobile-app/.android/
 # Flutter iOS
 mobile-app/macos/Podfile.lock
 mobile-app/ios/Podfile.lock
+mobile-app/ios/Pods/
+mobile-app/macos/Pods/
 
 # Test scripts and temporary docs
 test-connection.sh

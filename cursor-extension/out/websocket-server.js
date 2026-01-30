@@ -82,18 +82,24 @@ class WebSocketServer {
         });
     }
     sendLogToClients(logData) {
-        if (!this.wss || this.clients.size === 0) {
-            return;
-        }
         const logMessage = JSON.stringify({
             type: 'log',
             ...logData
         });
-        this.clients.forEach((client) => {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(logMessage);
-            }
-        });
+        // 로컬 WebSocket 클라이언트에 전송
+        if (this.wss && this.clients.size > 0) {
+            this.clients.forEach((client) => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(logMessage);
+                }
+            });
+        }
+        // 릴레이 서버에도 전송 (연결되어 있는 경우)
+        if (this.relayClient && this.relayClient.isConnectedToSession()) {
+            this.relayClient.sendMessage(logMessage).catch(() => {
+                // 로그 전송 실패는 무시 (무한 루프 방지)
+            });
+        }
     }
     async findAvailablePort(startPort, maxAttempts = 10) {
         return new Promise((resolve) => {
@@ -330,6 +336,26 @@ class WebSocketServer {
                     });
                 }
             }
+        }
+    }
+    /**
+     * Broadcast message to all clients including relay (for logs)
+     * Unlike send(), this also sends log messages to relay
+     */
+    broadcast(message) {
+        // Send to local WebSocket clients
+        if (this.wss) {
+            this.clients.forEach((client) => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(message);
+                }
+            });
+        }
+        // Also send to relay server (including log messages)
+        if (this.relayClient && this.relayClient.isConnectedToSession()) {
+            this.relayClient.sendMessage(message).catch(() => {
+                // Ignore errors for broadcast (to prevent infinite loops)
+            });
         }
     }
     // HTTP POST 요청으로 메시지 수신 (hook에서 사용)

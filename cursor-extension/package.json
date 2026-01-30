@@ -2,7 +2,7 @@
   "name": "cursor-remote-extension",
   "displayName": "Cursor Remote",
   "description": "Remote control extension for Cursor IDE via WebSocket - Code anywhere, anytime with Cursor CLI",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "publisher": "jaloveeye",
   "license": "MIT",
   "repository": {
