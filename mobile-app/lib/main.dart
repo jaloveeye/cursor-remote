@@ -1738,11 +1738,37 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   @override
-  @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadConnectionSettings();
+    // 입력창 변경 감지 리스너 추가
+    _commandController.addListener(_onCommandTextChanged);
+  }
+  
+  // 입력창 텍스트 변경 시 UI 업데이트
+  void _onCommandTextChanged() {
+    if (mounted) {
+      setState(() {
+        // suffixIcon 표시 여부 등 UI 업데이트
+      });
+    }
+  }
+  
+  // 입력창 클리어 (한글 IME composing 버퍼 완전 초기화)
+  void _clearCommandInput() {
+    // 포커스 해제하여 IME composing 상태 종료
+    _commandFocusNode.unfocus();
+    
+    // TextEditingValue.empty로 완전 초기화 (composing 포함)
+    _commandController.value = TextEditingValue.empty;
+    
+    // 다음 프레임에서 포커스 재설정
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _commandFocusNode.requestFocus();
+      }
+    });
   }
   
   // 연결 설정 로드 (SharedPreferences)
@@ -1895,6 +1921,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _stopPolling();
     _localWebSocket?.sink.close();
+    _commandController.removeListener(_onCommandTextChanged);
     _commandController.dispose();
     _sessionIdController.dispose();
     _localIpController.dispose();
@@ -2852,13 +2879,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               // 버튼 클릭 상태 업데이트
                             });
                             _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false, agentMode: _selectedAgentMode);
-                            // 텍스트 클리어 후 UI 업데이트
-                            _commandController.clear();
-                            if (mounted) {
-                              setState(() {
-                                // TextField 클리어 후 UI 업데이트
-                              });
-                            }
+                            // 텍스트 클리어 (한글 IME 완전 초기화)
+                            _clearCommandInput();
                           }
                         }
                       },
@@ -2877,8 +2899,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                                   ),
                                   onPressed: () {
-                                    _commandController.clear();
-                                    setState(() {});
+                                    _clearCommandInput();
                                   },
                                 )
                               : null,
@@ -2890,19 +2911,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         enableSuggestions: true,
                         autocorrect: true,
                         textCapitalization: TextCapitalization.none,
-                        // 한영전환 문제 해결을 위한 설정
-                        onChanged: (value) {
-                          // 입력 변경 시 UI 강제 업데이트
-                          if (mounted) {
-                            setState(() {
-                              // TextField 상태 업데이트를 위해 setState 호출
-                            });
-                            // 포커스 유지
-                            if (!_commandFocusNode.hasFocus) {
-                              _commandFocusNode.requestFocus();
-                            }
-                          }
-                        },
+                        // onChanged는 리스너(_onCommandTextChanged)가 대신 처리
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -2915,12 +2924,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                     if (!mounted) return;
                                     final text = _commandController.text.trim();
                                     if (text.isNotEmpty) {
-                                      setState(() {});
                                       _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false, agentMode: _selectedAgentMode);
-                                      _commandController.clear();
-                                      if (mounted) {
-                                        setState(() {});
-                                      }
+                                      _clearCommandInput();
                                     }
                                   }
                                 : null,
@@ -2967,12 +2972,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                     if (!mounted) return;
                                     final text = _commandController.text.trim();
                                     if (text.isNotEmpty) {
-                                      setState(() {});
                                       _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: true, agentMode: _selectedAgentMode);
-                                      _commandController.clear();
-                                      if (mounted) {
-                                        setState(() {});
-                                      }
+                                      _clearCommandInput();
                                     }
                                   }
                                 : null,
