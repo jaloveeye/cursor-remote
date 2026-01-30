@@ -144,13 +144,21 @@ enum MessageFilter {
   log,          // 실시간 로그
 }
 
+// 로그 레벨
+enum LogLevel {
+  error,   // 에러
+  warning, // 경고
+  info,    // 정보
+}
+
 class MessageItem {
   final String text;
   final String type; // MessageType 상수 사용
   final DateTime timestamp;
   String? agentMode; // 에이전트 모드 (userPrompt 타입일 때만 사용)
+  LogLevel? logLevel; // 로그 레벨 (log 타입일 때만 사용)
   
-  MessageItem(this.text, {this.type = MessageType.normal, this.agentMode}) : timestamp = DateTime.now();
+  MessageItem(this.text, {this.type = MessageType.normal, this.agentMode, this.logLevel}) : timestamp = DateTime.now();
   
   // 필터 카테고리 결정
   MessageFilter? get filterCategory {
@@ -232,11 +240,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     MessageFilter.log: false,
   };
   
+  // 로그 레벨별 필터 상태 (기본값: 모두 활성화)
+  final Map<LogLevel, bool> _logLevelFilters = {
+    LogLevel.error: true,
+    LogLevel.warning: true,
+    LogLevel.info: true,
+  };
+  
   // 필터링된 메시지 목록
   List<MessageItem> get _filteredMessages {
     return _messages.where((msg) {
       final category = msg.filterCategory;
       if (category == null) return true;
+      
+      // 로그 메시지인 경우 레벨별 필터도 적용
+      if (category == MessageFilter.log && (_activeFilters[MessageFilter.log] ?? false)) {
+        final level = msg.logLevel ?? LogLevel.info;
+        if (!(_logLevelFilters[level] ?? true)) return false;
+      }
+      
       return _activeFilters[category] ?? true;
     }).toList();
   }
@@ -451,10 +473,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
         } else if (type == 'log') {
           // 실시간 로그 메시지 처리
-          final logLevel = data['level'] ?? 'info';
+          final logLevelStr = data['level'] ?? 'info';
           final logMessage = data['message'] ?? '';
           final logSource = data['source'] ?? 'unknown';
           final logError = data['error'];
+          
+          // 로그 레벨 파싱
+          LogLevel parsedLogLevel;
+          switch (logLevelStr) {
+            case 'error':
+              parsedLogLevel = LogLevel.error;
+              break;
+            case 'warn':
+            case 'warning':
+              parsedLogLevel = LogLevel.warning;
+              break;
+            default:
+              parsedLogLevel = LogLevel.info;
+          }
           
           String logPrefix = '';
           switch (logSource) {
@@ -462,7 +498,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               logPrefix = '🔌 [Extension]';
               break;
             case 'pc-server':
-              logPrefix = '🖥️ [Extension]';
+              logPrefix = '🖥️ [PC Server]';
               break;
             default:
               logPrefix = '📝 [Log]';
@@ -473,7 +509,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             logText += ' - Error: $logError';
           }
           
-          _messages.add(MessageItem(logText, type: MessageType.log));
+          _messages.add(MessageItem(logText, type: MessageType.log, logLevel: parsedLogLevel));
         } else if (type == 'agent_mode_selected') {
           // 자동 모드로 선택된 실제 모드 정보
           final requestedMode = data['requestedMode'] ?? 'auto';
@@ -967,10 +1003,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       } else if (type == 'log') {
         // 실시간 로그 메시지 처리
-        final logLevel = messageData['level'] ?? 'info';
+        final logLevelStr = messageData['level'] ?? 'info';
         final logMessage = messageData['message'] ?? '';
         final logSource = messageData['source'] ?? 'unknown';
         final logError = messageData['error'];
+        
+        // 로그 레벨 파싱
+        LogLevel parsedLogLevel;
+        switch (logLevelStr) {
+          case 'error':
+            parsedLogLevel = LogLevel.error;
+            break;
+          case 'warn':
+          case 'warning':
+            parsedLogLevel = LogLevel.warning;
+            break;
+          default:
+            parsedLogLevel = LogLevel.info;
+        }
         
         String logPrefix = '';
         switch (logSource) {
@@ -978,7 +1028,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             logPrefix = '🔌 [Extension]';
             break;
           case 'pc-server':
-            logPrefix = '🖥️ [Extension]';
+            logPrefix = '🖥️ [PC Server]';
             break;
           default:
             logPrefix = '📝 [Log]';
@@ -990,7 +1040,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
         
         setState(() {
-          _messages.add(MessageItem(logText, type: MessageType.log));
+          _messages.add(MessageItem(logText, type: MessageType.log, logLevel: parsedLogLevel));
         });
         _scrollToBottom();
       }
@@ -1550,21 +1600,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     
     // 로그 메시지 스타일
     if (message.type == MessageType.log) {
-      // 로그 레벨에 따라 색상 결정 (primary 색상 팔레트에 맞춤)
-      Color logColor = const Color(0xFFFF9800); // 오렌지 (경고)
-      IconData logIcon = Icons.bug_report;
+      // 로그 레벨에 따라 색상 결정
+      Color logColor;
+      IconData logIcon;
       
-      // 메시지에서 레벨 추출 (간단한 방법)
-      final text = message.text.toLowerCase();
-      if (text.contains('[error]') || text.contains('error:')) {
-        logColor = Theme.of(context).colorScheme.error; // 에러 색상
-        logIcon = Icons.error;
-      } else if (text.contains('[warn]') || text.contains('warning:')) {
-        logColor = const Color(0xFFFF9800); // 오렌지 (경고)
-        logIcon = Icons.warning;
-      } else {
-        logColor = Theme.of(context).colorScheme.tertiary; // 청록색 (정보)
-        logIcon = Icons.info;
+      switch (message.logLevel ?? LogLevel.info) {
+        case LogLevel.error:
+          logColor = Theme.of(context).colorScheme.error;
+          logIcon = Icons.error;
+        case LogLevel.warning:
+          logColor = const Color(0xFFFF9800); // 오렌지
+          logIcon = Icons.warning;
+        case LogLevel.info:
+          logColor = Theme.of(context).colorScheme.tertiary;
+          logIcon = Icons.info;
       }
       
       return Container(
@@ -2432,9 +2481,82 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               onSelected: (selected) {
                                 setState(() {
                                   _activeFilters[MessageFilter.log] = selected;
+                                  // 로그 필터 활성화 시 레벨 필터 모두 체크
+                                  if (selected) {
+                                    _logLevelFilters[LogLevel.error] = true;
+                                    _logLevelFilters[LogLevel.warning] = true;
+                                    _logLevelFilters[LogLevel.info] = true;
+                                  }
                                 });
                               },
                             ),
+                            // 로그 레벨 필터 (로그 필터 활성화 시에만 표시)
+                            if (_activeFilters[MessageFilter.log] ?? false) ...[
+                              const SizedBox(width: 4),
+                              Container(
+                                height: 24,
+                                width: 1,
+                                color: Theme.of(context).colorScheme.outlineVariant,
+                              ),
+                              const SizedBox(width: 4),
+                              FilterChip(
+                                label: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.error, size: 12, color: Color(0xFFDC3545)),
+                                    SizedBox(width: 2),
+                                    Text('Error', style: TextStyle(fontSize: 10)),
+                                  ],
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                selected: _logLevelFilters[LogLevel.error] ?? true,
+                                selectedColor: const Color(0xFFFFEBEE),
+                                checkmarkColor: const Color(0xFFDC3545),
+                                onSelected: (selected) {
+                                  setState(() {
+                                    _logLevelFilters[LogLevel.error] = selected;
+                                  });
+                                },
+                              ),
+                              FilterChip(
+                                label: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.warning, size: 12, color: Color(0xFFFF9800)),
+                                    SizedBox(width: 2),
+                                    Text('Warn', style: TextStyle(fontSize: 10)),
+                                  ],
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                selected: _logLevelFilters[LogLevel.warning] ?? true,
+                                selectedColor: const Color(0xFFFFF3E0),
+                                checkmarkColor: const Color(0xFFFF9800),
+                                onSelected: (selected) {
+                                  setState(() {
+                                    _logLevelFilters[LogLevel.warning] = selected;
+                                  });
+                                },
+                              ),
+                              FilterChip(
+                                label: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.info, size: 12, color: Theme.of(context).colorScheme.tertiary),
+                                    const SizedBox(width: 2),
+                                    const Text('Info', style: TextStyle(fontSize: 10)),
+                                  ],
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                selected: _logLevelFilters[LogLevel.info] ?? true,
+                                selectedColor: Theme.of(context).colorScheme.tertiaryContainer,
+                                checkmarkColor: Theme.of(context).colorScheme.tertiary,
+                                onSelected: (selected) {
+                                  setState(() {
+                                    _logLevelFilters[LogLevel.info] = selected;
+                                  });
+                                },
+                              ),
+                            ],
                             FilterChip(
                               label: const Row(
                                 mainAxisSize: MainAxisSize.min,
