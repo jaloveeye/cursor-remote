@@ -45,10 +45,16 @@ Git 푸시로 자동 배포하려면 Flutter가 없으므로 **자동 빌드는 
 저장소에 GitHub Actions 워크플로를 두고, 푸시 시 Flutter 빌드 후 Vercel에 배포할 수 있습니다.  
 이 경우 워크플로에서 Flutter 설치 → `flutter build web` → `vercel --prebuilt --prod` 순서로 실행하고, Vercel 토큰은 GitHub Secrets에 넣어 사용합니다.
 
+## Vercel 설정 파일 (한 곳만 사용)
+
+**배포에 쓰는 Vercel 설정은 `vercel-build-output.json` 한 곳뿐입니다.**  
+이 파일을 `build/web/vercel.json`으로 복사한 뒤 `build/web`에서 배포합니다.  
+`web/` 폴더에는 `vercel.json`을 두지 않습니다. (예전에 있던 `web/vercel.json`은 제거했으며, 여기에 `buildCommand`를 넣으면 Vercel에서 `flutter`를 찾지 못해 127 에러가 납니다.)
+
 ## 프로젝트 구조
 
 - `mobile-app/` - Flutter 프로젝트 루트
-- `mobile-app/web/` - Flutter web 소스 (index.html 등)
+- `mobile-app/web/` - Flutter web 소스 (index.html 등), vercel.json 없음
 - `mobile-app/build/web/` - 빌드 결과물 (**이 폴더 내용을 Vercel에 배포**)
-- `mobile-app/vercel.json` - 라우팅/헤더 설정 (원본)
-- `mobile-app/vercel-build-output.json` - 배포 시 `build/web/vercel.json`으로 복사해 사용
+- `mobile-app/vercel.json` - 라우팅/헤더 참고용 (배포 시에는 사용 안 함)
+- `mobile-app/vercel-build-output.json` - **배포 시 이 파일만** `build/web/vercel.json`으로 복사해 사용

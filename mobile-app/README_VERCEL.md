@@ -1,75 +1,37 @@
-# Vercel 배포 가이드
+# Flutter Web · Vercel 배포
 
-## 배포 방법
+Flutter Web은 **Vercel**을 통해 배포하며, **이미 빌드한 상태**(로컬에서 생성한 `build/web`)의 결과물만 업로드합니다.  
+Vercel 서버에서는 Flutter 빌드를 수행하지 않습니다.
 
-### 1. Vercel CLI 사용
+## 배포 절차 (권장)
 
 ```bash
-# Vercel CLI 설치 (없는 경우)
-npm i -g vercel
-
-# mobile-app 디렉토리로 이동
-cd mobile-app
-
-# 배포 (프로젝트 이름: cursor-remote-web)
-vercel --name cursor-remote-web
-
-# 프로덕션 배포 (프로젝트 이름: cursor-remote-web)
-vercel --name cursor-remote-web --prod
-
-# 프로덕션 배포
-vercel --prod
-```
-
-**프로젝트 이름 변경:**
-- 첫 배포 시: `vercel --name <원하는-이름>`으로 이름 지정
-- 기존 프로젝트 이름 변경: Vercel 대시보드 > Settings > General > Project Name에서 변경
-
-### 2. Vercel 웹 대시보드 사용
-
-1. [Vercel](https://vercel.com)에 로그인
-2. "New Project" 클릭
-3. GitHub 저장소 연결
-4. **Root Directory**: `mobile-app` 설정
-5. **Install Command**: `if cd flutter; then git pull && cd .. ; else git clone https://github.com/flutter/flutter.git; fi && flutter/bin/flutter doctor && flutter/bin/flutter config --enable-web`
-6. **Build Command**: `flutter/bin/flutter pub get && flutter/bin/flutter build web --release --base-href /`
-7. **Output Directory**: `build/web`
-8. Deploy 클릭
-
-### 3. 환경 변수 (필요한 경우)
-
-Vercel 대시보드에서 환경 변수 설정:
-- `RELAY_SERVER_URL`: 릴레이 서버 URL (기본값: https://relay.jaloveeye.com)
-
-## 빌드 설정
-
-- **Framework Preset**: Other
-- **Install Command**: `if cd flutter; then git pull && cd .. ; else git clone https://github.com/flutter/flutter.git; fi && flutter/bin/flutter doctor && flutter/bin/flutter config --enable-web`
-- **Build Command**: `flutter/bin/flutter pub get && flutter/bin/flutter build web --release --base-href /`
-- **Output Directory**: `build/web`
-
-## 주의사항
-
-1. Flutter SDK가 Vercel 빌드 환경에 설치되어 있어야 합니다.
-2. Vercel은 기본적으로 Flutter를 지원하지 않으므로, Docker 이미지나 커스텀 빌드 환경이 필요할 수 있습니다.
-3. 대안: GitHub Actions를 사용하여 빌드 후 Vercel에 배포하는 방법도 있습니다.
-
-## 문제 해결
-
-### Flutter SDK가 없는 경우
-
-Vercel의 Build Settings에서:
-1. "Override" 옵션 활성화
-2. Environment Variables에 Flutter 경로 추가
-3. 또는 Docker 이미지 사용
-
-### 빌드 실패 시
-
-로컬에서 먼저 테스트:
-```bash
+# 1. 로컬에서 Flutter web 빌드
 cd mobile-app
 flutter pub get
 flutter build web --release --base-href /
+
+# 2. 빌드 결과물에 Vercel 설정 복사
+cp vercel-build-output.json build/web/vercel.json
+
+# 3. 빌드된 디렉터리에서 Vercel 배포
+cd build/web
+vercel --prod
 ```
 
-빌드된 파일이 `build/web` 디렉토리에 생성되는지 확인합니다.
+처음 한 번은 `vercel link`로 Vercel 프로젝트를 연결할 수 있습니다.  
+이미 `mobile-app/.vercel/`에 연결돼 있으면 `build/web`에서 실행해도 같은 프로젝트로 배포됩니다.
+
+## 설정 파일
+
+| 파일 | 용도 |
+|------|------|
+| `vercel.json` | 라우팅/헤더 설정 (원본, 참고용) |
+| `vercel-build-output.json` | 배포 시 `build/web/vercel.json`으로 복사해 사용 |
+
+## Git 푸시 자동 배포
+
+Vercel 대시보드에서 Git 연동 시 **Build Command / Output Directory는 사용하지 않습니다.**  
+Flutter가 Vercel 빌드 환경에 없으므로, 자동 빌드 대신 위 CLI 절차(로컬 빌드 → `vercel --prod`) 또는 GitHub Actions로 빌드 후 `vercel --prebuilt --prod` 방식으로 배포하는 것을 권장합니다.
+
+자세한 내용은 [DEPLOY_INSTRUCTIONS.md](DEPLOY_INSTRUCTIONS.md)를 참고하세요.
