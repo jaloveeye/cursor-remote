@@ -1757,16 +1757,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   
   // 입력창 클리어 (한글 IME composing 버퍼 완전 초기화)
   void _clearCommandInput() {
-    // 포커스 해제하여 IME composing 상태 종료
-    _commandFocusNode.unfocus();
+    // 텍스트와 selection, composing 모두 초기화
+    _commandController.value = const TextEditingValue(
+      text: '',
+      selection: TextSelection.collapsed(offset: 0),
+      composing: TextRange.empty,
+    );
     
-    // TextEditingValue.empty로 완전 초기화 (composing 포함)
-    _commandController.value = TextEditingValue.empty;
+    // 강제 UI 업데이트
+    if (mounted) {
+      setState(() {});
+    }
     
-    // 다음 프레임에서 포커스 재설정
+    // 다음 프레임에서 한번 더 확인하여 상태 동기화
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _commandFocusNode.requestFocus();
+      if (mounted && _commandController.text.isEmpty) {
+        setState(() {});
+        // 포커스가 없으면 요청
+        if (!_commandFocusNode.hasFocus) {
+          _commandFocusNode.requestFocus();
+        }
       }
     });
   }
