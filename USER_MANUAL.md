@@ -539,10 +539,27 @@ flutter build ios        # iOS
 
 ## 8. 문제 해결
 
+### 에러 메시지 빠른 참조
+
+| 에러 메시지 | 원인 | 해결 방법 |
+|------------|------|----------|
+| `EADDRINUSE` | 포트가 이미 사용 중 | [포트 충돌 해결](#포트-충돌-eaddrinuse) |
+| `EPERM: operation not permitted` | 네트워크 권한 문제 | [권한 문제 해결](#포트-권한-문제-eperm) |
+| `Cursor CLI (agent)가 설치되어 있지 않습니다` | CLI 미설치 | [CLI 설치](#cli-미설치) |
+| `Failed to connect to relay` | 릴레이 서버 연결 실패 | [릴레이 연결 문제](#릴레이-서버-연결-실패) |
+| `Session not found` / `세션이 만료됨` | 세션 만료 또는 없음 | [세션 문제](#세션-만료-또는-없음) |
+| `No active editor` | 편집기 열려 있지 않음 | Cursor에서 파일 열기 |
+| `WebSocket connection failed` | WebSocket 연결 실패 | [WebSocket 문제](#websocket-연결-실패) |
+
+---
+
 ### Extension 관련
 
 #### Extension이 활성화되지 않는 경우
 
+**증상:** 상태 표시줄에 Cursor Remote가 표시되지 않음
+
+**해결:**
 ```bash
 # 다시 컴파일
 cd cursor-extension
@@ -550,132 +567,272 @@ npm install
 npm run compile
 ```
 
-- Cursor IDE 재시작
-- 명령 팔레트에서 "Developer: Reload Window"
+1. Cursor IDE 재시작
+2. 명령 팔레트에서 "Developer: Reload Window" 실행
+3. 그래도 안 되면: `Cmd+Shift+P` → "Start Cursor Remote Server"
 
 #### 상태 표시줄이 보이지 않는 경우
 
 1. `Cmd+Shift+P` → "Start Cursor Remote Server" 실행
-2. 안 되면 Extension 다시 로드
+2. Output 패널 확인: `View` → `Output` → "Cursor Remote" 선택
+3. 에러 메시지가 있으면 해당 섹션 참조
 
-### 로컬 서버 관련
+---
 
-#### PC 서버가 Extension에 연결되지 않는 경우
+### 포트 관련
 
-```bash
-# 포트 사용 확인
-lsof -i :8766
+#### 포트 충돌 (EADDRINUSE)
 
-# 다른 프로세스가 사용 중이면 종료
-kill -9 <PID>
+**증상:**
+```
+Error: listen EADDRINUSE: address already in use :::8766
+포트 8766이 사용 중입니다
 ```
 
-#### 모바일 앱이 PC 서버에 연결되지 않는 경우
+**해결:**
+```bash
+# 1. 포트 사용 확인
+lsof -i :8766
 
-1. **같은 Wi-Fi인지 확인**
-   - PC와 모바일이 같은 네트워크에 있는지 확인
-   
-2. **방화벽 확인**
-   - Mac: 시스템 환경설정 → 보안 및 개인 정보 보호 → 방화벽
-   - Windows: Windows Defender 방화벽 → 앱 허용
+# 2. 해당 프로세스 종료
+kill -9 <PID>
 
-3. **IP 주소 확인**
-   ```bash
-   # Mac/Linux
-   ifconfig | grep "inet "
-   
-   # Windows
-   ipconfig
-   ```
+# 3. Cursor IDE 재시작
+```
+
+> 💡 Extension은 8766 포트가 사용 중이면 8767~8776까지 자동으로 시도합니다.
+
+#### 포트 권한 문제 (EPERM)
+
+**증상:**
+```
+EPERM: operation not permitted
+connect EPERM ::1:8766
+connect EPERM 127.0.0.1:8766
+```
+
+**해결:**
+
+**macOS:**
+1. 시스템 설정 → 개인 정보 보호 및 보안 → 방화벽
+2. 방화벽 옵션 → Cursor 허용 추가
+3. 또는 방화벽 임시 비활성화 후 테스트
+
+**Windows:**
+1. Windows Defender 방화벽 → 앱 허용
+2. Cursor IDE 허용 추가
+
+**공통:**
+1. Cursor IDE 완전 종료 후 재시작
+2. 컴퓨터 재부팅
+
+---
+
+### CLI 관련
+
+#### CLI 미설치
+
+**증상:**
+```
+Cursor CLI (agent)가 설치되어 있지 않습니다
+```
+
+**해결:**
+```bash
+# 1. CLI 설치
+curl https://cursor.com/install -fsS | bash
+
+# 2. PATH 설정 (zsh)
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+
+# 3. 설치 확인
+which agent
+agent --version
+
+# 4. 인증
+agent login
+```
+
+#### CLI 실행 실패
+
+**증상:**
+```
+CLI 실행 실패: spawn agent ENOENT
+CLI 프롬프트 전송 실패
+```
+
+**해결:**
+```bash
+# 1. PATH 확인
+echo $PATH | grep -o '.local/bin'
+
+# 2. agent 실행 가능 확인
+which agent
+agent status
+
+# 3. 인증 상태 확인
+agent status
+# ✅ Authenticated as: your-email@example.com 가 표시되어야 함
+
+# 4. 테스트
+agent -p --output-format json --force 'test'
+```
+
+#### CLI 응답이 비어 있음
+
+**증상:** AI 응답이 오지 않거나 `[CLI Error]`만 표시
+
+**해결:**
+1. Cursor IDE가 실행 중인지 확인
+2. CLI 인증 상태 확인: `agent status`
+3. Output 패널에서 상세 로그 확인
+4. `--force` 옵션 없이 직접 테스트: `agent -p 'test prompt'`
+
+---
 
 ### 릴레이 서버 관련
 
-#### 세션이 만료된 경우
+#### 릴레이 서버 연결 실패
 
-- PC 서버를 재시작하면 새 세션 코드가 생성됩니다
-- 모바일 앱에서 새 세션 코드로 다시 연결
+**증상:**
+```
+Failed to connect to relay
+Poll failed: ...
+```
+
+**해결:**
+```bash
+# 1. 서버 상태 확인
+curl https://relay.jaloveeye.com/api/health
+
+# 정상 응답:
+# {"success":true,"data":{"status":"healthy","version":"1.0.0","redis":{"urlSet":true,"tokenSet":true}}}
+
+# 2. 인터넷 연결 확인
+ping google.com
+```
+
+#### 세션 만료 또는 없음
+
+**증상:**
+```
+Session not found
+세션이 만료되었습니다
+```
+
+**해결:**
+1. 새 세션 생성: Extension 상태 표시줄 클릭 → "Connect to Relay"
+2. 모바일 앱에서 새 세션 코드 입력
+3. 세션은 24시간 후 자동 만료됨
 
 #### SSE 연결이 자주 끊기는 경우
 
-- Vercel Free 플랜: SSE 타임아웃 10초
-- Vercel Pro 플랜: SSE 타임아웃 60초
-- 앱이 자동으로 재연결을 시도합니다
+**원인:** Vercel Serverless 타임아웃 제한
+- Free 플랜: 10초
+- Pro 플랜: 60초
 
-#### 릴레이 서버 상태 확인
+**해결:**
+- 앱이 자동으로 재연결 시도함
+- 연결 끊김이 잦으면 로컬 서버 모드 사용 권장
 
-```bash
-curl https://relay.jaloveeye.com/api/health
+---
+
+### WebSocket 관련
+
+#### WebSocket 연결 실패
+
+**증상:**
+```
+WebSocket connection failed
+WebSocket error: ...
 ```
 
-응답:
-```json
-{
-  "status": "ok",
-  "timestamp": 1705123456789
-}
-```
+**해결:**
+1. Extension 서버 실행 확인 (상태 표시줄)
+2. 포트 확인: `lsof -i :8766`
+3. 방화벽 설정 확인
+4. Cursor IDE 재시작
+
+---
+
+### 로컬 서버 관련
+
+#### 모바일 앱이 연결되지 않는 경우
+
+**체크리스트:**
+
+1. **같은 Wi-Fi 네트워크인지 확인**
+   - PC와 모바일이 동일한 네트워크에 있어야 함
+
+2. **IP 주소 확인**
+   ```bash
+   # Mac/Linux
+   ifconfig | grep "inet " | grep -v 127.0.0.1
+   
+   # Windows
+   ipconfig | findstr IPv4
+   ```
+
+3. **방화벽 확인**
+   - Mac: 시스템 설정 → 개인 정보 보호 및 보안 → 방화벽
+   - Windows: Windows Defender 방화벽 → 앱 허용
+
+4. **포트 접근 테스트** (다른 기기에서)
+   ```bash
+   nc -zv <PC_IP> 8766
+   ```
+
+---
 
 ### 공통 문제
 
 #### 메시지가 전달되지 않는 경우
 
-1. 모든 연결 상태 확인 (Extension, PC 서버, 모바일)
-2. 각 컴포넌트 로그 확인
-3. 네트워크 연결 상태 확인
+**디버깅 순서:**
+1. Extension 상태 확인 (상태 표시줄: "Connected" 또는 "Waiting")
+2. Output 패널 로그 확인 (`View` → `Output` → "Cursor Remote")
+3. 모바일 앱 연결 상태 확인
+4. 네트워크 연결 상태 확인
 
 #### 연결이 불안정한 경우
 
-- Wi-Fi 신호 강도 확인
-- 라우터 재시작
-- 릴레이 서버 사용 고려
+1. Wi-Fi 신호 강도 확인
+2. 라우터 재시작
+3. 로컬 서버 대신 릴레이 서버 사용 (또는 반대로)
+4. VPN 사용 중이면 비활성화 후 테스트
 
-### 알려진 문제점
+---
 
-#### 문제 1: 포트 권한 문제 (EPERM)
+### 로그 확인 방법
 
-**증상:**
-- 포트 8767, 8765에서 `EPERM: operation not permitted` 에러 발생
-- 서버는 시작되지만 실제로 포트를 사용할 수 없음
+#### Extension 로그
+1. Cursor IDE에서 `View` → `Output` (또는 `Cmd+Shift+U`)
+2. 드롭다운에서 "Cursor Remote" 선택
+3. 에러 메시지 및 상태 로그 확인
 
-**해결 방법:**
-1. Cursor IDE 재시작
-2. macOS 네트워크 권한 확인
-3. 포트를 사용 중인 프로세스 확인 및 종료
+#### 로그 레벨
+| 레벨 | 의미 |
+|------|------|
+| `INFO` | 일반 정보 |
+| `WARN` | 경고 (동작에 영향 없음) |
+| `ERROR` | 에러 (기능 동작 불가) |
 
-#### 문제 2: Extension 연결 실패 (EPERM)
+---
 
-**증상:**
-- PC 서버가 Extension(포트 8766)에 연결하려 할 때 EPERM 에러
-- `connect EPERM ::1:8766` 및 `connect EPERM 127.0.0.1:8766`
+### 자주 묻는 질문
 
-**해결 방법:**
-1. Cursor IDE 재시작
-2. Extension이 완전히 로드될 때까지 대기
-3. 네트워크 권한 확인
+**Q: Extension이 자동으로 시작되지 않아요**
+> A: `Cmd+Shift+P` → "Start Cursor Remote Server" 실행
 
-#### 문제 3: 에러 핸들링 개선 필요
+**Q: 세션 코드는 어디서 확인하나요?**
+> A: Extension 상태 표시줄 클릭 → "Connect to Relay" 선택 시 생성됨
 
-**현재 문제:**
-- 포트 에러 발생 시 서버는 계속 실행되지만 기능이 동작하지 않음
-- 사용자에게 명확한 피드백이 부족
+**Q: 로컬 모드와 릴레이 모드 중 뭘 써야 하나요?**
+> A: 같은 Wi-Fi면 로컬 모드 (빠름), 다른 네트워크면 릴레이 모드 사용
 
-**임시 해결:**
-- 서버 로그를 확인하여 에러 메시지 확인
-- Cursor IDE 및 PC 서버 재시작
-
-#### 문제 4: 포트 충돌
-
-**증상:**
-- WebSocket 서버 생성 시 에러가 발생해도 서버는 계속 실행
-- HTTP 서버도 마찬가지
-
-**해결 방법:**
-- 포트 사용 가능 여부를 사전에 확인:
-  ```bash
-  lsof -i :8766
-  lsof -i :8767
-  ```
-- 사용 중인 프로세스가 있으면 종료 후 재시작
+**Q: CLI 모드와 IDE 모드의 차이는?**
+> A: CLI 모드는 `agent` 명령어 사용, IDE 모드는 편집기에 직접 삽입. CLI 모드 권장.
 
 ---
 
@@ -721,4 +878,4 @@ RELAY_SERVER=https://relay.jaloveeye.com npm start
 ---
 
 **작성 시간**: 2026년 1월 21일  
-**수정 시간**: 2026년 1월 21일
+**수정 시간**: 2026년 1월 30일 (에러 메시지 정리)
