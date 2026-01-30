@@ -1767,6 +1767,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // 상태 초기화
     _commandText = '';
     
+    // Controller 텍스트 클리어
+    _commandController.clear();
+    
     // Key를 변경하여 TextField 완전 재생성 (IME 상태 완전 리셋)
     setState(() {
       _textFieldKey++;
