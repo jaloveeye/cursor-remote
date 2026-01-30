@@ -1,11 +1,13 @@
 # Cursor Remote - 앞으로 할 일
 
-**최종 수정**: 2026-01-30 15:30
+**최종 수정**: 2026-01-30 18:00
 
 ---
 
 ## ✅ 최근 완료 (참고)
 
+- Cursor 2.4 호환성 확인 및 문서화 완료
+- 프롬프트 입력창 한글/영어 입력 버그 수정
 - 로그 레벨별 필터 기능 추가 (Error/Warn/Info)
 - iOS/macOS Pods 디렉토리 gitignore 추가
 - Extension 0.3.1 준비 (버전·CHANGELOG·vsix)
@@ -53,9 +55,9 @@
 
 | # | 작업 | 상태 | 비고 |
 |---|------|------|------|
-| 1 | **CLI 2.4 호환성 확인** | [ ] | `agent -p`, `--mode plan/ask`, `--resume` 등 2.4에서 정상 동작 검증 |
-| 2 | **Clarification Questions 원격** | [ ] | 에이전트 질문 시 모바일에서 보낸 답변이 같은 세션으로 전달되는지 확인 |
-| 3 | **Skills·2.4 문서화** | [ ] | USER_MANUAL/README에 "Cursor 2.4·Skills(SKILL.md) 원격 사용" 안내 |
+| 1 | **CLI 2.4 호환성 확인** | [x] | ✅ 완료 - `agent -p`, `--mode plan/ask`, `--resume` 정상 동작 확인 (2.4.21) |
+| 2 | **Clarification Questions 원격** | [x] | ✅ 완료 - `assistant` 타입으로 전달, `--resume`으로 세션 재개 및 답변 가능 |
+| 3 | **Skills·2.4 문서화** | [x] | ✅ 완료 - USER_MANUAL에 Cursor 2.4 섹션 추가 |
 | 4 | (선택) 이미지 생성 결과 안내 | [ ] | `assets/` 저장 시 모바일에서 안내 표시 여부 결정 |
 
 #### Cursor 2.4 핵심 기능 요약
