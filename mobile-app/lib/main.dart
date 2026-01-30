@@ -226,6 +226,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final List<MessageItem> _messages = [];
   final TextEditingController _commandController = TextEditingController();
   final TextEditingController _sessionIdController = TextEditingController();
+  
+  // 입력창 상태 관리
+  String _commandText = ''; // 입력창 텍스트 상태
+  int _textFieldKey = 0; // TextField 재생성용 Key
   final FocusNode _sessionIdFocusNode = FocusNode();
   final FocusNode _localIpFocusNode = FocusNode();
   final FocusNode _commandFocusNode = FocusNode();
@@ -1749,34 +1753,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // 입력창 텍스트 변경 시 UI 업데이트
   void _onCommandTextChanged() {
     if (mounted) {
-      setState(() {
-        // suffixIcon 표시 여부 등 UI 업데이트
-      });
+      final newText = _commandController.text;
+      if (_commandText != newText) {
+        setState(() {
+          _commandText = newText;
+        });
+      }
     }
   }
   
   // 입력창 클리어 (한글 IME composing 버퍼 완전 초기화)
   void _clearCommandInput() {
-    // 텍스트와 selection, composing 모두 초기화
-    _commandController.value = const TextEditingValue(
-      text: '',
-      selection: TextSelection.collapsed(offset: 0),
-      composing: TextRange.empty,
-    );
+    // 상태 초기화
+    _commandText = '';
     
-    // 강제 UI 업데이트
-    if (mounted) {
-      setState(() {});
-    }
+    // Key를 변경하여 TextField 완전 재생성 (IME 상태 완전 리셋)
+    setState(() {
+      _textFieldKey++;
+    });
     
-    // 다음 프레임에서 한번 더 확인하여 상태 동기화
+    // 새 TextField에 포커스 요청
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _commandController.text.isEmpty) {
-        setState(() {});
-        // 포커스가 없으면 요청
-        if (!_commandFocusNode.hasFocus) {
-          _commandFocusNode.requestFocus();
-        }
+      if (mounted) {
+        _commandFocusNode.requestFocus();
       }
     });
   }
@@ -2881,27 +2880,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             !HardwareKeyboard.instance.isShiftPressed &&
                             _commandFocusNode.hasFocus &&
                             _isConnected) {
-                          final text = _commandController.text.trim();
+                          final text = _commandText.trim();
                           if (text.isNotEmpty) {
-                            // Enter 키 기본 동작(줄바꿈) 방지
-                            // Send to Prompt 실행
-                            setState(() {
-                              // 버튼 클릭 상태 업데이트
-                            });
                             _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false, agentMode: _selectedAgentMode);
-                            // 텍스트 클리어 (한글 IME 완전 초기화)
                             _clearCommandInput();
                           }
                         }
                       },
                       child: TextField(
+                        key: ValueKey(_textFieldKey), // Key 변경 시 TextField 재생성
                         controller: _commandController,
                         focusNode: _commandFocusNode,
                         decoration: InputDecoration(
                           labelText: '프롬프트 입력',
                           hintText: 'Cursor에게 요청할 내용을 입력하세요...',
                           prefixIcon: const Icon(Icons.edit_note),
-                          suffixIcon: _commandController.text.isNotEmpty
+                          suffixIcon: _commandText.isNotEmpty
                               ? IconButton(
                                   icon: Icon(
                                     Icons.clear,
@@ -2921,7 +2915,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         enableSuggestions: true,
                         autocorrect: true,
                         textCapitalization: TextCapitalization.none,
-                        // onChanged는 리스너(_onCommandTextChanged)가 대신 처리
+                        onChanged: (value) {
+                          // 상태 변수 업데이트로 UI 확실하게 갱신
+                          if (mounted && _commandText != value) {
+                            setState(() {
+                              _commandText = value;
+                            });
+                          }
+                        },
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -2929,10 +2930,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       children: [
                         Expanded(
                           child: FilledButton.icon(
-                            onPressed: _isConnected && _commandController.text.trim().isNotEmpty && !_isWaitingForResponse
+                            onPressed: _isConnected && _commandText.trim().isNotEmpty && !_isWaitingForResponse
                                 ? () {
                                     if (!mounted) return;
-                                    final text = _commandController.text.trim();
+                                    final text = _commandText.trim();
                                     if (text.isNotEmpty) {
                                       _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: false, agentMode: _selectedAgentMode);
                                       _clearCommandInput();
@@ -2977,10 +2978,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           ),
                         ] else ...[
                           OutlinedButton.icon(
-                            onPressed: _isConnected && _commandController.text.trim().isNotEmpty
+                            onPressed: _isConnected && _commandText.trim().isNotEmpty
                                 ? () {
                                     if (!mounted) return;
-                                    final text = _commandController.text.trim();
+                                    final text = _commandText.trim();
                                     if (text.isNotEmpty) {
                                       _sendCommand('insert_text', text: text, prompt: true, execute: true, newSession: true, agentMode: _selectedAgentMode);
                                       _clearCommandInput();
