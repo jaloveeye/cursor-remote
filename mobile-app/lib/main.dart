@@ -1154,7 +1154,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       try {
         final response = await http.get(
           Uri.parse(
-              '$RELAY_SERVER_URL/api/poll?sessionId=$_sessionId&deviceType=mobile'),
+              '$RELAY_SERVER_URL/api/poll?sessionId=$_sessionId&deviceType=mobile&deviceId=$_deviceId'),
         );
 
         if (response.statusCode == 200) {
