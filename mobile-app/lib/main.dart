@@ -2490,16 +2490,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       appBar: AppBar(
         title: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Icon(
-                Icons.terminal_rounded,
-                color: Theme.of(context).colorScheme.onPrimaryContainer,
-                size: 20,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.asset(
+                'images/app_icon.png',
+                width: 28,
+                height: 28,
               ),
             ),
             const SizedBox(width: 8),
