@@ -35,7 +35,8 @@ export class RelayClient {
   private onSessionConnectedCallback: (() => void) | null = null;
   private lastSessionDiscoveryTime: number = 0;
   private lastPollHeartbeatTime: number = 0;
-  private readonly SESSION_DISCOVERY_INTERVAL = 10000; // 10초마다 한 번만
+  private lastNoSessionHeartbeatTime: number = 0; // 세션 없을 때 폴링 동작 확인용
+  private readonly SESSION_DISCOVERY_INTERVAL = 5000; // 5초마다 세션 탐지 (빠른 연결용)
   private readonly POLL_INTERVAL = 2000; // 2초마다 폴링
   private readonly POLL_HEARTBEAT_INTERVAL = 30000; // 30초마다 폴링 동작 로그
 
@@ -112,8 +113,13 @@ export class RelayClient {
       clearInterval(this.pollInterval);
     }
     this.pollInterval = setInterval(() => {
-      this.pollMessages();
+      this.pollMessages().catch((err) => {
+        this.logError("pollMessages threw", err);
+      });
     }, this.POLL_INTERVAL);
+    this.log(
+      "⏱️ Poll interval started (every 2s) - 세션 탐지/메시지 수신 대기 중"
+    );
   }
 
   /**
@@ -122,6 +128,16 @@ export class RelayClient {
   private async pollMessages(): Promise<void> {
     // If no session, try to discover one
     if (!this.sessionId) {
+      const now = Date.now();
+      if (
+        now - this.lastNoSessionHeartbeatTime >=
+        this.POLL_HEARTBEAT_INTERVAL
+      ) {
+        this.lastNoSessionHeartbeatTime = now;
+        this.log(
+          "⏳ 세션 없음 - 폴링 루프 동작 중 (모바일에서 릴레이 세션 생성 후 대기)"
+        );
+      }
       const discoveredSessionId = await this.discoverSession();
       if (discoveredSessionId) {
         this.log(
@@ -231,25 +247,42 @@ export class RelayClient {
 
     try {
       const discoveryUrl = `${this.relayServerUrl}/api/sessions-waiting-for-pc`;
+      this.log(`🔍 Discovery: GET ${discoveryUrl}`);
       const data = await this.httpRequest(discoveryUrl);
 
       if (!data) {
+        this.log("🔍 Discovery: API returned no data");
         return null;
       }
-      if (
-        data.success &&
-        data.data?.sessions &&
-        data.data.sessions.length > 0
-      ) {
-        const foundSession = data.data.sessions[0];
-        if (foundSession.sessionId) {
-          return foundSession.sessionId;
-        }
+      if (!data.success) {
+        this.log(
+          `🔍 Discovery: API error - ${(data as any).error ?? "unknown"}`
+        );
+        return null;
       }
-
+      const sessions = data.data?.sessions ?? [];
+      const sessionsCount = Array.isArray(sessions) ? sessions.length : 0;
+      this.log(
+        `🔍 Discovery: 서버 응답 success=true, sessionsCount=${sessionsCount}`
+      );
+      if (sessionsCount === 0) {
+        this.log(
+          "🔍 Discovery: no sessions waiting for PC (모바일이 세션 생성 후 대기 중이어야 함)"
+        );
+        this.log(
+          "💡 다른 Cursor 창이 열려 있으면 그 익스텐션이 세션을 먼저 가져갔을 수 있습니다. 다른 창을 모두 닫고 새 세션으로 다시 시도해 보세요."
+        );
+        return null;
+      }
+      const foundSession = sessions[0];
+      if (foundSession.sessionId) {
+        this.log(`🔍 Discovery: 세션 발견 → ${foundSession.sessionId}`);
+        return foundSession.sessionId;
+      }
+      this.log("🔍 Discovery: session has no sessionId");
       return null;
     } catch (error) {
-      // Ignore errors (session may not exist yet)
+      this.logError("Discovery failed", error);
       return null;
     }
   }
