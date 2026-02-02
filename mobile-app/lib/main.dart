@@ -577,7 +577,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final TextEditingController _sessionIdController = TextEditingController();
 
   // 입력창 상태 관리
-  String _commandText = ''; // 입력창 텍스트 상태
   int _textFieldKey = 0; // TextField 재생성용 Key
   DateTime? _lastPromptSubmitTime; // Enter 중복 전송 방지용 debounce
   final FocusNode _sessionIdFocusNode = FocusNode();
@@ -2271,8 +2270,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadConnectionSettings();
-    // 입력창 변경 감지 리스너 추가
-    _commandController.addListener(_onCommandTextChanged);
     // 설정에서 기본 에이전트 모드 적용
     _selectedAgentMode = AppSettings().defaultAgentMode;
     // 설정 변경 리스너 추가
@@ -2287,23 +2284,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  // 입력창 텍스트 변경 시 UI 업데이트
-  void _onCommandTextChanged() {
-    if (mounted) {
-      final newText = _commandController.text;
-      if (_commandText != newText) {
-        setState(() {
-          _commandText = newText;
-        });
-      }
-    }
-  }
-
   // 입력창 클리어 (한글 IME composing 버퍼 완전 초기화)
   void _clearCommandInput() {
-    // 상태 초기화
-    _commandText = '';
-
     // Controller 텍스트 클리어
     _commandController.clear();
 
@@ -2473,7 +2455,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     AppSettings().removeListener(_onAppSettingsChanged);
     _stopPolling();
     _localWebSocket?.sink.close();
-    _commandController.removeListener(_onCommandTextChanged);
     _commandController.dispose();
     _sessionIdController.dispose();
     _localIpController.dispose();
@@ -3798,122 +3779,120 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             newSession: false,
                             agentMode: _selectedAgentMode);
                         _clearCommandInput();
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (mounted) {
-                            _commandController.text = '';
-                            if (_commandText.isNotEmpty) {
-                              setState(() => _commandText = '');
-                            }
-                          }
-                        });
                       },
-                      child: TextField(
-                        key: ValueKey(_textFieldKey), // Key 변경 시 TextField 재생성
-                        controller: _commandController,
-                        focusNode: _commandFocusNode,
-                        decoration: InputDecoration(
-                          labelText: '프롬프트 입력',
-                          hintText: 'Cursor에게 요청할 내용을 입력하세요...',
-                          prefixIcon: const Icon(Icons.edit_note),
-                          suffixIcon: _commandText.isNotEmpty
-                              ? IconButton(
-                                  icon: Icon(
-                                    Icons.clear,
-                                    size: 20,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
-                                  ),
-                                  onPressed: () {
-                                    _clearCommandInput();
-                                  },
-                                )
-                              : null,
-                        ),
-                        textInputAction: TextInputAction.newline,
-                        keyboardType: TextInputType.multiline,
-                        maxLines: 3,
-                        minLines: 2,
-                        enableSuggestions: true,
-                        autocorrect: true,
-                        textCapitalization: TextCapitalization.none,
-                        onChanged: (value) {
-                          // 상태 변수 업데이트로 UI 확실하게 갱신
-                          if (mounted && _commandText != value) {
-                            setState(() {
-                              _commandText = value;
-                            });
-                          }
+                      // ValueListenableBuilder로 입력창 감싸기 (전체 UI 리빌드 방지)
+                      child: ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: _commandController,
+                        builder: (context, textValue, child) {
+                          final hasText = textValue.text.trim().isNotEmpty;
+                          return TextField(
+                            key: ValueKey(_textFieldKey),
+                            controller: _commandController,
+                            focusNode: _commandFocusNode,
+                            decoration: InputDecoration(
+                              labelText: '프롬프트 입력',
+                              hintText: 'Cursor에게 요청할 내용을 입력하세요...',
+                              prefixIcon: const Icon(Icons.edit_note),
+                              suffixIcon: hasText
+                                  ? IconButton(
+                                      icon: Icon(
+                                        Icons.clear,
+                                        size: 20,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                      ),
+                                      onPressed: _clearCommandInput,
+                                    )
+                                  : null,
+                            ),
+                            textInputAction: TextInputAction.newline,
+                            keyboardType: TextInputType.multiline,
+                            maxLines: 3,
+                            minLines: 2,
+                            enableSuggestions: true,
+                            autocorrect: true,
+                            textCapitalization: TextCapitalization.none,
+                          );
                         },
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton.icon(
-                            onPressed: _isConnected &&
-                                    _commandText.trim().isNotEmpty &&
-                                    !_isWaitingForResponse
-                                ? () {
-                                    if (!mounted) return;
-                                    final text = _commandText.trim();
-                                    if (text.isNotEmpty) {
-                                      _sendCommand('insert_text',
-                                          text: text,
-                                          prompt: true,
-                                          execute: true,
-                                          newSession: false,
-                                          agentMode: _selectedAgentMode);
-                                      _clearCommandInput();
-                                    }
-                                  }
-                                : null,
-                            icon: _isWaitingForResponse
-                                ? SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        Theme.of(context).colorScheme.onPrimary,
-                                      ),
-                                    ),
-                                  )
-                                : const Icon(Icons.send, size: 18),
-                            label:
-                                Text(_isWaitingForResponse ? '전송 중...' : '전송'),
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
+                    // 버튼 영역도 ValueListenableBuilder로 감싸기
+                    ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: _commandController,
+                      builder: (context, textValue, child) {
+                        final hasText = textValue.text.trim().isNotEmpty;
+                        return Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton.icon(
+                                onPressed:
+                                    _isConnected && hasText && !_isWaitingForResponse
+                                        ? () {
+                                            if (!mounted) return;
+                                            final text =
+                                                _commandController.text.trim();
+                                            if (text.isNotEmpty) {
+                                              _sendCommand('insert_text',
+                                                  text: text,
+                                                  prompt: true,
+                                                  execute: true,
+                                                  newSession: false,
+                                                  agentMode: _selectedAgentMode);
+                                              _clearCommandInput();
+                                            }
+                                          }
+                                        : null,
+                                icon: _isWaitingForResponse
+                                    ? SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                            Theme.of(context)
+                                                .colorScheme
+                                                .onPrimary,
+                                          ),
+                                        ),
+                                      )
+                                    : const Icon(Icons.send, size: 18),
+                                label: Text(
+                                    _isWaitingForResponse ? '전송 중...' : '전송'),
+                                style: FilledButton.styleFrom(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 14),
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        if (_isWaitingForResponse) ...[
-                          OutlinedButton.icon(
-                            onPressed: _isConnected
-                                ? () {
-                                    if (!mounted) return;
-                                    setState(() {
-                                      _isWaitingForResponse = false;
-                                    });
-                                    _sendCommand('stop_prompt');
-                                  }
-                                : null,
-                            icon: const Icon(Icons.stop, size: 18),
-                            label: const Text('중지'),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 14, horizontal: 16),
-                            ),
-                          ),
-                        ] else ...[
-                          OutlinedButton.icon(
-                            onPressed:
-                                _isConnected && _commandText.trim().isNotEmpty
+                            const SizedBox(width: 8),
+                            if (_isWaitingForResponse) ...[
+                              OutlinedButton.icon(
+                                onPressed: _isConnected
                                     ? () {
                                         if (!mounted) return;
-                                        final text = _commandText.trim();
+                                        setState(() {
+                                          _isWaitingForResponse = false;
+                                        });
+                                        _sendCommand('stop_prompt');
+                                      }
+                                    : null,
+                                icon: const Icon(Icons.stop, size: 18),
+                                label: const Text('중지'),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 14, horizontal: 16),
+                                ),
+                              ),
+                            ] else ...[
+                              OutlinedButton.icon(
+                                onPressed: _isConnected && hasText
+                                    ? () {
+                                        if (!mounted) return;
+                                        final text =
+                                            _commandController.text.trim();
                                         if (text.isNotEmpty) {
                                           _sendCommand('insert_text',
                                               text: text,
@@ -3925,15 +3904,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                         }
                                       }
                                     : null,
-                            icon: const Icon(Icons.refresh, size: 18),
-                            label: const Text('새 대화'),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 14, horizontal: 16),
-                            ),
-                          ),
-                        ],
-                      ],
+                                icon: const Icon(Icons.refresh, size: 18),
+                                label: const Text('새 대화'),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 14, horizontal: 16),
+                                ),
+                              ),
+                            ],
+                          ],
+                        );
+                      },
                     ),
                     const SizedBox(height: 8),
                     // 세션 정보 및 대화 히스토리 표시 (설정에서 활성화한 경우만)
