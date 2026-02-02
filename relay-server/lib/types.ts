@@ -22,7 +22,7 @@ export interface DeviceInfo {
 export interface Session {
   sessionId: string;
   pcDeviceId?: string;
-  mobileDeviceId?: string;
+  mobileDeviceIds?: string[];  // 멀티 클라이언트 지원을 위해 배열로 변경
   createdAt: number;
   expiresAt: number;
 }
@@ -42,10 +42,12 @@ export const REDIS_KEYS = {
   sessionList: () => `sessions:list`,
   // 디바이스 → 세션 매핑
   deviceSession: (deviceId: string) => `device:${deviceId}:session`,
-  // 메시지 큐 (PC → Mobile)
+  // 메시지 큐 (PC → Mobile) - 세션 단위 (deprecated, 하위 호환용)
   messagesPC2Mobile: (sessionId: string) => `messages:${sessionId}:pc2mobile`,
-  // 메시지 큐 (Mobile → PC)
+  // 메시지 큐 (Mobile → PC) - 세션 단위
   messagesMobile2PC: (sessionId: string) => `messages:${sessionId}:mobile2pc`,
+  // 메시지 큐 (PC → 특정 Mobile 클라이언트) - 클라이언트별 큐
+  messagesForDevice: (sessionId: string, deviceId: string) => `messages:${sessionId}:device:${deviceId}`,
   // 푸시 알림용 pubsub 채널
   channel: (sessionId: string, target: DeviceType) => `channel:${sessionId}:${target}`,
 } as const;

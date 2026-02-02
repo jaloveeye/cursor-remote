@@ -82,7 +82,13 @@ export default async function handler(
     
     // 메시지 가져오기
     const maxLimit = Math.min(parseInt(limit as string) || 10, 50);
-    const messages = await receiveMessages(sessionId, deviceType as DeviceType, maxLimit);
+    // deviceId가 있으면 개별 큐에서 메시지 수신 (멀티 클라이언트 지원)
+    const messages = await receiveMessages(
+      sessionId, 
+      deviceType as DeviceType, 
+      maxLimit,
+      deviceId as string | undefined
+    );
     
     const response: ApiResponse<{ messages: RelayMessage[]; count: number }> = {
       success: true,

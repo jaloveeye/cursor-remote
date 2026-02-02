@@ -89,24 +89,26 @@ export async function findSessionsWaitingForPC(): Promise<Session[]> {
     }
     
     // 각 세션을 조회하여 PC deviceId가 없는 세션 찾기
-    // mobileDeviceId가 있으면 모바일 클라이언트가 연결한 세션
-    // mobileDeviceId가 없으면 세션만 생성하고 아직 연결하지 않은 세션
+    // mobileDeviceIds가 있으면 모바일 클라이언트가 연결한 세션
+    // mobileDeviceIds가 없으면 세션만 생성하고 아직 연결하지 않은 세션
     const waitingSessions: Session[] = [];
     
     for (const sid of sessionIds) {
       const session = await getSession(sid);
       if (session && !session.pcDeviceId) {
         // PC deviceId가 없으면 대기 중인 세션
-        // mobileDeviceId가 있으면 우선순위 높음 (이미 모바일 클라이언트가 연결함)
+        // mobileDeviceIds가 있으면 우선순위 높음 (이미 모바일 클라이언트가 연결함)
         waitingSessions.push(session);
       }
     }
     
-    // mobileDeviceId가 있는 세션을 우선순위로 정렬 (최신순)
+    // mobileDeviceIds가 있는 세션을 우선순위로 정렬 (최신순)
     waitingSessions.sort((a, b) => {
-      // mobileDeviceId가 있는 세션 우선
-      if (a.mobileDeviceId && !b.mobileDeviceId) return -1;
-      if (!a.mobileDeviceId && b.mobileDeviceId) return 1;
+      // mobileDeviceIds가 있는 세션 우선
+      const aHasMobile = a.mobileDeviceIds && a.mobileDeviceIds.length > 0;
+      const bHasMobile = b.mobileDeviceIds && b.mobileDeviceIds.length > 0;
+      if (aHasMobile && !bHasMobile) return -1;
+      if (!aHasMobile && bHasMobile) return 1;
       // 둘 다 같으면 최신순
       return b.createdAt - a.createdAt;
     });
@@ -131,7 +133,13 @@ export async function joinSession(
   if (deviceType === 'pc') {
     session.pcDeviceId = deviceId;
   } else {
-    session.mobileDeviceId = deviceId;
+    // 멀티 클라이언트 지원: 배열에 추가 (중복 방지)
+    if (!session.mobileDeviceIds) {
+      session.mobileDeviceIds = [];
+    }
+    if (!session.mobileDeviceIds.includes(deviceId)) {
+      session.mobileDeviceIds.push(deviceId);
+    }
   }
   
   await redis.set(
@@ -150,6 +158,41 @@ export async function joinSession(
   return session;
 }
 
+// 세션에서 디바이스 연결 해제
+export async function leaveSession(
+  sessionId: string,
+  deviceId: string,
+  deviceType: DeviceType
+): Promise<Session | null> {
+  const session = await getSession(sessionId);
+  if (!session) return null;
+  
+  // 세션에서 디바이스 제거
+  if (deviceType === 'pc') {
+    if (session.pcDeviceId === deviceId) {
+      session.pcDeviceId = undefined;
+    }
+  } else {
+    // 모바일 클라이언트 배열에서 제거
+    if (session.mobileDeviceIds) {
+      session.mobileDeviceIds = session.mobileDeviceIds.filter(id => id !== deviceId);
+    }
+    // 해당 클라이언트의 메시지 큐 삭제
+    await redis.del(REDIS_KEYS.messagesForDevice(sessionId, deviceId));
+  }
+  
+  await redis.set(
+    REDIS_KEYS.session(sessionId),
+    JSON.stringify(session),
+    { ex: TTL.session }
+  );
+  
+  // 디바이스 → 세션 매핑 삭제
+  await redis.del(REDIS_KEYS.deviceSession(deviceId));
+  
+  return session;
+}
+
 // 디바이스의 세션 조회
 export async function getDeviceSession(deviceId: string): Promise<string | null> {
   return await redis.get<string>(REDIS_KEYS.deviceSession(deviceId));
@@ -160,26 +203,49 @@ export async function sendMessage(
   sessionId: string,
   message: RelayMessage
 ): Promise<void> {
-  const queueKey = message.to === 'mobile' 
-    ? REDIS_KEYS.messagesPC2Mobile(sessionId)
-    : REDIS_KEYS.messagesMobile2PC(sessionId);
-  
-  // 리스트에 메시지 추가 (LPUSH)
-  await redis.lpush(queueKey, JSON.stringify(message));
-  
-  // TTL 설정
-  await redis.expire(queueKey, TTL.message);
+  if (message.to === 'mobile') {
+    // PC → Mobile: 세션의 모든 모바일 클라이언트에게 메시지 전송
+    const session = await getSession(sessionId);
+    if (session && session.mobileDeviceIds && session.mobileDeviceIds.length > 0) {
+      // 각 모바일 클라이언트의 개별 큐에 메시지 추가
+      for (const deviceId of session.mobileDeviceIds) {
+        const queueKey = REDIS_KEYS.messagesForDevice(sessionId, deviceId);
+        await redis.lpush(queueKey, JSON.stringify(message));
+        await redis.expire(queueKey, TTL.message);
+      }
+    }
+    // 하위 호환: 기존 세션 단위 큐에도 추가 (레거시 클라이언트 지원)
+    const legacyQueueKey = REDIS_KEYS.messagesPC2Mobile(sessionId);
+    await redis.lpush(legacyQueueKey, JSON.stringify(message));
+    await redis.expire(legacyQueueKey, TTL.message);
+  } else {
+    // Mobile → PC: 세션 단위 큐에 메시지 추가
+    const queueKey = REDIS_KEYS.messagesMobile2PC(sessionId);
+    await redis.lpush(queueKey, JSON.stringify(message));
+    await redis.expire(queueKey, TTL.message);
+  }
 }
 
 // 메시지 수신 (큐에서 가져오기)
 export async function receiveMessages(
   sessionId: string,
   deviceType: DeviceType,
-  limit: number = 10
+  limit: number = 10,
+  deviceId?: string  // 모바일 클라이언트의 경우 deviceId 필요
 ): Promise<RelayMessage[]> {
-  const queueKey = deviceType === 'mobile'
-    ? REDIS_KEYS.messagesPC2Mobile(sessionId)
-    : REDIS_KEYS.messagesMobile2PC(sessionId);
+  let queueKey: string;
+  
+  if (deviceType === 'mobile') {
+    // 모바일: deviceId가 있으면 개별 큐, 없으면 레거시 세션 단위 큐
+    if (deviceId) {
+      queueKey = REDIS_KEYS.messagesForDevice(sessionId, deviceId);
+    } else {
+      queueKey = REDIS_KEYS.messagesPC2Mobile(sessionId);
+    }
+  } else {
+    // PC: 세션 단위 큐
+    queueKey = REDIS_KEYS.messagesMobile2PC(sessionId);
+  }
   
   // RPOP으로 오래된 메시지부터 가져오기
   const messages: RelayMessage[] = [];
@@ -198,11 +264,20 @@ export async function receiveMessages(
 // 큐에 메시지가 있는지 확인
 export async function hasMessages(
   sessionId: string,
-  deviceType: DeviceType
+  deviceType: DeviceType,
+  deviceId?: string
 ): Promise<boolean> {
-  const queueKey = deviceType === 'mobile'
-    ? REDIS_KEYS.messagesPC2Mobile(sessionId)
-    : REDIS_KEYS.messagesMobile2PC(sessionId);
+  let queueKey: string;
+  
+  if (deviceType === 'mobile') {
+    if (deviceId) {
+      queueKey = REDIS_KEYS.messagesForDevice(sessionId, deviceId);
+    } else {
+      queueKey = REDIS_KEYS.messagesPC2Mobile(sessionId);
+    }
+  } else {
+    queueKey = REDIS_KEYS.messagesMobile2PC(sessionId);
+  }
   
   const length = await redis.llen(queueKey);
   return length > 0;
@@ -223,8 +298,12 @@ export async function deleteSession(sessionId: string): Promise<void> {
   if (session.pcDeviceId) {
     keysToDelete.push(REDIS_KEYS.deviceSession(session.pcDeviceId));
   }
-  if (session.mobileDeviceId) {
-    keysToDelete.push(REDIS_KEYS.deviceSession(session.mobileDeviceId));
+  // 모든 모바일 클라이언트의 디바이스 매핑 및 메시지 큐 삭제
+  if (session.mobileDeviceIds && session.mobileDeviceIds.length > 0) {
+    for (const deviceId of session.mobileDeviceIds) {
+      keysToDelete.push(REDIS_KEYS.deviceSession(deviceId));
+      keysToDelete.push(REDIS_KEYS.messagesForDevice(sessionId, deviceId));
+    }
   }
   
   await redis.del(...keysToDelete);
