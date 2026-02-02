@@ -114,6 +114,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const effectiveSessionId = existingSession.sessionId;
 
+    // 모바일 연결 시: PC(익스텐션)가 먼저 연결되어 있어야 함
+    const PC_STALE_MS = 2 * 60 * 1000; // 2분
+    if (deviceType === "mobile") {
+      const noPc = !existingSession.pcDeviceId;
+      const pcStale =
+        existingSession.pcDeviceId &&
+        (existingSession.pcLastSeenAt == null ||
+          Date.now() - existingSession.pcLastSeenAt > PC_STALE_MS);
+      if (noPc || pcStale) {
+        const response: ApiResponse & { errorCode?: string } = {
+          success: false,
+          error:
+            "PC(Extension) must connect first. Activate Cursor Remote from the status bar, then enter the same session ID here.",
+          errorCode: "PC_MUST_CONNECT_FIRST",
+          timestamp: Date.now(),
+        };
+        return res.status(403).json(response);
+      }
+    }
+
     // 모바일 연결 시: PC가 PIN을 설정했으면 PIN 검증 (세션 ID만으로 타인 접속 방지)
     if (deviceType === "mobile" && existingSession.pcPinHash) {
       if (!pin || typeof pin !== "string" || !pin.trim()) {

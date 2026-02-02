@@ -1169,6 +1169,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _messages.add(MessageItem('❌ PIN이 올바르지 않습니다. PC에서 설정한 PIN을 확인하세요.',
               type: MessageType.system));
         });
+      } else if (response.statusCode == 403 &&
+          (errorCode == 'PC_MUST_CONNECT_FIRST' ||
+              errorMessage.toLowerCase().contains('pc must connect first'))) {
+        setState(() {
+          _messages.add(MessageItem(
+              '❌ PC(익스텐션)에서 먼저 상태줄을 클릭해 세션 ID를 생성·연결한 뒤 다시 시도하세요.',
+              type: MessageType.system));
+        });
       } else {
         final error = errorMessage.isNotEmpty ? errorMessage : 'Unknown error';
         setState(() {
@@ -1198,15 +1206,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // 로컬 서버 연결
       _connectToLocal();
     } else {
-      // 릴레이 서버 연결
+      // 릴레이 서버 연결: 무조건 익스텐션에서 먼저 활성화 후 세션 ID 입력
       final sessionId = _sessionIdController.text.trim();
       if (sessionId.isEmpty) {
-        // 세션 ID가 없으면 새 세션 생성
-        _createSession();
-      } else {
-        // 세션 ID가 있으면 해당 세션에 연결
-        _connectToSession(sessionId);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'PC(익스텐션)에서 먼저 상태줄을 클릭해 세션 ID를 생성·연결한 뒤, 같은 세션 ID를 입력하세요.',
+              ),
+              duration: Duration(seconds: 5),
+            ),
+          );
+        }
+        return;
       }
+      _connectToSession(sessionId);
     }
   }
 
@@ -1757,9 +1772,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           final sessionId = _sessionIdController.text.trim();
           if (sessionId.isNotEmpty) {
             _connectToSession(sessionId);
-          } else {
-            _createSession();
           }
+          // 세션 ID 없으면 재연결 안 함 (익스텐션 먼저 활성화 필요)
         }
       }
     });
@@ -2782,15 +2796,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             controller: _sessionIdController,
                             focusNode: _sessionIdFocusNode,
                             decoration: const InputDecoration(
-                              labelText:
-                                  'Session ID (leave empty to create new)',
+                              labelText: 'Session ID (PC에서 먼저 생성·연결한 ID)',
                               hintText: 'ABC123',
                               border: OutlineInputBorder(),
                               isDense: true,
                               contentPadding: EdgeInsets.all(12),
                               prefixIcon: Icon(Icons.cloud),
                               helperText:
-                                  '비워두면 새 세션이 생성되고 Extension이 자동으로 연결됩니다',
+                                  'PC(익스텐션) 상태줄 클릭 → 세션 ID 생성 후 같은 ID 입력',
                             ),
                             enabled: !_isConnected,
                             keyboardType: TextInputType.text,
@@ -2828,7 +2841,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    '세션 ID를 비워두면 새 세션이 생성됩니다',
+                                    '먼저 PC(익스텐션)에서 상태줄을 클릭해 세션 ID를 생성·연결한 뒤, 여기에 같은 ID를 입력하세요.',
                                     style: TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w500,
