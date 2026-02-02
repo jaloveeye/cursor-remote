@@ -1169,6 +1169,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _messages.add(MessageItem('❌ PIN이 올바르지 않습니다. PC에서 설정한 PIN을 확인하세요.',
               type: MessageType.system));
         });
+        if (mounted) {
+          await showDialog<void>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('PIN 오류'),
+              content: const Text(
+                'PIN이 올바르지 않습니다.\nPC(익스텐션)에서 설정한 4~6자리 PIN을 확인하세요.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('확인'),
+                ),
+              ],
+            ),
+          );
+        }
       } else if (response.statusCode == 403 &&
           (errorCode == 'PC_MUST_CONNECT_FIRST' ||
               errorMessage.toLowerCase().contains('pc must connect first'))) {
@@ -2859,13 +2876,64 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         // 최근 연결 목록
                         if (!_isConnected &&
                             AppSettings().connectionHistory.isNotEmpty) ...[
-                          Text(
-                            '최근 연결',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Theme.of(context).colorScheme.onSurface,
-                            ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '최근 연결',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface,
+                                    ),
+                                  ),
+                                  Text(
+                                    '탭하면 재연결됩니다',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              TextButton.icon(
+                                onPressed: () async {
+                                  final confirm = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('전체 삭제'),
+                                      content: const Text(
+                                        '최근 연결 목록을 모두 삭제하시겠습니까?',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.of(ctx).pop(false),
+                                          child: const Text('취소'),
+                                        ),
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.of(ctx).pop(true),
+                                          child: const Text('전체 삭제'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (confirm == true) {
+                                    await AppSettings().clearConnectionHistory();
+                                  }
+                                },
+                                icon: const Icon(Icons.delete_sweep, size: 18),
+                                label: const Text('전체 삭제'),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 8),
                           Container(
@@ -2895,9 +2963,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                     AppSettings().connectionHistory.length - 1;
                                 return Column(
                                   children: [
-                                    InkWell(
-                                      onTap: () => _connectFromHistory(item),
-                                      borderRadius: BorderRadius.vertical(
+                                    Tooltip(
+                                      message: '탭하여 재연결',
+                                      child: InkWell(
+                                        onTap: () =>
+                                            _connectFromHistory(item),
+                                        borderRadius: BorderRadius.vertical(
                                         top: index == 0
                                             ? const Radius.circular(12)
                                             : Radius.zero,
@@ -2971,15 +3042,64 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                               ),
                                             ),
                                             Icon(
-                                              Icons.chevron_right,
-                                              size: 18,
+                                              Icons.refresh,
+                                              size: 20,
                                               color: Theme.of(context)
                                                   .colorScheme
-                                                  .onSurfaceVariant,
+                                                  .primary,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            IconButton(
+                                              icon: Icon(
+                                                Icons.delete_outline,
+                                                size: 20,
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .error,
+                                              ),
+                                              onPressed: () async {
+                                                final confirm =
+                                                    await showDialog<bool>(
+                                                  context: context,
+                                                  builder: (ctx) =>
+                                                      AlertDialog(
+                                                    title: const Text(
+                                                        '연결 삭제'),
+                                                    content: Text(
+                                                      '${item.displayText} 항목을 삭제하시겠습니까?',
+                                                    ),
+                                                    actions: [
+                                                      TextButton(
+                                                        onPressed: () =>
+                                                            Navigator.of(ctx)
+                                                                .pop(false),
+                                                        child: const Text(
+                                                            '취소'),
+                                                      ),
+                                                      TextButton(
+                                                        onPressed: () =>
+                                                            Navigator.of(ctx)
+                                                                .pop(true),
+                                                        child: const Text(
+                                                            '삭제'),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                );
+                                                if (confirm == true) {
+                                                  await AppSettings()
+                                                      .removeConnectionHistory(
+                                                          item);
+                                                }
+                                              },
+                                              padding: EdgeInsets.zero,
+                                              constraints: const BoxConstraints(
+                                                  minWidth: 32, minHeight: 32),
                                             ),
                                           ],
                                         ),
                                       ),
+                                    ),
                                     ),
                                     if (!isLast)
                                       Divider(
