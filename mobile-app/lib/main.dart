@@ -16,99 +16,444 @@ enum ConnectionType {
   relay, // 릴레이 서버 (세션 ID 사용)
 }
 
-void main() {
+// 테마 모드
+enum ThemeModeSetting {
+  light,
+  dark,
+  system,
+}
+
+// ============================================================
+// 앱 설정 관리
+// ============================================================
+// ============================================================
+// 연결 히스토리 항목
+// ============================================================
+class ConnectionHistoryItem {
+  final ConnectionType type;
+  final String? ip; // 로컬 모드일 때
+  final String? sessionId; // 릴레이 모드일 때
+  final DateTime timestamp;
+
+  ConnectionHistoryItem({
+    required this.type,
+    this.ip,
+    this.sessionId,
+    required this.timestamp,
+  });
+
+  // JSON 직렬화
+  Map<String, dynamic> toJson() => {
+        'type': type.index,
+        'ip': ip,
+        'sessionId': sessionId,
+        'timestamp': timestamp.toIso8601String(),
+      };
+
+  // JSON 역직렬화
+  factory ConnectionHistoryItem.fromJson(Map<String, dynamic> json) {
+    return ConnectionHistoryItem(
+      type: ConnectionType.values[json['type'] as int],
+      ip: json['ip'] as String?,
+      sessionId: json['sessionId'] as String?,
+      timestamp: DateTime.parse(json['timestamp'] as String),
+    );
+  }
+
+  // 동일 연결인지 확인 (타입과 주소/세션ID가 같으면 동일)
+  bool isSameConnection(ConnectionHistoryItem other) {
+    if (type != other.type) return false;
+    if (type == ConnectionType.local) {
+      return ip == other.ip;
+    } else {
+      return sessionId == other.sessionId;
+    }
+  }
+
+  // 표시용 문자열
+  String get displayText {
+    if (type == ConnectionType.local) {
+      return ip ?? 'Unknown IP';
+    } else {
+      return sessionId ?? 'Unknown Session';
+    }
+  }
+
+  // 상대 시간 문자열
+  String get relativeTime {
+    final now = DateTime.now();
+    final diff = now.difference(timestamp);
+
+    if (diff.inMinutes < 1) {
+      return '방금 전';
+    } else if (diff.inMinutes < 60) {
+      return '${diff.inMinutes}분 전';
+    } else if (diff.inHours < 24) {
+      return '${diff.inHours}시간 전';
+    } else if (diff.inDays < 7) {
+      return '${diff.inDays}일 전';
+    } else {
+      return '${timestamp.month}/${timestamp.day}';
+    }
+  }
+}
+
+// ============================================================
+// 앱 설정 관리
+// ============================================================
+class AppSettings extends ChangeNotifier {
+  static final AppSettings _instance = AppSettings._internal();
+  factory AppSettings() => _instance;
+  AppSettings._internal();
+
+  // 설정 키
+  static const String _keyThemeMode = 'theme_mode';
+  static const String _keyShowHistory = 'show_history';
+  static const String _keyDefaultAgentMode = 'default_agent_mode';
+  static const String _keyAutoConnect = 'auto_connect';
+  static const String _keyConnectionHistory = 'connection_history';
+
+  // 설정 값
+  ThemeModeSetting _themeMode = ThemeModeSetting.system;
+  bool _showHistory = false; // 기본값: 숨김
+  String _defaultAgentMode = 'auto';
+  bool _autoConnect = false;
+  List<ConnectionHistoryItem> _connectionHistory = [];
+
+  // 최대 히스토리 개수
+  static const int _maxHistoryCount = 5;
+
+  // Getters
+  ThemeModeSetting get themeMode => _themeMode;
+  bool get showHistory => _showHistory;
+  String get defaultAgentMode => _defaultAgentMode;
+  bool get autoConnect => _autoConnect;
+  List<ConnectionHistoryItem> get connectionHistory =>
+      List.unmodifiable(_connectionHistory);
+
+  // 테마 모드를 ThemeMode로 변환
+  ThemeMode get themeModeValue {
+    switch (_themeMode) {
+      case ThemeModeSetting.light:
+        return ThemeMode.light;
+      case ThemeModeSetting.dark:
+        return ThemeMode.dark;
+      case ThemeModeSetting.system:
+        return ThemeMode.system;
+    }
+  }
+
+  // 설정 로드
+  Future<void> load() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final themeModeIndex = prefs.getInt(_keyThemeMode) ?? 2; // 기본값: system
+    _themeMode = ThemeModeSetting.values[themeModeIndex.clamp(0, 2)];
+
+    _showHistory = prefs.getBool(_keyShowHistory) ?? false;
+    _defaultAgentMode = prefs.getString(_keyDefaultAgentMode) ?? 'auto';
+    _autoConnect = prefs.getBool(_keyAutoConnect) ?? false;
+
+    // 연결 히스토리 로드
+    final historyJson = prefs.getString(_keyConnectionHistory);
+    if (historyJson != null) {
+      try {
+        final List<dynamic> historyList = jsonDecode(historyJson);
+        _connectionHistory = historyList
+            .map((item) =>
+                ConnectionHistoryItem.fromJson(item as Map<String, dynamic>))
+            .toList();
+      } catch (e) {
+        _connectionHistory = [];
+      }
+    }
+
+    notifyListeners();
+  }
+
+  // 테마 모드 설정
+  Future<void> setThemeMode(ThemeModeSetting mode) async {
+    _themeMode = mode;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_keyThemeMode, mode.index);
+    notifyListeners();
+  }
+
+  // 히스토리 표시 설정
+  Future<void> setShowHistory(bool value) async {
+    _showHistory = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyShowHistory, value);
+    notifyListeners();
+  }
+
+  // 기본 에이전트 모드 설정
+  Future<void> setDefaultAgentMode(String mode) async {
+    _defaultAgentMode = mode;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyDefaultAgentMode, mode);
+    notifyListeners();
+  }
+
+  // 자동 연결 설정
+  Future<void> setAutoConnect(bool value) async {
+    _autoConnect = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyAutoConnect, value);
+    notifyListeners();
+  }
+
+  // 연결 히스토리에 추가
+  Future<void> addConnectionHistory(ConnectionHistoryItem item) async {
+    // 동일한 연결이 있으면 제거 (최신으로 갱신하기 위해)
+    _connectionHistory.removeWhere((h) => h.isSameConnection(item));
+
+    // 맨 앞에 추가
+    _connectionHistory.insert(0, item);
+
+    // 최대 개수 유지
+    if (_connectionHistory.length > _maxHistoryCount) {
+      _connectionHistory = _connectionHistory.sublist(0, _maxHistoryCount);
+    }
+
+    // 저장
+    await _saveConnectionHistory();
+    notifyListeners();
+  }
+
+  // 연결 히스토리 저장
+  Future<void> _saveConnectionHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final historyJson =
+        jsonEncode(_connectionHistory.map((h) => h.toJson()).toList());
+    await prefs.setString(_keyConnectionHistory, historyJson);
+  }
+
+  // 연결 히스토리 삭제
+  Future<void> removeConnectionHistory(ConnectionHistoryItem item) async {
+    _connectionHistory.removeWhere((h) => h.isSameConnection(item));
+    await _saveConnectionHistory();
+    notifyListeners();
+  }
+
+  // 연결 히스토리 전체 삭제
+  Future<void> clearConnectionHistory() async {
+    _connectionHistory.clear();
+    await _saveConnectionHistory();
+    notifyListeners();
+  }
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await AppSettings().load();
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+// ============================================================
+// 라이트 테마
+// ============================================================
+final ThemeData lightTheme = ThemeData(
+  useMaterial3: true,
+  colorScheme: ColorScheme(
+    brightness: Brightness.light,
+    // Primary 색상 (다크 네이비 블루)
+    primary: const Color(0xFF1A232E),
+    onPrimary: Colors.white,
+    primaryContainer: const Color(0xFF2A3441),
+    onPrimaryContainer: const Color(0xFFE8EAF6),
+    // Secondary 색상 (약간 밝은 네이비)
+    secondary: const Color(0xFF3A4A5E),
+    onSecondary: Colors.white,
+    secondaryContainer: const Color(0xFFE3E8F0),
+    onSecondaryContainer: const Color(0xFF1A232E),
+    // Tertiary 색상 (청록색 계열 강조)
+    tertiary: const Color(0xFF00B4D8),
+    onTertiary: Colors.white,
+    tertiaryContainer: const Color(0xFFB3E5FC),
+    onTertiaryContainer: const Color(0xFF006064),
+    // Error 색상
+    error: const Color(0xFFDC3545),
+    onError: Colors.white,
+    errorContainer: const Color(0xFFFFEBEE),
+    onErrorContainer: const Color(0xFFB71C1C),
+    // Surface 색상
+    surface: Colors.white,
+    onSurface: const Color(0xFF1A232E),
+    surfaceContainerHighest: const Color(0xFFF5F7FA),
+    onSurfaceVariant: const Color(0xFF4A5568),
+    // Outline 색상
+    outline: const Color(0xFFCBD5E0),
+    outlineVariant: const Color(0xFFE2E8F0),
+    // Shadow
+    shadow: Colors.black.withOpacity(0.1),
+    scrim: Colors.black.withOpacity(0.5),
+    // Inverse
+    inverseSurface: const Color(0xFF1A232E),
+    onInverseSurface: Colors.white,
+    inversePrimary: const Color(0xFF4A5A6E),
+  ),
+  appBarTheme: const AppBarTheme(
+    centerTitle: false,
+    elevation: 0,
+    scrolledUnderElevation: 1,
+  ),
+  cardTheme: CardThemeData(
+    elevation: 0,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      side: const BorderSide(
+        color: Color(0xFFCBD5E0), // outline 색상
+        width: 1,
+      ),
+    ),
+  ),
+  inputDecorationTheme: InputDecorationTheme(
+    filled: true,
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide.none,
+    ),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+  ),
+  elevatedButtonTheme: ElevatedButtonThemeData(
+    style: ElevatedButton.styleFrom(
+      elevation: 0,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+    ),
+  ),
+  outlinedButtonTheme: OutlinedButtonThemeData(
+    style: OutlinedButton.styleFrom(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+    ),
+  ),
+);
+
+// ============================================================
+// 다크 테마
+// ============================================================
+final ThemeData darkTheme = ThemeData(
+  useMaterial3: true,
+  colorScheme: ColorScheme(
+    brightness: Brightness.dark,
+    // Primary 색상 (밝은 청록색)
+    primary: const Color(0xFF4DB6E5),
+    onPrimary: const Color(0xFF003544),
+    primaryContainer: const Color(0xFF1A3A4A),
+    onPrimaryContainer: const Color(0xFFB3E5FC),
+    // Secondary 색상 (부드러운 블루그레이)
+    secondary: const Color(0xFF8BA4B8),
+    onSecondary: const Color(0xFF1A2A36),
+    secondaryContainer: const Color(0xFF2A3A4A),
+    onSecondaryContainer: const Color(0xFFD0E4F0),
+    // Tertiary 색상 (시안 계열 강조)
+    tertiary: const Color(0xFF00D4FF),
+    onTertiary: const Color(0xFF003344),
+    tertiaryContainer: const Color(0xFF004D5C),
+    onTertiaryContainer: const Color(0xFFB3F0FF),
+    // Error 색상
+    error: const Color(0xFFFF6B6B),
+    onError: const Color(0xFF3D0000),
+    errorContainer: const Color(0xFF5C2323),
+    onErrorContainer: const Color(0xFFFFDADA),
+    // Surface 색상
+    surface: const Color(0xFF121820),
+    onSurface: const Color(0xFFE8EAF0),
+    surfaceContainerHighest: const Color(0xFF1E2630),
+    onSurfaceVariant: const Color(0xFFB0B8C4),
+    // Outline 색상
+    outline: const Color(0xFF3A4550),
+    outlineVariant: const Color(0xFF2A3440),
+    // Shadow
+    shadow: Colors.black.withOpacity(0.3),
+    scrim: Colors.black.withOpacity(0.6),
+    // Inverse
+    inverseSurface: const Color(0xFFE8EAF0),
+    onInverseSurface: const Color(0xFF1A232E),
+    inversePrimary: const Color(0xFF1A6080),
+  ),
+  appBarTheme: const AppBarTheme(
+    centerTitle: false,
+    elevation: 0,
+    scrolledUnderElevation: 1,
+  ),
+  cardTheme: CardThemeData(
+    elevation: 0,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      side: const BorderSide(
+        color: Color(0xFF3A4550), // outline 색상 (다크)
+        width: 1,
+      ),
+    ),
+  ),
+  inputDecorationTheme: InputDecorationTheme(
+    filled: true,
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide.none,
+    ),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+  ),
+  elevatedButtonTheme: ElevatedButtonThemeData(
+    style: ElevatedButton.styleFrom(
+      elevation: 0,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+    ),
+  ),
+  outlinedButtonTheme: OutlinedButtonThemeData(
+    style: OutlinedButton.styleFrom(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+    ),
+  ),
+);
+
+// ============================================================
+// 앱 루트
+// ============================================================
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  @override
+  void initState() {
+    super.initState();
+    AppSettings().addListener(_onSettingsChanged);
+  }
+
+  @override
+  void dispose() {
+    AppSettings().removeListener(_onSettingsChanged);
+    super.dispose();
+  }
+
+  void _onSettingsChanged() {
+    setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Cursor Remote',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme(
-          brightness: Brightness.light,
-          // Primary 색상 (다크 네이비 블루)
-          primary: const Color(0xFF1A232E),
-          onPrimary: Colors.white,
-          primaryContainer: const Color(0xFF2A3441),
-          onPrimaryContainer: const Color(0xFFE8EAF6),
-          // Secondary 색상 (약간 밝은 네이비)
-          secondary: const Color(0xFF3A4A5E),
-          onSecondary: Colors.white,
-          secondaryContainer: const Color(0xFFE3E8F0),
-          onSecondaryContainer: const Color(0xFF1A232E),
-          // Tertiary 색상 (청록색 계열 강조)
-          tertiary: const Color(0xFF00B4D8),
-          onTertiary: Colors.white,
-          tertiaryContainer: const Color(0xFFB3E5FC),
-          onTertiaryContainer: const Color(0xFF006064),
-          // Error 색상
-          error: const Color(0xFFDC3545),
-          onError: Colors.white,
-          errorContainer: const Color(0xFFFFEBEE),
-          onErrorContainer: const Color(0xFFB71C1C),
-          // Surface 색상
-          surface: Colors.white,
-          onSurface: const Color(0xFF1A232E),
-          surfaceContainerHighest: const Color(0xFFF5F7FA),
-          onSurfaceVariant: const Color(0xFF4A5568),
-          // Outline 색상
-          outline: const Color(0xFFCBD5E0),
-          outlineVariant: const Color(0xFFE2E8F0),
-          // Shadow
-          shadow: Colors.black.withOpacity(0.1),
-          scrim: Colors.black.withOpacity(0.5),
-          // Inverse
-          inverseSurface: const Color(0xFF1A232E),
-          onInverseSurface: Colors.white,
-          inversePrimary: const Color(0xFF4A5A6E),
-        ),
-        appBarTheme: const AppBarTheme(
-          centerTitle: false,
-          elevation: 0,
-          scrolledUnderElevation: 1,
-        ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: const BorderSide(
-              color: Color(0xFFCBD5E0), // outline 색상
-              width: 1,
-            ),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide.none,
-          ),
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            elevation: 0,
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        ),
-        outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        ),
-      ),
+      theme: lightTheme,
+      darkTheme: darkTheme,
+      themeMode: AppSettings().themeModeValue,
       home: const HomePage(),
     );
   }
@@ -384,6 +729,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
       // 연결 설정 저장
       _saveConnectionSettings();
+
+      // 연결 히스토리에 추가
+      AppSettings().addConnectionHistory(ConnectionHistoryItem(
+        type: ConnectionType.local,
+        ip: ip,
+        timestamp: DateTime.now(),
+      ));
 
       // 연결 성공 시 connect 화면 자동 닫기
       try {
@@ -705,6 +1057,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // 연결 설정 저장
         _saveConnectionSettings();
 
+        // 연결 히스토리에 추가
+        AppSettings().addConnectionHistory(ConnectionHistoryItem(
+          type: ConnectionType.relay,
+          sessionId: sessionId,
+          timestamp: DateTime.now(),
+        ));
+
         // 연결 성공 시 connect 화면 자동 닫기
         try {
           _expansionTileController.collapse();
@@ -769,6 +1128,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _connectToSession(sessionId);
       }
     }
+  }
+
+  // 히스토리에서 연결
+  void _connectFromHistory(ConnectionHistoryItem item) {
+    setState(() {
+      _connectionType = item.type;
+      if (item.type == ConnectionType.local) {
+        _localIpController.text = item.ip ?? '';
+      } else {
+        _sessionIdController.text = item.sessionId ?? '';
+      }
+    });
+
+    // 연결 시도
+    _connect();
   }
 
   // 메시지 폴링 시작
@@ -1899,6 +2273,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _loadConnectionSettings();
     // 입력창 변경 감지 리스너 추가
     _commandController.addListener(_onCommandTextChanged);
+    // 설정에서 기본 에이전트 모드 적용
+    _selectedAgentMode = AppSettings().defaultAgentMode;
+    // 설정 변경 리스너 추가
+    AppSettings().addListener(_onAppSettingsChanged);
+  }
+
+  void _onAppSettingsChanged() {
+    if (mounted) {
+      setState(() {
+        // 설정 변경 시 UI 업데이트 (히스토리 표시 등)
+      });
+    }
   }
 
   // 입력창 텍스트 변경 시 UI 업데이트
@@ -2084,6 +2470,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    AppSettings().removeListener(_onAppSettingsChanged);
     _stopPolling();
     _localWebSocket?.sink.close();
     _commandController.removeListener(_onCommandTextChanged);
@@ -2121,8 +2508,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           // 응답 대기 중 인디케이터
           if (_isWaitingForResponse)
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              padding: const EdgeInsets.only(right: 8.0),
               child: Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -2156,6 +2542,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
               ),
             ),
+          // 설정 버튼
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: '설정',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const SettingsPage(),
+                ),
+              );
+            },
+          ),
         ],
       ),
       body: Column(
@@ -2349,6 +2747,149 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           ),
                         ],
                         const SizedBox(height: 12),
+                        // 최근 연결 목록
+                        if (!_isConnected &&
+                            AppSettings().connectionHistory.isNotEmpty) ...[
+                          Text(
+                            '최근 연결',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest
+                                  .withOpacity(0.5),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .outline
+                                    .withOpacity(0.2),
+                                width: 1,
+                              ),
+                            ),
+                            child: Column(
+                              children: AppSettings()
+                                  .connectionHistory
+                                  .asMap()
+                                  .entries
+                                  .map((entry) {
+                                final index = entry.key;
+                                final item = entry.value;
+                                final isLast = index ==
+                                    AppSettings().connectionHistory.length - 1;
+                                return Column(
+                                  children: [
+                                    InkWell(
+                                      onTap: () =>
+                                          _connectFromHistory(item),
+                                      borderRadius: BorderRadius.vertical(
+                                        top: index == 0
+                                            ? const Radius.circular(12)
+                                            : Radius.zero,
+                                        bottom: isLast
+                                            ? const Radius.circular(12)
+                                            : Radius.zero,
+                                      ),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 12, vertical: 10),
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.all(6),
+                                              decoration: BoxDecoration(
+                                                color: item.type ==
+                                                        ConnectionType.local
+                                                    ? Theme.of(context)
+                                                        .colorScheme
+                                                        .secondaryContainer
+                                                    : Theme.of(context)
+                                                        .colorScheme
+                                                        .primaryContainer,
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                              ),
+                                              child: Icon(
+                                                item.type ==
+                                                        ConnectionType.local
+                                                    ? Icons.computer
+                                                    : Icons.cloud,
+                                                size: 14,
+                                                color: item.type ==
+                                                        ConnectionType.local
+                                                    ? Theme.of(context)
+                                                        .colorScheme
+                                                        .onSecondaryContainer
+                                                    : Theme.of(context)
+                                                        .colorScheme
+                                                        .onPrimaryContainer,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    item.displayText,
+                                                    style: TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .onSurface,
+                                                      fontFamily: 'monospace',
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    item.relativeTime,
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .onSurfaceVariant,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            Icon(
+                                              Icons.chevron_right,
+                                              size: 18,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    if (!isLast)
+                                      Divider(
+                                        height: 1,
+                                        indent: 12,
+                                        endIndent: 12,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .outline
+                                            .withOpacity(0.2),
+                                      ),
+                                  ],
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
                         // 재연결 중 상태 표시
                         if (_isReconnecting) ...[
                           Container(
@@ -3345,8 +3886,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    // 세션 정보 및 대화 히스토리 표시
-                    if (_isConnected) ...[
+                    // 세션 정보 및 대화 히스토리 표시 (설정에서 활성화한 경우만)
+                    if (_isConnected && AppSettings().showHistory) ...[
                       // 현재 세션 정보
                       if (_currentCursorSessionId != null)
                         Container(
@@ -3691,6 +4232,235 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ],
         ],
       ),
+    );
+  }
+}
+
+// ============================================================
+// 설정 화면
+// ============================================================
+class SettingsPage extends StatefulWidget {
+  const SettingsPage({super.key});
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  final AppSettings _settings = AppSettings();
+
+  @override
+  void initState() {
+    super.initState();
+    _settings.addListener(_onSettingsChanged);
+  }
+
+  @override
+  void dispose() {
+    _settings.removeListener(_onSettingsChanged);
+    super.dispose();
+  }
+
+  void _onSettingsChanged() {
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          '설정',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
+      body: ListView(
+        children: [
+          // 외관 섹션
+          _buildSectionHeader('외관'),
+          _buildThemeModeTile(),
+          const Divider(),
+
+          // 기능 섹션
+          _buildSectionHeader('기능'),
+          _buildShowHistoryTile(),
+          const Divider(),
+
+          // 정보 섹션
+          _buildSectionHeader('정보'),
+          _buildAboutTile(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: Theme.of(context).colorScheme.primary,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildThemeModeTile() {
+    return ListTile(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primaryContainer,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(
+          _getThemeIcon(_settings.themeMode),
+          color: Theme.of(context).colorScheme.onPrimaryContainer,
+          size: 20,
+        ),
+      ),
+      title: const Text('테마'),
+      subtitle: Text(_getThemeModeLabel(_settings.themeMode)),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => _showThemeModeDialog(),
+    );
+  }
+
+  IconData _getThemeIcon(ThemeModeSetting mode) {
+    switch (mode) {
+      case ThemeModeSetting.light:
+        return Icons.light_mode;
+      case ThemeModeSetting.dark:
+        return Icons.dark_mode;
+      case ThemeModeSetting.system:
+        return Icons.brightness_auto;
+    }
+  }
+
+  String _getThemeModeLabel(ThemeModeSetting mode) {
+    switch (mode) {
+      case ThemeModeSetting.light:
+        return '라이트 모드';
+      case ThemeModeSetting.dark:
+        return '다크 모드';
+      case ThemeModeSetting.system:
+        return '시스템 설정';
+    }
+  }
+
+  void _showThemeModeDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('테마 선택'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: ThemeModeSetting.values.map((mode) {
+            return RadioListTile<ThemeModeSetting>(
+              title: Row(
+                children: [
+                  Icon(_getThemeIcon(mode), size: 20),
+                  const SizedBox(width: 12),
+                  Text(_getThemeModeLabel(mode)),
+                ],
+              ),
+              value: mode,
+              groupValue: _settings.themeMode,
+              onChanged: (value) {
+                if (value != null) {
+                  _settings.setThemeMode(value);
+                  Navigator.of(context).pop();
+                }
+              },
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShowHistoryTile() {
+    return SwitchListTile(
+      secondary: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.secondaryContainer,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(
+          Icons.history,
+          color: Theme.of(context).colorScheme.onSecondaryContainer,
+          size: 20,
+        ),
+      ),
+      title: const Text('세션 및 대화 히스토리'),
+      subtitle: const Text('메인 화면에 히스토리 섹션 표시'),
+      value: _settings.showHistory,
+      onChanged: (value) => _settings.setShowHistory(value),
+    );
+  }
+
+  Widget _buildAboutTile() {
+    return ListTile(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(
+          Icons.info_outline,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          size: 20,
+        ),
+      ),
+      title: const Text('Cursor Remote'),
+      subtitle: const Text('버전 0.1.0'),
+      onTap: () => _showAboutDialog(),
+    );
+  }
+
+  void _showAboutDialog() {
+    showAboutDialog(
+      context: context,
+      applicationName: 'Cursor Remote',
+      applicationVersion: '0.1.0',
+      applicationIcon: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primaryContainer,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(
+          Icons.code,
+          size: 32,
+          color: Theme.of(context).colorScheme.onPrimaryContainer,
+        ),
+      ),
+      children: [
+        const SizedBox(height: 16),
+        const Text(
+          '모바일에서 Cursor AI를 원격으로 제어하세요.',
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '© 2026 jaloveeye',
+          style: TextStyle(
+            fontSize: 12,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
     );
   }
 }
