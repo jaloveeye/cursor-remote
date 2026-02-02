@@ -2796,8 +2796,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             controller: _sessionIdController,
                             focusNode: _sessionIdFocusNode,
                             decoration: const InputDecoration(
-                              labelText:
-                                  'Session ID (PC에서 먼저 생성·연결한 ID)',
+                              labelText: 'Session ID (PC에서 먼저 생성·연결한 ID)',
                               hintText: 'ABC123',
                               border: OutlineInputBorder(),
                               isDense: true,
