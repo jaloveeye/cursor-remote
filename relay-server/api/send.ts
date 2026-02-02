@@ -8,6 +8,7 @@ interface SendRequest {
   deviceType: DeviceType;
   type: string;
   data: Record<string, unknown>;
+  targetDeviceId?: string; // 유니캐스트 응답용 - 특정 클라이언트에게만 전송
 }
 
 // UUID 생성
@@ -67,6 +68,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       deviceType,
       type,
       data,
+      targetDeviceId: providedTargetDeviceId,
     } = (body || {}) as SendRequest;
 
     // 입력 검증
@@ -108,6 +110,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 대상 디바이스 타입 결정
     const targetType: DeviceType = deviceType === "pc" ? "mobile" : "pc";
 
+    // targetDeviceId 결정 (body에서 직접 전달받거나 data에서 추출)
+    const targetDeviceId = providedTargetDeviceId || (data?.targetDeviceId as string | undefined);
+
     // 메시지 생성
     const message: RelayMessage = {
       id: generateMessageId(),
@@ -116,6 +121,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       to: targetType,
       data: data || {},
       timestamp: Date.now(),
+      senderDeviceId: deviceId,  // 요청자 ID 포함 (유니캐스트 응답용)
+      targetDeviceId: targetDeviceId,  // 유니캐스트 응답용 - 특정 클라이언트에게만 전송
     };
 
     // 메시지 큐에 추가

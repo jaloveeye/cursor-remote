@@ -56,7 +56,7 @@ let relayClient = null;
 let outputChannel;
 async function activate(context) {
     // Output channel creation
-    outputChannel = vscode.window.createOutputChannel('Cursor Remote');
+    outputChannel = vscode.window.createOutputChannel("Cursor Remote");
     context.subscriptions.push(outputChannel);
     outputChannel.show(true);
     // 로그를 클라이언트에 전송하는 헬퍼 함수
@@ -66,19 +66,21 @@ async function activate(context) {
                 level,
                 message,
                 timestamp: new Date().toISOString(),
-                source: 'extension',
-                ...(error && { error: error instanceof Error ? error.message : String(error) })
+                source: "extension",
+                ...(error && {
+                    error: error instanceof Error ? error.message : String(error),
+                }),
             };
             wsServer.send(JSON.stringify({
-                type: 'log',
-                ...logData
+                type: "log",
+                ...logData,
             }));
         }
     };
-    outputChannel.appendLine('Cursor Remote extension is now active!');
+    outputChannel.appendLine("Cursor Remote extension is now active!");
     outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 🔄 Extension activation started`);
-    console.log('Cursor Remote extension is now active!');
-    sendLogToClients('info', 'Cursor Remote extension is now active!');
+    console.log("Cursor Remote extension is now active!");
+    sendLogToClients("info", "Cursor Remote extension is now active!");
     // Status bar manager
     statusBarManager = new status_bar_1.StatusBarManager(context);
     // WebSocket server initialization
@@ -88,11 +90,11 @@ async function activate(context) {
     const useCLIMode = true;
     commandHandler = new command_handler_1.CommandHandler(outputChannel, wsServer, useCLIMode);
     commandRouter = new command_router_1.CommandRouter(commandHandler, wsServer, outputChannel);
-    outputChannel.appendLine('[Cursor Remote] CLI mode is enabled - using Cursor CLI');
+    outputChannel.appendLine("[Cursor Remote] CLI mode is enabled - using Cursor CLI");
     // HTTP server for hooks
     httpServer = new http_server_1.HttpServer(outputChannel, wsServer);
     await httpServer.start().catch((error) => {
-        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        const errorMsg = error instanceof Error ? error.message : "Unknown error";
         outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ❌ Failed to start HTTP server: ${errorMsg}`);
         vscode.window.showErrorMessage(`Cursor Remote: HTTP server start failed - ${errorMsg}`);
     });
@@ -106,25 +108,27 @@ async function activate(context) {
     wsServer.onMessage((message) => {
         try {
             const command = JSON.parse(message);
-            const clientId = command.clientId || 'none';
-            const source = command.source || 'local';
+            const clientId = command.clientId || "none";
+            const source = command.source || "local";
             outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Received command: ${command.type} from client: ${clientId} (source: ${source})`);
             // Handle command locally (whether from local WebSocket or relay)
             if (commandRouter) {
                 commandRouter.handleCommand(command);
             }
             // If message is from local WebSocket client (not from relay), forward to relay
-            if (source !== 'relay' && relayClient && relayClient.isConnectedToSession()) {
+            if (source !== "relay" &&
+                relayClient &&
+                relayClient.isConnectedToSession()) {
                 relayClient.sendMessage(message).catch((error) => {
-                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                    const errorMsg = error instanceof Error ? error.message : "Unknown error";
                     outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ❌ Failed to send to relay: ${errorMsg}`);
                 });
             }
         }
         catch (error) {
-            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+            const errorMsg = error instanceof Error ? error.message : "Unknown error";
             outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Error parsing message: ${errorMsg}`);
-            console.error('Error parsing message:', error);
+            console.error("Error parsing message:", error);
         }
     });
     // Client connection/disconnection event handling
@@ -148,15 +152,18 @@ async function activate(context) {
         }
     });
     // Register commands
-    const startCommand = vscode.commands.registerCommand('cursorRemote.start', () => {
+    const startCommand = vscode.commands.registerCommand("cursorRemote.start", () => {
         if (wsServer && !wsServer.isRunning()) {
-            wsServer.start().then(() => {
+            wsServer
+                .start()
+                .then(() => {
                 if (statusBarManager) {
                     statusBarManager.update(false);
                 }
                 vscode.window.showInformationMessage(`Cursor Remote server started on port ${config_1.CONFIG.WEBSOCKET_PORT}`);
-            }).catch((error) => {
-                const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+            })
+                .catch((error) => {
+                const errorMsg = error instanceof Error ? error.message : "Unknown error";
                 outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ❌ Failed to start WebSocket server: ${errorMsg}`);
                 vscode.window.showErrorMessage(`Cursor Remote: Server start failed - ${errorMsg}`);
                 if (statusBarManager) {
@@ -165,22 +172,22 @@ async function activate(context) {
             });
         }
         else {
-            vscode.window.showInformationMessage('Cursor Remote server is already running');
+            vscode.window.showInformationMessage("Cursor Remote server is already running");
         }
     });
-    const stopCommand = vscode.commands.registerCommand('cursorRemote.stop', () => {
+    const stopCommand = vscode.commands.registerCommand("cursorRemote.stop", () => {
         if (wsServer && wsServer.isRunning()) {
             wsServer.stop();
             if (statusBarManager) {
                 statusBarManager.update(false);
             }
-            vscode.window.showInformationMessage('Cursor Remote server stopped');
+            vscode.window.showInformationMessage("Cursor Remote server stopped");
         }
         else {
-            vscode.window.showInformationMessage('Cursor Remote server is not running');
+            vscode.window.showInformationMessage("Cursor Remote server is not running");
         }
     });
-    const toggleCommand = vscode.commands.registerCommand('cursorRemote.toggle', () => {
+    const toggleCommand = vscode.commands.registerCommand("cursorRemote.toggle", () => {
         if (wsServer) {
             if (wsServer.isRunning()) {
                 wsServer.stop();
@@ -189,12 +196,15 @@ async function activate(context) {
                 }
             }
             else {
-                wsServer.start().then(() => {
+                wsServer
+                    .start()
+                    .then(() => {
                     if (statusBarManager) {
                         statusBarManager.update(false);
                     }
-                }).catch((error) => {
-                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                })
+                    .catch((error) => {
+                    const errorMsg = error instanceof Error ? error.message : "Unknown error";
                     outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ❌ Failed to start WebSocket server: ${errorMsg}`);
                     vscode.window.showErrorMessage(`Cursor Remote: Server start failed - ${errorMsg}`);
                     if (statusBarManager) {
@@ -225,17 +235,18 @@ async function activate(context) {
     }
     // Set up message forwarding: Relay Server -> Extension WebSocket
     relayClient.setOnMessage((message) => {
+        outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] === RELAY: 메시지 수신됨 (길이: ${message.length}) ===`);
         // Mark message as from relay to prevent loop
         try {
             const parsed = JSON.parse(message);
-            parsed.source = 'relay';
+            parsed.source = "relay";
             // clientId가 없으면 'relay'로 설정
             if (!parsed.clientId) {
-                parsed.clientId = 'relay-client';
+                parsed.clientId = "relay-client";
             }
             const relayMessage = JSON.stringify(parsed);
-            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 📥 Message from relay, forwarding to command handler...`);
-            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 📋 Relay message: ${relayMessage.substring(0, 200)}`);
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 📥 Message from relay, forwarding to command handler... (type: ${parsed.type})`);
+            outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 📋 Relay message: ${relayMessage.substring(0, 300)}`);
             // Directly trigger the message handlers to process the command
             // This is the same handler that processes WebSocket client messages
             if (wsServer) {
@@ -250,10 +261,10 @@ async function activate(context) {
         catch (error) {
             // If message is not JSON, send as-is but mark source
             const relayMessage = JSON.stringify({
-                type: 'message',
+                type: "message",
                 data: message,
-                source: 'relay',
-                clientId: 'relay-client'
+                source: "relay",
+                clientId: "relay-client",
             });
             outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] 📥 Message from relay (non-JSON), forwarding to command handler...`);
             if (wsServer) {
@@ -265,7 +276,9 @@ async function activate(context) {
         }
     });
     // Auto start
-    wsServer.start().then(async () => {
+    wsServer
+        .start()
+        .then(async () => {
         if (statusBarManager) {
             statusBarManager.update(false); // Client not connected yet
         }
@@ -278,7 +291,7 @@ async function activate(context) {
                 outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ Relay client started - waiting for mobile client to create session...`);
             }
             catch (error) {
-                const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                const errorMsg = error instanceof Error ? error.message : "Unknown error";
                 outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ⚠️ Failed to start relay client: ${errorMsg}`);
                 if (error instanceof Error && error.stack) {
                     outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] Stack: ${error.stack}`);
@@ -289,8 +302,9 @@ async function activate(context) {
         else {
             outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ⚠️ Relay client is null - not initialized`);
         }
-    }).catch((error) => {
-        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    })
+        .catch((error) => {
+        const errorMsg = error instanceof Error ? error.message : "Unknown error";
         outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ❌ Failed to start WebSocket server: ${errorMsg}`);
         vscode.window.showErrorMessage(`Cursor Remote: Server start failed - ${errorMsg}`);
         if (statusBarManager) {

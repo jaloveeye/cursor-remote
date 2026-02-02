@@ -204,14 +204,22 @@ export async function sendMessage(
   message: RelayMessage
 ): Promise<void> {
   if (message.to === 'mobile') {
-    // PC → Mobile: 세션의 모든 모바일 클라이언트에게 메시지 전송
-    const session = await getSession(sessionId);
-    if (session && session.mobileDeviceIds && session.mobileDeviceIds.length > 0) {
-      // 각 모바일 클라이언트의 개별 큐에 메시지 추가
-      for (const deviceId of session.mobileDeviceIds) {
-        const queueKey = REDIS_KEYS.messagesForDevice(sessionId, deviceId);
-        await redis.lpush(queueKey, JSON.stringify(message));
-        await redis.expire(queueKey, TTL.message);
+    // PC → Mobile
+    if (message.targetDeviceId) {
+      // 유니캐스트: 특정 클라이언트에게만 전송
+      const queueKey = REDIS_KEYS.messagesForDevice(sessionId, message.targetDeviceId);
+      await redis.lpush(queueKey, JSON.stringify(message));
+      await redis.expire(queueKey, TTL.message);
+    } else {
+      // 브로드캐스트: 세션의 모든 모바일 클라이언트에게 메시지 전송
+      const session = await getSession(sessionId);
+      if (session && session.mobileDeviceIds && session.mobileDeviceIds.length > 0) {
+        // 각 모바일 클라이언트의 개별 큐에 메시지 추가
+        for (const deviceId of session.mobileDeviceIds) {
+          const queueKey = REDIS_KEYS.messagesForDevice(sessionId, deviceId);
+          await redis.lpush(queueKey, JSON.stringify(message));
+          await redis.expire(queueKey, TTL.message);
+        }
       }
     }
     // 하위 호환: 기존 세션 단위 큐에도 추가 (레거시 클라이언트 지원)

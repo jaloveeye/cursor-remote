@@ -18,7 +18,7 @@ class CommandRouter {
     }
     logError(message, error) {
         const timestamp = new Date().toLocaleTimeString();
-        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        const errorMsg = error instanceof Error ? error.message : "Unknown error";
         const logMessage = `[${timestamp}] ❌ ${message}: ${errorMsg}`;
         this.outputChannel.appendLine(logMessage);
         console.error(logMessage);
@@ -31,45 +31,46 @@ class CommandRouter {
             return;
         }
         const commandId = command.id || Date.now().toString();
+        this.log(`HandleCommand: type=${command.type}, clientId=${command.clientId || "none"}`);
         try {
             let result = null;
             switch (command.type) {
-                case 'insert_text':
+                case "insert_text":
                     result = await this.handleInsertText(command);
                     break;
-                case 'execute_command':
+                case "execute_command":
                     result = await this.handleExecuteCommand(command);
                     break;
-                case 'get_ai_response':
+                case "get_ai_response":
                     result = await this.handleGetAIResponse();
                     break;
-                case 'get_session_info':
+                case "get_session_info":
                     result = await this.handleGetSessionInfo(command);
                     break;
-                case 'get_chat_history':
+                case "get_chat_history":
                     result = await this.handleGetChatHistory(command);
                     break;
-                case 'get_active_file':
+                case "get_active_file":
                     result = await this.handleGetActiveFile();
                     break;
-                case 'save_file':
+                case "save_file":
                     result = await this.handleSaveFile();
                     break;
-                case 'stop_prompt':
+                case "stop_prompt":
                     result = await this.handleStopPrompt();
                     break;
-                case 'execute_action':
+                case "execute_action":
                     result = await this.handleExecuteAction(command);
                     break;
                 default:
                     const errorMsg = `Unknown command type: ${command.type}`;
                     this.log(errorMsg);
-                    console.warn('Unknown command type:', command.type);
+                    console.warn("Unknown command type:", command.type);
                     this.wsServer.send(JSON.stringify({
                         id: commandId,
-                        type: 'command_result',
+                        type: "command_result",
                         success: false,
-                        error: errorMsg
+                        error: errorMsg,
                     }));
                     return;
             }
@@ -80,21 +81,21 @@ class CommandRouter {
             const { success: _, ...resultWithoutSuccess } = result || {};
             this.wsServer.send(JSON.stringify({
                 id: commandId,
-                type: 'command_result',
+                type: "command_result",
                 success: true,
                 command_type: command.type,
-                ...resultWithoutSuccess
+                ...resultWithoutSuccess,
             }));
         }
         catch (error) {
-            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-            this.logError('Error handling command', error);
-            console.error('Error handling command:', error);
+            const errorMsg = error instanceof Error ? error.message : "Unknown error";
+            this.logError("Error handling command", error);
+            console.error("Error handling command:", error);
             this.wsServer.send(JSON.stringify({
                 id: commandId,
-                type: 'command_result',
+                type: "command_result",
                 success: false,
-                error: errorMsg
+                error: errorMsg,
             }));
         }
     }
@@ -103,31 +104,42 @@ class CommandRouter {
      */
     async handleInsertText(command) {
         try {
-            this.log(`insert_text command - terminal: ${command.terminal}, prompt: ${command.prompt}, text length: ${command.text?.length || 0}, clientId: ${command.clientId || 'none'}`);
-            const isTerminal = command.terminal === true || command.terminal === 'true';
-            const isPrompt = command.prompt === true || command.prompt === 'true';
+            this.log(`insert_text command - terminal: ${command.terminal}, prompt: ${command.prompt}, text length: ${command.text?.length || 0}, clientId: ${command.clientId || "none"}`);
+            const isTerminal = command.terminal === true || command.terminal === "true";
+            const isPrompt = command.prompt === true || command.prompt === "true";
             const execute = command.execute === true;
             if (isTerminal) {
-                this.log('Routing to terminal');
-                await this.commandHandler.insertToTerminal(command.text || '', execute);
-                return { success: true, message: execute ? 'Text sent to terminal and executed' : 'Text sent to terminal' };
+                this.log("Routing to terminal");
+                await this.commandHandler.insertToTerminal(command.text || "", execute);
+                return {
+                    success: true,
+                    message: execute
+                        ? "Text sent to terminal and executed"
+                        : "Text sent to terminal",
+                };
             }
             else if (isPrompt) {
-                this.log('Routing to prompt');
+                this.log("Routing to prompt");
                 const newSession = command.newSession === true;
-                const agentMode = command.agentMode || 'auto';
-                await this.commandHandler.insertToPrompt(command.text || '', execute, command.clientId, newSession, agentMode);
-                return { success: true, message: execute ? 'Text inserted to prompt and executed' : 'Text inserted to prompt' };
+                const agentMode = command.agentMode || "auto";
+                await this.commandHandler.insertToPrompt(command.text || "", execute, command.clientId, newSession, agentMode, command.senderDeviceId // 유니캐스트 응답용
+                );
+                return {
+                    success: true,
+                    message: execute
+                        ? "Text inserted to prompt and executed"
+                        : "Text inserted to prompt",
+                };
             }
             else {
-                this.log('Routing to editor (fallback)');
-                await this.commandHandler.insertText(command.text || '');
-                return { success: true, message: 'Text inserted' };
+                this.log("Routing to editor (fallback)");
+                await this.commandHandler.insertText(command.text || "");
+                return { success: true, message: "Text inserted" };
             }
         }
         catch (error) {
-            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-            this.logError('Error in insert_text', error);
+            const errorMsg = error instanceof Error ? error.message : "Unknown error";
+            this.logError("Error in insert_text", error);
             return { success: false, error: errorMsg };
         }
     }
@@ -135,7 +147,7 @@ class CommandRouter {
      * Handle execute_command
      */
     async handleExecuteCommand(command) {
-        const result = await this.commandHandler.executeCommand(command.command || '', ...(command.args || []));
+        const result = await this.commandHandler.executeCommand(command.command || "", ...(command.args || []));
         return { success: true, result: result };
     }
     /**
@@ -171,7 +183,7 @@ class CommandRouter {
         if (result) {
             return { success: true, ...result };
         }
-        return { success: false, error: 'No active file' };
+        return { success: false, error: "No active file" };
     }
     /**
      * Handle save_file
@@ -191,7 +203,7 @@ class CommandRouter {
      * Handle execute_action
      */
     async handleExecuteAction(command) {
-        const result = await this.commandHandler.executeAction(command.action || '');
+        const result = await this.commandHandler.executeAction(command.action || "");
         return result;
     }
 }

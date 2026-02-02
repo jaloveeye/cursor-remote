@@ -49,21 +49,23 @@ class RelayClient {
         this.onMessageCallback = null;
         this.onSessionConnectedCallback = null;
         this.lastSessionDiscoveryTime = 0;
+        this.lastPollHeartbeatTime = 0;
         this.SESSION_DISCOVERY_INTERVAL = 10000; // 10초마다 한 번만
         this.POLL_INTERVAL = 2000; // 2초마다 폴링
+        this.POLL_HEARTBEAT_INTERVAL = 30000; // 30초마다 폴링 동작 로그
         this.relayServerUrl = relayServerUrl;
         this.deviceId = `pc-${Date.now()}`;
         this.outputChannel = outputChannel;
     }
-    log(message, level = 'info') {
+    log(message, level = "info") {
         const timestamp = new Date().toLocaleTimeString();
         const logMessage = `[${timestamp}] [Relay] ${message}`;
         this.outputChannel.appendLine(logMessage);
         console.log(logMessage);
     }
     logError(message, error) {
-        const errorMessage = error instanceof Error ? error.message : String(error || '');
-        const logMessage = `[Relay] ERROR: ${message}${errorMessage ? ` - ${errorMessage}` : ''}`;
+        const errorMessage = error instanceof Error ? error.message : String(error || "");
+        const logMessage = `[Relay] ERROR: ${message}${errorMessage ? ` - ${errorMessage}` : ""}`;
         this.outputChannel.appendLine(logMessage);
         console.error(logMessage, error);
     }
@@ -83,12 +85,12 @@ class RelayClient {
      * Start relay client - begin session discovery and polling
      */
     async start() {
-        this.log('Starting relay client...');
+        this.log("Starting relay client...");
         this.log(`Relay Server: ${this.relayServerUrl}`);
         this.log(`Device ID: ${this.deviceId}`);
         // Start polling for session discovery
         this.startPolling();
-        this.log('Relay client started - waiting for mobile client to create session...');
+        this.log("Relay client started - waiting for mobile client to create session...");
     }
     /**
      * Stop relay client
@@ -100,7 +102,7 @@ class RelayClient {
         }
         this.isConnected = false;
         this.sessionId = null;
-        this.log('Relay client stopped');
+        this.log("Relay client stopped");
     }
     /**
      * Start polling for messages and session discovery
@@ -133,43 +135,56 @@ class RelayClient {
             return;
         }
         try {
+            const now = Date.now();
+            if (now - this.lastPollHeartbeatTime >= this.POLL_HEARTBEAT_INTERVAL) {
+                this.lastPollHeartbeatTime = now;
+                this.log(`🔄 Polling sessionId=${this.sessionId} (정상 폴링 중)`);
+            }
             const pollUrl = `${this.relayServerUrl}/api/poll?sessionId=${this.sessionId}&deviceType=pc`;
             const data = await this.httpRequest(pollUrl);
             if (!data) {
-                this.logError('⚠️ Poll returned null/undefined data');
+                this.logError("⚠️ Poll returned null/undefined data");
                 return;
             }
-            if (data.success && data.data?.messages) {
-                const messages = data.data.messages;
-                if (messages.length > 0) {
-                    this.log(`📥 Received ${messages.length} message(s) from relay`);
-                    this.log(`📋 Messages: ${JSON.stringify(messages.map((m) => ({ id: m.id, type: m.type, from: m.from })))}`);
+            // 응답 형식 허용: data.data.messages 또는 data.messages
+            const messages = Array.isArray(data.data?.messages)
+                ? data.data.messages
+                : Array.isArray(data.messages)
+                    ? data.messages
+                    : [];
+            if (messages.length > 0) {
+                this.log(`📥 Received ${messages.length} message(s) from relay`);
+                this.log(`📋 Messages: ${JSON.stringify(messages.map((m) => ({
+                    id: m.id,
+                    type: m.type,
+                    from: m.from,
+                    hasData: !!m.data,
+                })))}`);
+            }
+            for (const msg of messages) {
+                this.log(`📨 Processing message: id=${msg.id}, type=${msg.type}, from=${msg.from}`);
+                // Forward message to callback (Extension WebSocket server)
+                if (this.onMessageCallback) {
+                    // 페이로드: msg.data가 있으면 그대로, 없으면 전체 msg (하위 호환)
+                    const payload = msg.data !== undefined && msg.data !== null ? msg.data : msg;
+                    const messageStr = typeof payload === "string" ? payload : JSON.stringify(payload);
+                    this.log(`📤 Calling onMessageCallback with: ${messageStr.substring(0, 200)}`);
+                    this.onMessageCallback(messageStr);
+                    this.log(`✅ onMessageCallback completed`);
                 }
-                for (const msg of messages) {
-                    this.log(`📨 Processing message: id=${msg.id}, type=${msg.type}, from=${msg.from}`);
-                    // Forward message to callback (Extension WebSocket server)
-                    if (this.onMessageCallback) {
-                        const messageStr = typeof msg.data === 'string'
-                            ? msg.data
-                            : JSON.stringify(msg.data || msg);
-                        this.log(`📤 Calling onMessageCallback with: ${messageStr.substring(0, 200)}`);
-                        this.onMessageCallback(messageStr);
-                        this.log(`✅ onMessageCallback completed`);
-                    }
-                    else {
-                        this.logError('⚠️ onMessageCallback is null - cannot forward message');
-                    }
+                else {
+                    this.logError("⚠️ onMessageCallback is null - cannot forward message");
                 }
             }
-            else if (!data.success) {
+            if (!data.success) {
                 this.logError(`Poll failed: ${data.error}`);
             }
-            else {
+            else if (messages.length === 0 && data.success) {
                 // No messages - this is normal, don't log
             }
         }
         catch (error) {
-            this.logError('Polling error', error);
+            this.logError("Polling error", error);
             if (error instanceof Error) {
                 this.logError(`   Error message: ${error.message}`);
                 this.logError(`   Error stack: ${error.stack}`);
@@ -195,7 +210,9 @@ class RelayClient {
             if (!data) {
                 return null;
             }
-            if (data.success && data.data?.sessions && data.data.sessions.length > 0) {
+            if (data.success &&
+                data.data?.sessions &&
+                data.data.sessions.length > 0) {
                 const foundSession = data.data.sessions[0];
                 if (foundSession.sessionId) {
                     return foundSession.sessionId;
@@ -214,10 +231,10 @@ class RelayClient {
     async connectToSession(sid) {
         this.log(`🔗 Connecting to session ${sid}...`);
         try {
-            const data = await this.httpRequest(`${this.relayServerUrl}/api/connect`, 'POST', {
+            const data = await this.httpRequest(`${this.relayServerUrl}/api/connect`, "POST", {
                 sessionId: sid,
                 deviceId: this.deviceId,
-                deviceType: 'pc',
+                deviceType: "pc",
             });
             if (!data) {
                 return;
@@ -236,7 +253,7 @@ class RelayClient {
             }
         }
         catch (error) {
-            this.logError('Error connecting to session', error);
+            this.logError("Error connecting to session", error);
         }
     }
     /**
@@ -244,30 +261,34 @@ class RelayClient {
      */
     async sendMessage(message) {
         if (!this.sessionId || !this.isConnected) {
-            this.logError('Cannot send message: not connected to session');
+            this.logError("Cannot send message: not connected to session");
             return;
         }
         try {
             const parsed = JSON.parse(message);
-            const data = await this.httpRequest(`${this.relayServerUrl}/api/send`, 'POST', {
+            if (parsed.type === "chat_response") {
+                this.log(`Sending chat_response to relay (text length: ${(parsed.text || "").length})`);
+            }
+            const data = await this.httpRequest(`${this.relayServerUrl}/api/send`, "POST", {
                 sessionId: this.sessionId,
                 deviceId: this.deviceId,
-                deviceType: 'pc',
-                type: parsed.type || 'message',
+                deviceType: "pc",
+                type: parsed.type || "message",
                 data: parsed,
             });
             if (!data) {
+                this.logError("Relay /api/send returned no data");
                 return;
             }
             if (data.success) {
-                this.log('✅ Message sent to relay');
+                this.log("✅ Message sent to relay");
             }
             else {
                 this.logError(`Failed to send to relay: ${data.error}`);
             }
         }
         catch (error) {
-            this.logError('Error sending to relay', error);
+            this.logError("Error sending to relay", error);
         }
     }
     /**
@@ -285,10 +306,10 @@ class RelayClient {
     /**
      * HTTP request helper (using Node.js http/https modules)
      */
-    async httpRequest(url, method = 'GET', body) {
+    async httpRequest(url, method = "GET", body) {
         return new Promise((resolve, reject) => {
             const urlObj = new url_1.URL(url);
-            const isHttps = urlObj.protocol === 'https:';
+            const isHttps = urlObj.protocol === "https:";
             const httpModule = isHttps ? https : http;
             const options = {
                 hostname: urlObj.hostname,
@@ -296,22 +317,22 @@ class RelayClient {
                 path: urlObj.pathname + urlObj.search,
                 method: method,
                 headers: {
-                    'Content-Type': 'application/json',
+                    "Content-Type": "application/json",
                 },
             };
             const req = httpModule.request(options, (res) => {
-                let data = '';
-                res.on('data', (chunk) => {
+                let data = "";
+                res.on("data", (chunk) => {
                     data += chunk;
                 });
-                res.on('end', () => {
+                res.on("end", () => {
                     if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
                         try {
                             const parsed = JSON.parse(data);
                             resolve(parsed);
                         }
                         catch (error) {
-                            this.logError('Failed to parse response', error);
+                            this.logError("Failed to parse response", error);
                             resolve(null);
                         }
                     }
@@ -321,11 +342,11 @@ class RelayClient {
                     }
                 });
             });
-            req.on('error', (error) => {
-                this.logError('Request error', error);
+            req.on("error", (error) => {
+                this.logError("Request error", error);
                 resolve(null);
             });
-            if (body && method === 'POST') {
+            if (body && method === "POST") {
                 req.write(JSON.stringify(body));
             }
             req.end();

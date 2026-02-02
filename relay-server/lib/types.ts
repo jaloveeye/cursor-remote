@@ -9,6 +9,8 @@ export interface RelayMessage {
   to: DeviceType;
   data: Record<string, unknown>;
   timestamp: number;
+  senderDeviceId?: string;  // 요청을 보낸 클라이언트 ID
+  targetDeviceId?: string;  // 응답을 받을 클라이언트 ID (유니캐스트)
 }
 
 export interface DeviceInfo {

@@ -205,18 +205,18 @@ class CommandHandler {
             throw new Error(`터미널 입력 실패: ${errorMsg}`);
         }
     }
-    async insertToPrompt(text, execute = false, clientId, newSession = false, agentMode = 'auto') {
-        this.log(`[Cursor Remote] insertToPrompt called - textLength: ${text.length}, execute: ${execute}, clientId: ${clientId || 'none'}, newSession: ${newSession}, agentMode: ${agentMode}`);
+    async insertToPrompt(text, execute = false, clientId, newSession = false, agentMode = 'auto', senderDeviceId) {
+        this.log(`[Cursor Remote] insertToPrompt called - textLength: ${text.length}, execute: ${execute}, clientId: ${clientId || 'none'}, newSession: ${newSession}, agentMode: ${agentMode}, senderDeviceId: ${senderDeviceId || 'none'}`);
         // CLI 모드인 경우 CLI 핸들러 사용
         if (this.useCLIMode && this.cliHandler) {
             this.log('[Cursor Remote] Using CLI mode for prompt');
             if (execute) {
-                await this.cliHandler.sendPrompt(text, true, clientId, newSession, agentMode);
+                await this.cliHandler.sendPrompt(text, true, clientId, newSession, agentMode, senderDeviceId);
             }
             else {
                 // execute가 false인 경우는 CLI에서 지원하지 않으므로 경고만
                 this.log('[Cursor Remote] Warning: CLI mode does not support non-execute mode, executing anyway');
-                await this.cliHandler.sendPrompt(text, true, clientId, newSession, agentMode);
+                await this.cliHandler.sendPrompt(text, true, clientId, newSession, agentMode, senderDeviceId);
             }
             return;
         }

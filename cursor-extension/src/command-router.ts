@@ -166,7 +166,8 @@ export class CommandRouter {
           execute,
           command.clientId,
           newSession,
-          agentMode
+          agentMode,
+          command.senderDeviceId // 유니캐스트 응답용
         );
         return {
           success: true,
