@@ -33,6 +33,7 @@ export class CLIHandler {
   private pendingHistoryIds: Map<string, string> = new Map(); // clientId -> pending sessionId (실제 sessionId로 업데이트용)
   private streamingBuffers: Map<string, string> = new Map(); // clientId -> stdout buffer (스트리밍용)
   private lastStreamedText: Map<string, string> = new Map(); // clientId -> 마지막으로 전송한 텍스트 (중복 제거용)
+  private lastPromptByClient: Map<string, string> = new Map(); // clientId -> 마지막으로 실행한 프롬프트 (IME 중복 방지용)
 
   constructor(
     outputChannel?: vscode.OutputChannel,
@@ -235,6 +236,19 @@ export class CLIHandler {
         clientId || "none"
       }, newSession: ${newSession}`
     );
+
+    // IME 중복 단일 문자 무시: 이미 실행 중인 프로세스가 있고, 새 프롬프트가 1글자이며
+    // 마지막 프롬프트가 그 글자로 끝나면 무시 (릴레이 모드 응답 유지)
+    if (this.currentProcess && text.length === 1) {
+      const key = clientId || "global";
+      const lastPrompt = this.lastPromptByClient.get(key);
+      if (lastPrompt && lastPrompt.endsWith(text)) {
+        this.log(
+          `Skipping IME duplicate single character "${text}" to preserve ongoing response`
+        );
+        return;
+      }
+    }
 
     // 에이전트 모드 설정 (히스토리 저장 및 CLI 실행에 사용)
     let selectedMode: string = "agent"; // 기본값
@@ -445,6 +459,9 @@ export class CLIHandler {
       // 현재 프롬프트의 clientId를 클로저로 저장 (checkAndProcessOutput에서 사용)
       const currentClientId = clientId;
 
+      // IME 중복 판별용: 이번에 실행한 프롬프트 저장
+      this.lastPromptByClient.set(clientId || "global", text);
+
       // 디버깅: clientId가 제대로 전달되는지 로그
       if (clientId) {
         this.log(`🔑 Using clientId: ${clientId} for this prompt`);
@@ -486,14 +503,7 @@ export class CLIHandler {
               200
             )}${chunk.length > 200 ? "..." : ""}`
           );
-
-          // 실시간 스트리밍 처리
-          if (currentClientId) {
-            const buffer =
-              (this.streamingBuffers.get(currentClientId) || "") + chunk;
-            this.streamingBuffers.set(currentClientId, buffer);
-            this.processStreamingChunk(buffer, currentClientId);
-          }
+          // 청크 전송 비활성화: 로컬/릴레이 모두 최종 chat_response만 사용
         });
 
         this.currentProcess.stdout.on("end", () => {
@@ -718,6 +728,17 @@ export class CLIHandler {
       }
 
       this.log(`Extracted response text length: ${responseText.length}`);
+      if (!responseText && clientId === "relay-client") {
+        this.log(
+          `⚠️ Relay mode: no responseText (stdout length: ${stdout.length}, stderr length: ${stderr.length}) - sending fallback message`
+        );
+        responseText =
+          stdout.length > 0
+            ? stdout.trim().substring(0, 2000) || "[CLI 출력이 비어 있습니다.]"
+            : stderr.length > 0
+            ? `[CLI stderr]\n${stderr.trim().substring(0, 1000)}`
+            : "[응답이 비어 있습니다. CLI가 출력을 반환하지 않았을 수 있습니다.]";
+      }
 
       // 대화 히스토리 저장 (응답 수신 시)
       const currentSessionId =
@@ -776,6 +797,11 @@ export class CLIHandler {
             }`
           );
         }
+        if (clientId === "relay-client") {
+          this.log(
+            `📤 Relay mode: sending chat_response (${responseText.length} chars) to wsServer`
+          );
+        }
         this.wsServer.send(JSON.stringify(responseMessage));
         this.log("✅ AI response received", true);
       } else if (this.wsServer && !responseText) {
@@ -818,6 +844,8 @@ export class CLIHandler {
    * - result 타입: 최종 결과 (스트리밍 완료 시 사용)
    */
   private processStreamingChunk(buffer: string, clientId: string) {
+    // 청크 전송 비활성화: 로컬/릴레이 모두 최종 chat_response만 사용
+    return;
     try {
       // stream-json 형식: 각 라인이 JSON 델타일 수 있음
       // 버퍼를 라인 단위로 분리하여 각 JSON 델타 처리
