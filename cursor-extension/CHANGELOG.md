@@ -90,6 +90,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `websocket-server.ts`: Added `broadcast()` method that sends to both local WebSocket clients and relay server
 - Important logs marked with `sendToClient: true`: Agent mode selection, CLI execution start, AI response received
 
+## [0.3.4] - 2026-02-02
+
+### Added
+- **Unicast Response Support**: Responses are now sent only to the client that made the request (not broadcast to all)
+- **Multi-client Session Support**: Multiple mobile clients can connect to the same relay session
+- Each client receives only responses to their own requests
+
+### Technical Details
+- Added `senderDeviceId` tracking in CLI handler
+- Added `targetDeviceId` to chat_response messages
+- Relay server routes responses to specific client queues based on targetDeviceId
+
+## [0.3.3] - 2026-01-30
+
+### Fixed
+- Minor bug fixes and stability improvements
+
+## [0.3.2] - 2026-01-29
+
+### Fixed
+- IME duplicate character handling in relay mode
+- Streaming buffer cleanup on process termination
+
 ## [0.3.1] - 2026-01-28
 
 ### Changed
