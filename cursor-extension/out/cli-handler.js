@@ -50,11 +50,14 @@ class CLIHandler {
         this.pendingHistoryIds = new Map(); // clientId -> pending sessionId (실제 sessionId로 업데이트용)
         this.streamingBuffers = new Map(); // clientId -> stdout buffer (스트리밍용)
         this.lastStreamedText = new Map(); // clientId -> 마지막으로 전송한 텍스트 (중복 제거용)
+        this.lastPromptByClient = new Map(); // clientId -> 마지막으로 실행한 프롬프트 (IME 중복 방지용)
+        this.currentSenderDeviceId = null; // 유니캐스트 응답용 - 현재 요청을 보낸 모바일 디바이스 ID
         this.outputChannel = outputChannel || null;
         this.wsServer = wsServer || null;
         this.workspaceRoot = workspaceRoot || null;
-        // 대화 히스토리 파일 경로 설정
-        if (workspaceRoot) {
+        // 대화 히스토리 파일 경로 설정 (워크스페이스가 없거나 루트(/)면 스킵 - F5 테스트 시 ENOENT 방지)
+        const safeWorkspaceRoot = workspaceRoot && workspaceRoot !== "/" && workspaceRoot.length > 1;
+        if (safeWorkspaceRoot) {
             const cursorDir = path.join(workspaceRoot, ".cursor");
             if (!fs.existsSync(cursorDir)) {
                 fs.mkdirSync(cursorDir, { recursive: true });
@@ -181,9 +184,23 @@ class CLIHandler {
      * @param execute 실행 여부
      * @param clientId 클라이언트 ID (세션 격리용, 선택사항)
      * @param newSession 새 세션 시작 여부 (클라이언트에서 결정, 기본값: false)
+     * @param agentMode 에이전트 모드 (agent, ask, plan, debug, auto)
+     * @param senderDeviceId 릴레이 모드에서 요청을 보낸 모바일 디바이스 ID (유니캐스트 응답용)
      */
-    async sendPrompt(text, execute = true, clientId, newSession = false, agentMode = "auto") {
-        this.log(`sendPrompt called - textLength: ${text.length}, execute: ${execute}, clientId: ${clientId || "none"}, newSession: ${newSession}`);
+    async sendPrompt(text, execute = true, clientId, newSession = false, agentMode = "auto", senderDeviceId) {
+        // 유니캐스트 응답용 디바이스 ID 저장
+        this.currentSenderDeviceId = senderDeviceId || null;
+        this.log(`sendPrompt called - textLength: ${text.length}, execute: ${execute}, clientId: ${clientId || "none"}, newSession: ${newSession}, senderDeviceId: ${senderDeviceId || "none"}`);
+        // IME 중복 단일 문자 무시: 이미 실행 중인 프로세스가 있고, 새 프롬프트가 1글자이며
+        // 마지막 프롬프트가 그 글자로 끝나면 무시 (릴레이 모드 응답 유지)
+        if (this.currentProcess && text.length === 1) {
+            const key = clientId || "global";
+            const lastPrompt = this.lastPromptByClient.get(key);
+            if (lastPrompt && lastPrompt.endsWith(text)) {
+                this.log(`Skipping IME duplicate single character "${text}" to preserve ongoing response`);
+                return;
+            }
+        }
         // 에이전트 모드 설정 (히스토리 저장 및 CLI 실행에 사용)
         let selectedMode = "agent"; // 기본값
         if (agentMode && agentMode !== "auto") {
@@ -337,6 +354,8 @@ class CLIHandler {
             let processClosed = false;
             // 현재 프롬프트의 clientId를 클로저로 저장 (checkAndProcessOutput에서 사용)
             const currentClientId = clientId;
+            // IME 중복 판별용: 이번에 실행한 프롬프트 저장
+            this.lastPromptByClient.set(clientId || "global", text);
             // 디버깅: clientId가 제대로 전달되는지 로그
             if (clientId) {
                 this.log(`🔑 Using clientId: ${clientId} for this prompt`);
@@ -364,12 +383,7 @@ class CLIHandler {
                     const chunk = typeof data === "string" ? data : data.toString();
                     stdout += chunk;
                     this.log(`CLI stdout chunk (${chunk.length} bytes): ${chunk.substring(0, 200)}${chunk.length > 200 ? "..." : ""}`);
-                    // 실시간 스트리밍 처리
-                    if (currentClientId) {
-                        const buffer = (this.streamingBuffers.get(currentClientId) || "") + chunk;
-                        this.streamingBuffers.set(currentClientId, buffer);
-                        this.processStreamingChunk(buffer, currentClientId);
-                    }
+                    // 청크 전송 비활성화: 로컬/릴레이 모두 최종 chat_response만 사용
                 });
                 this.currentProcess.stdout.on("end", () => {
                     this.log("CLI stdout stream ended");
@@ -541,6 +555,15 @@ class CLIHandler {
                 }
             }
             this.log(`Extracted response text length: ${responseText.length}`);
+            if (!responseText && clientId === "relay-client") {
+                this.log(`⚠️ Relay mode: no responseText (stdout length: ${stdout.length}, stderr length: ${stderr.length}) - sending fallback message`);
+                responseText =
+                    stdout.length > 0
+                        ? stdout.trim().substring(0, 2000) || "[CLI 출력이 비어 있습니다.]"
+                        : stderr.length > 0
+                            ? `[CLI stderr]\n${stderr.trim().substring(0, 1000)}`
+                            : "[응답이 비어 있습니다. CLI가 출력을 반환하지 않았을 수 있습니다.]";
+            }
             // 대화 히스토리 저장 (응답 수신 시)
             const currentSessionId = extractedSessionId ||
                 (clientId ? this.clientSessions.get(clientId) : this.lastChatId);
@@ -573,10 +596,14 @@ class CLIHandler {
                     source: "cli",
                     sessionId: currentSessionId || undefined,
                     clientId: clientId || undefined,
+                    targetDeviceId: this.currentSenderDeviceId || undefined, // 유니캐스트 응답용
                 };
                 this.log(`Sending chat_response: ${JSON.stringify(responseMessage).substring(0, 200)}`);
                 if (currentSessionId) {
                     this.log(`   Session ID: ${currentSessionId}, Client ID: ${clientId || "none"}`);
+                }
+                if (clientId === "relay-client") {
+                    this.log(`📤 Relay mode: sending chat_response (${responseText.length} chars) to wsServer`);
                 }
                 this.wsServer.send(JSON.stringify(responseMessage));
                 this.log("✅ AI response received", true);
@@ -596,6 +623,7 @@ class CLIHandler {
                     text: stdout || stderr || "CLI 실행 완료",
                     timestamp: new Date().toISOString(),
                     source: "cli",
+                    targetDeviceId: this.currentSenderDeviceId || undefined, // 유니캐스트 응답용
                 };
                 this.log(`Sending chat_response (fallback): ${JSON.stringify(responseMessage).substring(0, 200)}`);
                 this.wsServer.send(JSON.stringify(responseMessage));
@@ -604,6 +632,7 @@ class CLIHandler {
         }
         finally {
             this.processingOutput = false;
+            this.currentSenderDeviceId = null; // 응답 완료 후 초기화
         }
     }
     /**
@@ -614,6 +643,8 @@ class CLIHandler {
      * - result 타입: 최종 결과 (스트리밍 완료 시 사용)
      */
     processStreamingChunk(buffer, clientId) {
+        // 청크 전송 비활성화: 로컬/릴레이 모두 최종 chat_response만 사용
+        return;
         try {
             // stream-json 형식: 각 라인이 JSON 델타일 수 있음
             // 버퍼를 라인 단위로 분리하여 각 JSON 델타 처리
@@ -700,7 +731,7 @@ class CLIHandler {
                             clientId: clientId,
                             isReplace: newText.length === 0, // 처음 시작하거나 전체 교체인 경우
                         };
-                        this.wsServer.send(JSON.stringify(chunkMessage));
+                        this.wsServer?.send(JSON.stringify(chunkMessage));
                         this.lastStreamedText.set(clientId, accumulatedText);
                         this.log(`📤 Streaming chunk sent (${newText.length > 0 ? newText.length : accumulatedText.length} chars, total: ${accumulatedText.length})`);
                     }

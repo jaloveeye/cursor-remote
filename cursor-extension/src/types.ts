@@ -24,6 +24,7 @@ export interface CommandMessage {
     sessionId?: string; // 세션 ID (대화 히스토리 조회용)
     limit?: number; // 조회 제한 (대화 히스토리 조회용)
     agentMode?: AgentMode; // 에이전트 모드 (agent, ask, plan, debug, auto)
+    senderDeviceId?: string; // 릴레이 모드에서 요청을 보낸 모바일 디바이스 ID (유니캐스트 응답용)
 }
 
 export interface CommandResult {

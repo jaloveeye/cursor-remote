@@ -1,6 +1,6 @@
 // 메시지 타입 정의
 
-export type DeviceType = 'mobile' | 'pc';
+export type DeviceType = "mobile" | "pc";
 
 export interface RelayMessage {
   id: string;
@@ -9,6 +9,8 @@ export interface RelayMessage {
   to: DeviceType;
   data: Record<string, unknown>;
   timestamp: number;
+  senderDeviceId?: string; // 요청을 보낸 클라이언트 ID
+  targetDeviceId?: string; // 응답을 받을 클라이언트 ID (유니캐스트)
 }
 
 export interface DeviceInfo {
@@ -22,7 +24,11 @@ export interface DeviceInfo {
 export interface Session {
   sessionId: string;
   pcDeviceId?: string;
-  mobileDeviceId?: string;
+  /** PC가 마지막으로 폴링한 시각(ms). 없으면 PC 비연결/구버전. */
+  pcLastSeenAt?: number;
+  /** PC가 설정한 PIN의 해시. 있으면 모바일 연결 시 PIN 필요 (세션 ID만으로 타인 접속 방지) */
+  pcPinHash?: string;
+  mobileDeviceIds?: string[]; // 멀티 클라이언트 지원을 위해 배열로 변경
   createdAt: number;
   expiresAt: number;
 }
@@ -42,12 +48,16 @@ export const REDIS_KEYS = {
   sessionList: () => `sessions:list`,
   // 디바이스 → 세션 매핑
   deviceSession: (deviceId: string) => `device:${deviceId}:session`,
-  // 메시지 큐 (PC → Mobile)
+  // 메시지 큐 (PC → Mobile) - 세션 단위 (deprecated, 하위 호환용)
   messagesPC2Mobile: (sessionId: string) => `messages:${sessionId}:pc2mobile`,
-  // 메시지 큐 (Mobile → PC)
+  // 메시지 큐 (Mobile → PC) - 세션 단위
   messagesMobile2PC: (sessionId: string) => `messages:${sessionId}:mobile2pc`,
+  // 메시지 큐 (PC → 특정 Mobile 클라이언트) - 클라이언트별 큐
+  messagesForDevice: (sessionId: string, deviceId: string) =>
+    `messages:${sessionId}:device:${deviceId}`,
   // 푸시 알림용 pubsub 채널
-  channel: (sessionId: string, target: DeviceType) => `channel:${sessionId}:${target}`,
+  channel: (sessionId: string, target: DeviceType) =>
+    `channel:${sessionId}:${target}`,
 } as const;
 
 // TTL 설정 (초)

@@ -1,7 +1,7 @@
 # Cursor Remote 📱
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.1.1-blue.svg)](https://github.com/jaloveeye/cursor-remote)
+[![Version](https://img.shields.io/badge/version-0.3.6-blue.svg)](https://github.com/jaloveeye/cursor-remote)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
 [![Flutter](https://img.shields.io/badge/Flutter-3.0+-blue)](https://flutter.dev/)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green)](https://nodejs.org/)
@@ -28,6 +28,8 @@ Cursor Remote is an open-source system that allows you to remotely control Curso
 - 🔒 **Open Source**: MIT License, free to use and modify
 - 💬 **AI Chat**: Real-time conversation with Cursor AI from mobile
 - 📝 **Code Editing**: Write and edit code from your mobile device
+- 🌍 **Relay Mode**: Connect from anywhere via relay server (no same network required)
+- 🔐 **Session Management**: Session ID persistence, heartbeat-based connection, conflict prevention
 
 ### Why Cursor Remote?
 
@@ -73,13 +75,17 @@ Cursor Remote is an open-source system that allows you to remotely control Curso
                                    └─────────────┘
 ```
 
-**Relay mode** (remote):
+**Relay mode** (remote, 0.3.6+):
 
 ```
 Mobile/Web App  ←→  Relay Server  ←→  Extension (RelayClient)
+     │                   │                    │
+     └───── Session ID ──┴──── Session ID ────┘
+           (e.g. ABC123)
 ```
 
 No separate PC server is required. The extension includes relay client and WebSocket server.
+Session ID is entered on first launch and saved for reuse (24-hour TTL).
 
 #### Connection Modes
 
@@ -311,15 +317,16 @@ hostname -I
 
 Use this when PC and mobile are on different networks, connecting through a relay server.
 
-#### Setup
+#### Setup (0.3.6+)
 
-1. **Check relay server URL**
-   - Default relay server: `https://relay.jaloveeye.com`
-   - Can be changed via environment variable: `RELAY_SERVER_URL`
+1. **Extension prompts for Session ID** on first launch
+   - Enter a 6-character alphanumeric Session ID (e.g., `ABC123`)
+   - Session ID is saved and reused automatically
 
 2. **Connect from Mobile App**
    - Select relay server mode
-   - Enter relay server URL (or use default)
+   - Enter relay server URL (default: `https://relay.jaloveeye.com`)
+   - Enter the **same Session ID** as Extension
    - Connect
 
 #### How It Works
@@ -330,11 +337,30 @@ Mobile App → Relay Server → Extension (RelayClient) → Cursor CLI
 
 The relay server forwards messages, so you can connect even when PC and mobile are on different networks.
 
+#### Session Management
+
+| Feature | Description |
+|---------|-------------|
+| **Session ID Persistence** | Saved in Extension's globalState, reused on next launch |
+| **Heartbeat** | Extension sends heartbeat every 30 seconds |
+| **Auto-release** | Session released after 2 minutes of inactivity |
+| **Conflict Detection** | 409 error if same Session ID used by another PC |
+| **TTL** | Sessions expire after 24 hours |
+
+#### Commands
+
+| Command | Description |
+|---------|-------------|
+| `Cursor Remote: 세션 ID로 릴레이 연결` | Connect to a different session immediately |
+| `Cursor Remote: 릴레이 세션 ID 설정` | Change saved Session ID (used on next launch) |
+| `Cursor Remote: 릴레이 서버 상태 확인` | Check relay server status |
+
 #### Advantages
 
 - **No port forwarding**: Use without router configuration
 - **Security**: Safe connection without direct port exposure
-- **Convenience**: Use immediately without complex network setup
+- **Session Persistence**: Same Session ID works for 24 hours
+- **Conflict Prevention**: Only one PC per Session ID at a time
 
 ---
 
@@ -539,6 +565,8 @@ Cursor Remote는 모바일 기기에서 Cursor AI를 원격으로 제어할 수 
 - 🔒 **오픈소스**: MIT 라이선스, 자유롭게 사용 및 수정 가능
 - 💬 **AI 채팅**: 모바일에서 Cursor AI와 실시간 대화
 - 📝 **코드 편집**: 모바일에서 코드 작성 및 편집
+- 🌍 **릴레이 모드**: 같은 네트워크가 아니어도 릴레이 서버를 통해 연결
+- 🔐 **세션 관리**: 세션 ID 저장/재사용, Heartbeat 기반 연결, 충돌 방지
 
 ### 왜 Cursor Remote인가?
 
@@ -570,7 +598,9 @@ Cursor Remote는 모바일 기기에서 Cursor AI를 원격으로 제어할 수 
 
 ### 아키텍처
 
-**로컬 모드**: 모바일/웹 앱이 Extension WebSocket(8766)에 직접 연결. **릴레이 모드**: 앱 ↔ 릴레이 서버 ↔ Extension(RelayClient). PC 서버는 사용하지 않습니다.
+**로컬 모드**: 모바일/웹 앱이 Extension WebSocket(8766)에 직접 연결.
+
+**릴레이 모드 (0.3.6+)**: 앱 ↔ 릴레이 서버 ↔ Extension(RelayClient). PC 서버는 사용하지 않습니다. 세션 ID(6자리)로 연결하며, 익스텐션 첫 실행 시 입력한 세션 ID가 저장되어 재사용됩니다.
 
 #### 연결 모드
 
@@ -802,15 +832,16 @@ hostname -I
 
 PC와 모바일이 다른 네트워크에 있을 때 릴레이 서버를 통해 연결합니다.
 
-#### 설정 방법
+#### 설정 방법 (0.3.6+)
 
-1. **릴레이 서버 URL 확인**
-   - 기본 릴레이 서버: `https://relay.jaloveeye.com`
-   - 환경 변수로 변경 가능: `RELAY_SERVER_URL`
+1. **Extension 첫 실행 시 세션 ID 입력 프롬프트**
+   - 6자리 영숫자 세션 ID 입력 (예: `ABC123`)
+   - 세션 ID는 저장되어 다음 실행 시 자동 재사용
 
 2. **모바일 앱에서 연결**
    - 릴레이 서버 모드 선택
-   - 릴레이 서버 URL 입력 (또는 기본값 사용)
+   - 릴레이 서버 URL 입력 (기본: `https://relay.jaloveeye.com`)
+   - Extension과 **동일한 세션 ID** 입력
    - 연결
 
 #### 작동 방식
@@ -821,11 +852,30 @@ PC와 모바일이 다른 네트워크에 있을 때 릴레이 서버를 통해 
 
 릴레이 서버가 중간에서 메시지를 전달하므로, PC와 모바일이 서로 다른 네트워크에 있어도 연결할 수 있습니다.
 
+#### 세션 관리
+
+| 기능 | 설명 |
+|------|------|
+| **세션 ID 저장** | Extension의 globalState에 저장, 다음 실행 시 재사용 |
+| **Heartbeat** | Extension이 30초마다 heartbeat 전송 |
+| **자동 해제** | 2분간 비활성 시 세션 해제 |
+| **충돌 감지** | 같은 세션 ID를 다른 PC에서 사용 시 409 에러 |
+| **TTL** | 세션은 24시간 후 만료 |
+
+#### 명령어
+
+| 명령어 | 설명 |
+|--------|------|
+| `Cursor Remote: 세션 ID로 릴레이 연결` | 다른 세션에 즉시 연결 |
+| `Cursor Remote: 릴레이 세션 ID 설정` | 저장된 세션 ID 변경 (다음 실행 시 사용) |
+| `Cursor Remote: 릴레이 서버 상태 확인` | 릴레이 서버 상태 확인 |
+
 #### 장점
 
 - **포트 포워딩 불필요**: 라우터 설정 없이 사용 가능
 - **보안**: 직접 포트 노출 없이 안전한 연결
-- **간편함**: 복잡한 네트워크 설정 없이 바로 사용
+- **세션 연속성**: 동일 세션 ID로 24시간 재접속 가능
+- **충돌 방지**: 세션 ID당 한 PC만 연결 가능
 
 ---
 
@@ -1037,4 +1087,4 @@ lsof -i :8766
 **Made with ❤️ by [jaloveeye](https://jaloveeye.com)**
 
 **작성 시간**: 2026년 1월 21일  
-**최종 수정**: 2026년 1월 21일
+**최종 수정**: 2026년 2월 2일 (릴레이 모드 세션 ID 입력/저장, Heartbeat 방식 반영)

@@ -1009,8 +1009,59 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  // 기존 세션에 연결
-  Future<void> _connectToSession(String sessionId) async {
+  /// PC가 설정한 PIN 입력 다이얼로그 (403 PIN_REQUIRED 시 호출)
+  Future<String?> _showPinDialog() async {
+    if (!mounted) return null;
+    final controller = TextEditingController();
+    final navigator = Navigator.of(context);
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      useSafeArea: true,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('PIN 입력'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '이 세션은 PC에서 PIN 보호가 설정되어 있습니다.\nPC에서 설정한 4~6자리 숫자 PIN을 입력하세요.',
+                style: TextStyle(fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                obscureText: true,
+                maxLength: 6,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'PIN',
+                  hintText: '4~6자리 숫자',
+                  counterText: '',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => navigator.pop(null),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => navigator.pop(controller.text.trim()),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 기존 세션에 연결 (PIN은 PC가 설정한 경우에만 전달)
+  Future<void> _connectToSession(String sessionId, [String? pin]) async {
     if (sessionId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('세션 ID를 입력하세요')),
@@ -1025,23 +1076,36 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     try {
       setState(() {
-        _messages.add(MessageItem('Connecting to session $sessionId...',
+        _messages.add(MessageItem(
+            pin != null
+                ? 'Connecting to session $sessionId with PIN...'
+                : 'Connecting to session $sessionId...',
             type: MessageType.system));
       });
+
+      final body = <String, dynamic>{
+        'sessionId': sessionId,
+        'deviceId': _deviceId,
+        'deviceType': 'mobile',
+      };
+      if (pin != null && pin.isNotEmpty) {
+        body['pin'] = pin;
+      }
 
       final response = await http.post(
         Uri.parse('$RELAY_SERVER_URL/api/connect'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'sessionId': sessionId,
-          'deviceId': _deviceId,
-          'deviceType': 'mobile',
-        }),
+        body: jsonEncode(body),
       );
 
-      final data = jsonDecode(response.body);
+      final data = response.body.isNotEmpty
+          ? jsonDecode(response.body) as Map<String, dynamic>?
+          : <String, dynamic>{};
+      final dataMap = data ?? {};
+      final errorCode = dataMap['errorCode']?.toString();
+      final errorMessage = dataMap['error']?.toString() ?? '';
 
-      if (response.statusCode == 200 && data['success'] == true) {
+      if (response.statusCode == 200 && dataMap['success'] == true) {
         setState(() {
           _sessionId = sessionId;
           _isConnected = true;
@@ -1078,27 +1142,44 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         Future.delayed(const Duration(milliseconds: 300), () {
           _loadChatHistory(); // clientId 없이 최근 히스토리 조회
         });
-      } else {
-        final error = data['error'] ?? 'Unknown error';
+      } else if (response.statusCode == 403 &&
+          (errorCode == 'PIN_REQUIRED' ||
+              errorMessage.toLowerCase().contains('pin required') ||
+              errorMessage.toLowerCase().contains('pin을 입력'))) {
+        // PC가 PIN을 설정한 세션 → PIN 입력 후 재시도
+        if (!mounted) return;
         setState(() {
-          _lastConnectionError = error.toString();
-          _messages.add(MessageItem('❌ Failed to connect: $error',
+          _messages.add(MessageItem('이 세션은 PIN이 필요합니다. PIN을 입력하세요.',
               type: MessageType.system));
         });
-
-        // 세션이 없으면 자동으로 새 세션 생성 시도
-        if (error == 'Session not found' ||
-            error.toString().contains('Session not found')) {
+        final enteredPin = await _showPinDialog();
+        if (!mounted) return;
+        if (enteredPin != null && enteredPin.isNotEmpty) {
+          await _connectToSession(sessionId, enteredPin);
+        } else {
           setState(() {
-            _messages.add(MessageItem(
-                '🔄 Session not found. Creating new session...',
+            _messages.add(MessageItem('PIN을 입력하지 않아 연결하지 않았습니다.',
                 type: MessageType.system));
           });
-          // 세션 ID를 비우고 새 세션 생성
-          _sessionIdController.clear();
-          await _createSession();
-        } else {
-          // 다른 에러는 재연결 시도
+        }
+      } else if (response.statusCode == 403 &&
+          (errorCode == 'INVALID_PIN' ||
+              errorMessage.toLowerCase().contains('invalid pin'))) {
+        setState(() {
+          _messages.add(MessageItem('❌ PIN이 올바르지 않습니다. PC에서 설정한 PIN을 확인하세요.',
+              type: MessageType.system));
+        });
+      } else {
+        final error = errorMessage.isNotEmpty ? errorMessage : 'Unknown error';
+        setState(() {
+          _lastConnectionError = error;
+          _messages
+              .add(MessageItem('❌ 연결 실패: $error', type: MessageType.system));
+        });
+        // Session not found 시 자동 새 세션 생성/재연결 하지 않음 (사용자가 세션 ID 확인 후 재시도)
+        final isSessionNotFound =
+            error.toLowerCase().contains('session not found');
+        if (!isSessionNotFound) {
           _scheduleReconnect();
         }
       }
@@ -1154,7 +1235,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       try {
         final response = await http.get(
           Uri.parse(
-              '$RELAY_SERVER_URL/api/poll?sessionId=$_sessionId&deviceType=mobile'),
+              '$RELAY_SERVER_URL/api/poll?sessionId=$_sessionId&deviceType=mobile&deviceId=$_deviceId'),
         );
 
         if (response.statusCode == 200) {
@@ -2802,8 +2883,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 return Column(
                                   children: [
                                     InkWell(
-                                      onTap: () =>
-                                          _connectFromHistory(item),
+                                      onTap: () => _connectFromHistory(item),
                                       borderRadius: BorderRadius.vertical(
                                         top: index == 0
                                             ? const Radius.circular(12)
@@ -3827,23 +3907,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           children: [
                             Expanded(
                               child: FilledButton.icon(
-                                onPressed:
-                                    _isConnected && hasText && !_isWaitingForResponse
-                                        ? () {
-                                            if (!mounted) return;
-                                            final text =
-                                                _commandController.text.trim();
-                                            if (text.isNotEmpty) {
-                                              _sendCommand('insert_text',
-                                                  text: text,
-                                                  prompt: true,
-                                                  execute: true,
-                                                  newSession: false,
-                                                  agentMode: _selectedAgentMode);
-                                              _clearCommandInput();
-                                            }
-                                          }
-                                        : null,
+                                onPressed: _isConnected &&
+                                        hasText &&
+                                        !_isWaitingForResponse
+                                    ? () {
+                                        if (!mounted) return;
+                                        final text =
+                                            _commandController.text.trim();
+                                        if (text.isNotEmpty) {
+                                          _sendCommand('insert_text',
+                                              text: text,
+                                              prompt: true,
+                                              execute: true,
+                                              newSession: false,
+                                              agentMode: _selectedAgentMode);
+                                          _clearCommandInput();
+                                        }
+                                      }
+                                    : null,
                                 icon: _isWaitingForResponse
                                     ? SizedBox(
                                         width: 16,

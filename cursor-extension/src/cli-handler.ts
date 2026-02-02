@@ -34,6 +34,7 @@ export class CLIHandler {
   private streamingBuffers: Map<string, string> = new Map(); // clientId -> stdout buffer (스트리밍용)
   private lastStreamedText: Map<string, string> = new Map(); // clientId -> 마지막으로 전송한 텍스트 (중복 제거용)
   private lastPromptByClient: Map<string, string> = new Map(); // clientId -> 마지막으로 실행한 프롬프트 (IME 중복 방지용)
+  private currentSenderDeviceId: string | null = null; // 유니캐스트 응답용 - 현재 요청을 보낸 모바일 디바이스 ID
 
   constructor(
     outputChannel?: vscode.OutputChannel,
@@ -44,8 +45,10 @@ export class CLIHandler {
     this.wsServer = wsServer || null;
     this.workspaceRoot = workspaceRoot || null;
 
-    // 대화 히스토리 파일 경로 설정
-    if (workspaceRoot) {
+    // 대화 히스토리 파일 경로 설정 (워크스페이스가 없거나 루트(/)면 스킵 - F5 테스트 시 ENOENT 방지)
+    const safeWorkspaceRoot =
+      workspaceRoot && workspaceRoot !== "/" && workspaceRoot.length > 1;
+    if (safeWorkspaceRoot) {
       const cursorDir = path.join(workspaceRoot, ".cursor");
       if (!fs.existsSync(cursorDir)) {
         fs.mkdirSync(cursorDir, { recursive: true });
@@ -221,20 +224,26 @@ export class CLIHandler {
    * @param execute 실행 여부
    * @param clientId 클라이언트 ID (세션 격리용, 선택사항)
    * @param newSession 새 세션 시작 여부 (클라이언트에서 결정, 기본값: false)
+   * @param agentMode 에이전트 모드 (agent, ask, plan, debug, auto)
+   * @param senderDeviceId 릴레이 모드에서 요청을 보낸 모바일 디바이스 ID (유니캐스트 응답용)
    */
   async sendPrompt(
     text: string,
     execute: boolean = true,
     clientId?: string,
     newSession: boolean = false,
-    agentMode: "agent" | "ask" | "plan" | "debug" | "auto" = "auto"
+    agentMode: "agent" | "ask" | "plan" | "debug" | "auto" = "auto",
+    senderDeviceId?: string
   ): Promise<void> {
+    // 유니캐스트 응답용 디바이스 ID 저장
+    this.currentSenderDeviceId = senderDeviceId || null;
+
     this.log(
       `sendPrompt called - textLength: ${
         text.length
       }, execute: ${execute}, clientId: ${
         clientId || "none"
-      }, newSession: ${newSession}`
+      }, newSession: ${newSession}, senderDeviceId: ${senderDeviceId || "none"}`
     );
 
     // IME 중복 단일 문자 무시: 이미 실행 중인 프로세스가 있고, 새 프롬프트가 1글자이며
@@ -782,6 +791,7 @@ export class CLIHandler {
           source: "cli",
           sessionId: currentSessionId || undefined,
           clientId: clientId || undefined,
+          targetDeviceId: this.currentSenderDeviceId || undefined, // 유니캐스트 응답용
         };
 
         this.log(
@@ -821,6 +831,7 @@ export class CLIHandler {
           text: stdout || stderr || "CLI 실행 완료",
           timestamp: new Date().toISOString(),
           source: "cli",
+          targetDeviceId: this.currentSenderDeviceId || undefined, // 유니캐스트 응답용
         };
 
         this.log(
@@ -833,6 +844,7 @@ export class CLIHandler {
       }
     } finally {
       this.processingOutput = false;
+      this.currentSenderDeviceId = null; // 응답 완료 후 초기화
     }
   }
 
@@ -945,7 +957,7 @@ export class CLIHandler {
               isReplace: newText.length === 0, // 처음 시작하거나 전체 교체인 경우
             };
 
-            this.wsServer.send(JSON.stringify(chunkMessage));
+            this.wsServer?.send(JSON.stringify(chunkMessage));
             this.lastStreamedText.set(clientId, accumulatedText);
             this.log(
               `📤 Streaming chunk sent (${

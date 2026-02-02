@@ -90,6 +90,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `websocket-server.ts`: Added `broadcast()` method that sends to both local WebSocket clients and relay server
 - Important logs marked with `sendToClient: true`: Agent mode selection, CLI execution start, AI response received
 
+## [0.3.6] - 2026-02-02
+
+### Added
+- **Session ID 입력/저장**: 익스텐션 시작 시 6자리 세션 ID 입력 프롬프트, globalState에 저장하여 재사용
+- **PC 먼저 연결 가능**: PC가 세션 ID를 입력하면 해당 ID로 세션 생성/연결 (모바일이 나중에 같은 ID로 접속)
+- **Heartbeat**: PC가 30초마다 heartbeat 전송, 2분간 없으면 연결 끊김으로 간주 (세션 해제)
+- **세션 충돌 방지**: 같은 세션 ID를 다른 PC에서 사용 시 409 에러 반환
+- **PIN 보안 (선택)**: PC가 PIN 설정 시 모바일은 해당 PIN을 알아야만 접속 가능
+- **새 명령어**: `세션 ID로 릴레이 연결`, `릴레이 세션 ID 설정`, `릴레이 서버 상태 확인`
+
+### Changed
+- **세션 탐색 API 변경**: `sessions-waiting-for-pc` → `sessions-with-mobile` (모바일이 연결된 세션만 탐색)
+- **세션 ID 정규화**: 대문자로 정규화하여 PC/모바일 동일 키 매칭
+- **세션 연속성**: 24시간 TTL 내에서 같은 세션 ID로 재접속 가능
+
+### Technical Details
+- `relay-client.ts`: `start(sessionId, pin?)` 시그니처 변경, heartbeat interval 추가
+- `relay-client.ts`: `httpRequestWithStatus()` 메서드 추가 (404/409 상태 코드 구분)
+- `connect.ts`: PC 연결 시 세션 자동 생성, PIN 해시 저장/검증, pcLastSeenAt 기반 중복 체크
+- `heartbeat.ts`: 새 API 엔드포인트 추가 (pcLastSeenAt 갱신)
+- `types.ts`: Session 인터페이스에 `pcLastSeenAt`, `pcPinHash` 필드 추가
+
+## [0.3.5] - 2026-02-02
+
+### Changed
+- **Relay response: broadcast again (0.3.3 동작 복귀)**  
+  유니캐스트(0.3.4)에서 응답이 일부 환경에서 오지 않는 문제가 있어, 릴레이 모드 응답을 **브로드캐스트**로 되돌렸습니다.  
+  동일 세션의 모든 모바일 클라이언트가 응답을 받습니다.
+
+### Fixed
+- 릴레이 모드에서 프롬프트 입력 후 응답이 오지 않던 현상 수정 (브로드캐스트 복귀로 해결)
+
+### Technical Details
+- Extension: 릴레이 메시지 전달 시 `senderDeviceId` 병합 제거 (유니캐스트 경로 비활성화)
+- Relay server: PC→Mobile 시 항상 모든 디바이스 큐 + 레거시 큐에 전송
+
+## [0.3.4] - 2026-02-02
+
+### Added
+- **Unicast Response Support**: Responses are now sent only to the client that made the request (not broadcast to all)
+- **Multi-client Session Support**: Multiple mobile clients can connect to the same relay session
+- Each client receives only responses to their own requests
+
+### Technical Details
+- Added `senderDeviceId` tracking in CLI handler
+- Added `targetDeviceId` to chat_response messages
+- Relay server routes responses to specific client queues based on targetDeviceId
+
+## [0.3.3] - 2026-01-30
+
+### Fixed
+- Minor bug fixes and stability improvements
+
+## [0.3.2] - 2026-01-29
+
+### Fixed
+- IME duplicate character handling in relay mode
+- Streaming buffer cleanup on process termination
+
 ## [0.3.1] - 2026-01-28
 
 ### Changed
