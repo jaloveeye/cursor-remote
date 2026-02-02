@@ -26,6 +26,81 @@ enum ThemeModeSetting {
 // ============================================================
 // 앱 설정 관리
 // ============================================================
+// ============================================================
+// 연결 히스토리 항목
+// ============================================================
+class ConnectionHistoryItem {
+  final ConnectionType type;
+  final String? ip; // 로컬 모드일 때
+  final String? sessionId; // 릴레이 모드일 때
+  final DateTime timestamp;
+
+  ConnectionHistoryItem({
+    required this.type,
+    this.ip,
+    this.sessionId,
+    required this.timestamp,
+  });
+
+  // JSON 직렬화
+  Map<String, dynamic> toJson() => {
+        'type': type.index,
+        'ip': ip,
+        'sessionId': sessionId,
+        'timestamp': timestamp.toIso8601String(),
+      };
+
+  // JSON 역직렬화
+  factory ConnectionHistoryItem.fromJson(Map<String, dynamic> json) {
+    return ConnectionHistoryItem(
+      type: ConnectionType.values[json['type'] as int],
+      ip: json['ip'] as String?,
+      sessionId: json['sessionId'] as String?,
+      timestamp: DateTime.parse(json['timestamp'] as String),
+    );
+  }
+
+  // 동일 연결인지 확인 (타입과 주소/세션ID가 같으면 동일)
+  bool isSameConnection(ConnectionHistoryItem other) {
+    if (type != other.type) return false;
+    if (type == ConnectionType.local) {
+      return ip == other.ip;
+    } else {
+      return sessionId == other.sessionId;
+    }
+  }
+
+  // 표시용 문자열
+  String get displayText {
+    if (type == ConnectionType.local) {
+      return ip ?? 'Unknown IP';
+    } else {
+      return sessionId ?? 'Unknown Session';
+    }
+  }
+
+  // 상대 시간 문자열
+  String get relativeTime {
+    final now = DateTime.now();
+    final diff = now.difference(timestamp);
+
+    if (diff.inMinutes < 1) {
+      return '방금 전';
+    } else if (diff.inMinutes < 60) {
+      return '${diff.inMinutes}분 전';
+    } else if (diff.inHours < 24) {
+      return '${diff.inHours}시간 전';
+    } else if (diff.inDays < 7) {
+      return '${diff.inDays}일 전';
+    } else {
+      return '${timestamp.month}/${timestamp.day}';
+    }
+  }
+}
+
+// ============================================================
+// 앱 설정 관리
+// ============================================================
 class AppSettings extends ChangeNotifier {
   static final AppSettings _instance = AppSettings._internal();
   factory AppSettings() => _instance;
@@ -36,18 +111,25 @@ class AppSettings extends ChangeNotifier {
   static const String _keyShowHistory = 'show_history';
   static const String _keyDefaultAgentMode = 'default_agent_mode';
   static const String _keyAutoConnect = 'auto_connect';
+  static const String _keyConnectionHistory = 'connection_history';
 
   // 설정 값
   ThemeModeSetting _themeMode = ThemeModeSetting.system;
   bool _showHistory = false; // 기본값: 숨김
   String _defaultAgentMode = 'auto';
   bool _autoConnect = false;
+  List<ConnectionHistoryItem> _connectionHistory = [];
+
+  // 최대 히스토리 개수
+  static const int _maxHistoryCount = 5;
 
   // Getters
   ThemeModeSetting get themeMode => _themeMode;
   bool get showHistory => _showHistory;
   String get defaultAgentMode => _defaultAgentMode;
   bool get autoConnect => _autoConnect;
+  List<ConnectionHistoryItem> get connectionHistory =>
+      List.unmodifiable(_connectionHistory);
 
   // 테마 모드를 ThemeMode로 변환
   ThemeMode get themeModeValue {
@@ -64,14 +146,28 @@ class AppSettings extends ChangeNotifier {
   // 설정 로드
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
-    
+
     final themeModeIndex = prefs.getInt(_keyThemeMode) ?? 2; // 기본값: system
     _themeMode = ThemeModeSetting.values[themeModeIndex.clamp(0, 2)];
-    
+
     _showHistory = prefs.getBool(_keyShowHistory) ?? false;
     _defaultAgentMode = prefs.getString(_keyDefaultAgentMode) ?? 'auto';
     _autoConnect = prefs.getBool(_keyAutoConnect) ?? false;
-    
+
+    // 연결 히스토리 로드
+    final historyJson = prefs.getString(_keyConnectionHistory);
+    if (historyJson != null) {
+      try {
+        final List<dynamic> historyList = jsonDecode(historyJson);
+        _connectionHistory = historyList
+            .map((item) =>
+                ConnectionHistoryItem.fromJson(item as Map<String, dynamic>))
+            .toList();
+      } catch (e) {
+        _connectionHistory = [];
+      }
+    }
+
     notifyListeners();
   }
 
@@ -104,6 +200,46 @@ class AppSettings extends ChangeNotifier {
     _autoConnect = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyAutoConnect, value);
+    notifyListeners();
+  }
+
+  // 연결 히스토리에 추가
+  Future<void> addConnectionHistory(ConnectionHistoryItem item) async {
+    // 동일한 연결이 있으면 제거 (최신으로 갱신하기 위해)
+    _connectionHistory.removeWhere((h) => h.isSameConnection(item));
+
+    // 맨 앞에 추가
+    _connectionHistory.insert(0, item);
+
+    // 최대 개수 유지
+    if (_connectionHistory.length > _maxHistoryCount) {
+      _connectionHistory = _connectionHistory.sublist(0, _maxHistoryCount);
+    }
+
+    // 저장
+    await _saveConnectionHistory();
+    notifyListeners();
+  }
+
+  // 연결 히스토리 저장
+  Future<void> _saveConnectionHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final historyJson =
+        jsonEncode(_connectionHistory.map((h) => h.toJson()).toList());
+    await prefs.setString(_keyConnectionHistory, historyJson);
+  }
+
+  // 연결 히스토리 삭제
+  Future<void> removeConnectionHistory(ConnectionHistoryItem item) async {
+    _connectionHistory.removeWhere((h) => h.isSameConnection(item));
+    await _saveConnectionHistory();
+    notifyListeners();
+  }
+
+  // 연결 히스토리 전체 삭제
+  Future<void> clearConnectionHistory() async {
+    _connectionHistory.clear();
+    await _saveConnectionHistory();
     notifyListeners();
   }
 }
@@ -594,6 +730,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // 연결 설정 저장
       _saveConnectionSettings();
 
+      // 연결 히스토리에 추가
+      AppSettings().addConnectionHistory(ConnectionHistoryItem(
+        type: ConnectionType.local,
+        ip: ip,
+        timestamp: DateTime.now(),
+      ));
+
       // 연결 성공 시 connect 화면 자동 닫기
       try {
         _expansionTileController.collapse();
@@ -914,6 +1057,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // 연결 설정 저장
         _saveConnectionSettings();
 
+        // 연결 히스토리에 추가
+        AppSettings().addConnectionHistory(ConnectionHistoryItem(
+          type: ConnectionType.relay,
+          sessionId: sessionId,
+          timestamp: DateTime.now(),
+        ));
+
         // 연결 성공 시 connect 화면 자동 닫기
         try {
           _expansionTileController.collapse();
@@ -978,6 +1128,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _connectToSession(sessionId);
       }
     }
+  }
+
+  // 히스토리에서 연결
+  void _connectFromHistory(ConnectionHistoryItem item) {
+    setState(() {
+      _connectionType = item.type;
+      if (item.type == ConnectionType.local) {
+        _localIpController.text = item.ip ?? '';
+      } else {
+        _sessionIdController.text = item.sessionId ?? '';
+      }
+    });
+
+    // 연결 시도
+    _connect();
   }
 
   // 메시지 폴링 시작
@@ -2582,6 +2747,149 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           ),
                         ],
                         const SizedBox(height: 12),
+                        // 최근 연결 목록
+                        if (!_isConnected &&
+                            AppSettings().connectionHistory.isNotEmpty) ...[
+                          Text(
+                            '최근 연결',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest
+                                  .withOpacity(0.5),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .outline
+                                    .withOpacity(0.2),
+                                width: 1,
+                              ),
+                            ),
+                            child: Column(
+                              children: AppSettings()
+                                  .connectionHistory
+                                  .asMap()
+                                  .entries
+                                  .map((entry) {
+                                final index = entry.key;
+                                final item = entry.value;
+                                final isLast = index ==
+                                    AppSettings().connectionHistory.length - 1;
+                                return Column(
+                                  children: [
+                                    InkWell(
+                                      onTap: () =>
+                                          _connectFromHistory(item),
+                                      borderRadius: BorderRadius.vertical(
+                                        top: index == 0
+                                            ? const Radius.circular(12)
+                                            : Radius.zero,
+                                        bottom: isLast
+                                            ? const Radius.circular(12)
+                                            : Radius.zero,
+                                      ),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 12, vertical: 10),
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.all(6),
+                                              decoration: BoxDecoration(
+                                                color: item.type ==
+                                                        ConnectionType.local
+                                                    ? Theme.of(context)
+                                                        .colorScheme
+                                                        .secondaryContainer
+                                                    : Theme.of(context)
+                                                        .colorScheme
+                                                        .primaryContainer,
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                              ),
+                                              child: Icon(
+                                                item.type ==
+                                                        ConnectionType.local
+                                                    ? Icons.computer
+                                                    : Icons.cloud,
+                                                size: 14,
+                                                color: item.type ==
+                                                        ConnectionType.local
+                                                    ? Theme.of(context)
+                                                        .colorScheme
+                                                        .onSecondaryContainer
+                                                    : Theme.of(context)
+                                                        .colorScheme
+                                                        .onPrimaryContainer,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    item.displayText,
+                                                    style: TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .onSurface,
+                                                      fontFamily: 'monospace',
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    item.relativeTime,
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .onSurfaceVariant,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            Icon(
+                                              Icons.chevron_right,
+                                              size: 18,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    if (!isLast)
+                                      Divider(
+                                        height: 1,
+                                        indent: 12,
+                                        endIndent: 12,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .outline
+                                            .withOpacity(0.2),
+                                      ),
+                                  ],
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
                         // 재연결 중 상태 표시
                         if (_isReconnecting) ...[
                           Container(
