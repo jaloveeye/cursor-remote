@@ -2490,9 +2490,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       appBar: AppBar(
         title: Row(
           children: [
-            Icon(
-              Icons.code,
-              color: Theme.of(context).colorScheme.primary,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.asset(
+                'images/app_icon.png',
+                width: 28,
+                height: 28,
+              ),
             ),
             const SizedBox(width: 8),
             const Text(
@@ -2675,20 +2679,35 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: Colors.orange.withOpacity(0.1),
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .tertiaryContainer
+                                  .withOpacity(0.5),
                               borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .tertiary
+                                    .withOpacity(0.3),
+                                width: 1,
+                              ),
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.info_outline,
-                                    size: 18, color: Colors.orange),
+                                Icon(Icons.info_outline,
+                                    size: 18,
+                                    color:
+                                        Theme.of(context).colorScheme.tertiary),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
                                     'PC와 모바일이 같은 네트워크에 있어야 합니다',
                                     style: TextStyle(
                                       fontSize: 12,
-                                      color: Colors.orange[900],
+                                      fontWeight: FontWeight.w500,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface,
                                     ),
                                   ),
                                 ),
@@ -2725,20 +2744,35 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: Colors.blue.withOpacity(0.1),
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .primaryContainer
+                                  .withOpacity(0.5),
                               borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .primary
+                                    .withOpacity(0.2),
+                                width: 1,
+                              ),
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.info_outline,
-                                    size: 18, color: Colors.blue),
+                                Icon(Icons.info_outline,
+                                    size: 18,
+                                    color:
+                                        Theme.of(context).colorScheme.primary),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
                                     '세션 ID를 비워두면 새 세션이 생성됩니다',
                                     style: TextStyle(
                                       fontSize: 12,
-                                      color: Colors.blue[900],
+                                      fontWeight: FontWeight.w500,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface,
                                     ),
                                   ),
                                 ),
@@ -2895,16 +2929,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: Colors.orange.withOpacity(0.1),
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .tertiaryContainer
+                                  .withOpacity(0.5),
                               borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .tertiary
+                                    .withOpacity(0.3),
+                                width: 1,
+                              ),
                             ),
                             child: Row(
                               children: [
-                                const SizedBox(
+                                SizedBox(
                                   width: 16,
                                   height: 16,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Theme.of(context).colorScheme.tertiary,
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 12),
@@ -2913,7 +2960,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                     '재연결 시도 중... ($_reconnectAttempts회)',
                                     style: TextStyle(
                                       fontSize: 12,
-                                      color: Colors.orange[900],
+                                      fontWeight: FontWeight.w500,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface,
                                     ),
                                   ),
                                 ),
