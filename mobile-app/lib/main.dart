@@ -4288,8 +4288,6 @@ class _SettingsPageState extends State<SettingsPage> {
           // 기능 섹션
           _buildSectionHeader('기능'),
           _buildShowHistoryTile(),
-          _buildDefaultAgentModeTile(),
-          _buildAutoConnectTile(),
           const Divider(),
 
           // 정보 섹션
@@ -4407,91 +4405,6 @@ class _SettingsPageState extends State<SettingsPage> {
       subtitle: const Text('메인 화면에 히스토리 섹션 표시'),
       value: _settings.showHistory,
       onChanged: (value) => _settings.setShowHistory(value),
-    );
-  }
-
-  Widget _buildDefaultAgentModeTile() {
-    return ListTile(
-      leading: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.tertiaryContainer,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Icon(
-          Icons.smart_toy,
-          color: Theme.of(context).colorScheme.onTertiaryContainer,
-          size: 20,
-        ),
-      ),
-      title: const Text('기본 에이전트 모드'),
-      subtitle: Text(_getAgentModeLabel(_settings.defaultAgentMode)),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () => _showAgentModeDialog(),
-    );
-  }
-
-  String _getAgentModeLabel(String mode) {
-    switch (mode) {
-      case 'auto':
-        return '자동 (Auto)';
-      case 'agent':
-        return 'Agent';
-      case 'ask':
-        return 'Ask';
-      case 'plan':
-        return 'Plan';
-      case 'debug':
-        return 'Debug';
-      default:
-        return mode;
-    }
-  }
-
-  void _showAgentModeDialog() {
-    final modes = ['auto', 'agent', 'ask', 'plan', 'debug'];
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('기본 에이전트 모드'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: modes.map((mode) {
-            return RadioListTile<String>(
-              title: Text(_getAgentModeLabel(mode)),
-              value: mode,
-              groupValue: _settings.defaultAgentMode,
-              onChanged: (value) {
-                if (value != null) {
-                  _settings.setDefaultAgentMode(value);
-                  Navigator.of(context).pop();
-                }
-              },
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAutoConnectTile() {
-    return SwitchListTile(
-      secondary: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Icon(
-          Icons.bolt,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-          size: 20,
-        ),
-      ),
-      title: const Text('자동 연결'),
-      subtitle: const Text('앱 시작 시 마지막 연결 설정으로 자동 연결'),
-      value: _settings.autoConnect,
-      onChanged: (value) => _settings.setAutoConnect(value),
     );
   }
 
