@@ -273,6 +273,16 @@ class WebSocketServer {
     getClientCount() {
         return this.clients.size;
     }
+    /** 연결된 로컬 클라이언트 ID 목록 (상태바/연결 정보 뷰용) */
+    getClientIds() {
+        const ids = [];
+        this.clients.forEach((ws) => {
+            const id = ws.clientId;
+            if (id)
+                ids.push(id);
+        });
+        return ids;
+    }
     getConnectionStatus() {
         return {
             isRunning: this.isRunning(),

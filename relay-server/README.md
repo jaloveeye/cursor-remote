@@ -22,9 +22,12 @@ Vercel에 배포하여 사용하는 Cursor Remote 중계 서버입니다.
 ## 기능
 
 - **세션 기반 연결**: 6자리 세션 코드로 PC와 모바일 연결
+- **PC 먼저 연결 가능**: PC가 세션 ID 입력 시 해당 ID로 세션 자동 생성 (0.3.6+)
 - **메시지 중계**: PC ↔ 모바일 간 양방향 메시지 전달
 - **SSE 스트림**: 실시간 메시지 수신 (Server-Sent Events)
 - **HTTP Polling**: SSE 지원이 어려운 환경을 위한 폴백
+- **Heartbeat 기반 세션 해제**: 2분간 heartbeat 없으면 PC 연결 끊김으로 간주
+- **세션 충돌 방지**: 같은 세션 ID를 다른 PC에서 사용 시 409 에러
 
 ## API 엔드포인트
 
@@ -34,9 +37,12 @@ Vercel에 배포하여 사용하는 Cursor Remote 중계 서버입니다.
 | `/api/session` | POST | 새 세션 생성 |
 | `/api/session?sessionId=XXX` | GET | 세션 정보 조회 |
 | `/api/connect` | POST | 세션에 디바이스 연결 |
+| `/api/heartbeat` | GET | PC "살아있음" 신호 (sessionId, deviceId 쿼리) |
 | `/api/send` | POST | 메시지 전송 |
 | `/api/poll` | GET | 메시지 폴링 |
 | `/api/stream` | GET | SSE 스트림 연결 |
+
+**연결 끊김 판단**: PC는 주기적으로 `/api/heartbeat`를 호출해 `pcLastSeenAt`을 갱신한다. **2분간 heartbeat가 없으면** 해당 PC는 연결 끊김으로 간주하고, 같은 세션 ID로 다른 PC가 접속할 수 있다. "접속 끊을게요" API 없이도 안전하게 세션 해제가 가능하다.
 
 ## 배포 방법
 
@@ -103,13 +109,31 @@ curl -X POST https://relay.jaloveeye.com/api/session
 ### 세션 연결 (Mobile/PC)
 
 ```bash
+# PC 연결 (세션이 없으면 자동 생성)
 curl -X POST https://relay.jaloveeye.com/api/connect \
   -H "Content-Type: application/json" \
   -d '{
     "sessionId": "ABC123",
-    "deviceId": "device-uuid",
+    "deviceId": "pc-device-uuid",
+    "deviceType": "pc"
+  }'
+
+# 모바일 연결
+curl -X POST https://relay.jaloveeye.com/api/connect \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "ABC123",
+    "deviceId": "mobile-device-uuid",
     "deviceType": "mobile"
   }'
+```
+
+### Heartbeat (PC)
+
+PC는 주기적으로 heartbeat를 전송해야 합니다. 2분간 없으면 연결 끊김으로 간주됩니다.
+
+```bash
+curl "https://relay.jaloveeye.com/api/heartbeat?sessionId=ABC123&deviceId=pc-device-uuid"
 ```
 
 ### 메시지 전송
@@ -223,4 +247,4 @@ MIT License
 ---
 
 **작성 시간**: 2026년 1월 21일  
-**수정 시간**: 2026년 1월 21일 (도메인 변경: relay.jaloveeye.com)
+**수정 시간**: 2026년 2월 2일 (0.3.6: PC 먼저 연결, Heartbeat, 세션 충돌 방지)

@@ -1,8 +1,8 @@
 {
   "name": "cursor-remote-extension",
   "displayName": "Cursor Remote",
-  "description": "Remote control extension for Cursor IDE via WebSocket - Code anywhere, anytime with Cursor CLI",
-  "version": "0.3.4",
+  "description": "Remote control Cursor AI from your mobile device via WebSocket or Relay Server - Code anywhere, anytime with session-based connection",
+  "version": "0.3.6",
   "publisher": "jaloveeye",
   "license": "MIT",
   "repository": {
@@ -19,6 +19,8 @@
     "remote",
     "mobile",
     "websocket",
+    "relay",
+    "session",
     "cli",
     "agent"
   ],
@@ -45,6 +47,26 @@
       {
         "command": "cursorRemote.toggle",
         "title": "Toggle Cursor Remote Server"
+      },
+      {
+        "command": "cursorRemote.showConnections",
+        "title": "Cursor Remote: 연결 정보 보기"
+      },
+      {
+        "command": "cursorRemote.statusBarClick",
+        "title": "Cursor Remote: 릴레이 연결 (상태줄 클릭 시)"
+      },
+      {
+        "command": "cursorRemote.checkRelayServer",
+        "title": "Cursor Remote: 릴레이 서버 상태 확인"
+      },
+      {
+        "command": "cursorRemote.connectToRelaySessionById",
+        "title": "Cursor Remote: 세션 ID로 릴레이 연결"
+      },
+      {
+        "command": "cursorRemote.setRelaySessionId",
+        "title": "Cursor Remote: 릴레이 세션 ID 설정 (다음 시작 시 사용)"
       }
     ]
   },

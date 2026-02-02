@@ -45,8 +45,10 @@ export class CLIHandler {
     this.wsServer = wsServer || null;
     this.workspaceRoot = workspaceRoot || null;
 
-    // 대화 히스토리 파일 경로 설정
-    if (workspaceRoot) {
+    // 대화 히스토리 파일 경로 설정 (워크스페이스가 없거나 루트(/)면 스킵 - F5 테스트 시 ENOENT 방지)
+    const safeWorkspaceRoot =
+      workspaceRoot && workspaceRoot !== "/" && workspaceRoot.length > 1;
+    if (safeWorkspaceRoot) {
       const cursorDir = path.join(workspaceRoot, ".cursor");
       if (!fs.existsSync(cursorDir)) {
         fs.mkdirSync(cursorDir, { recursive: true });
@@ -235,7 +237,7 @@ export class CLIHandler {
   ): Promise<void> {
     // 유니캐스트 응답용 디바이스 ID 저장
     this.currentSenderDeviceId = senderDeviceId || null;
-    
+
     this.log(
       `sendPrompt called - textLength: ${
         text.length
