@@ -1036,6 +1036,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 obscureText: true,
                 maxLength: 6,
                 autofocus: true,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => navigator.pop(controller.text.trim()),
                 decoration: const InputDecoration(
                   labelText: 'PIN',
                   hintText: '4~6자리 숫자',
@@ -2927,7 +2929,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                     ),
                                   );
                                   if (confirm == true) {
-                                    await AppSettings().clearConnectionHistory();
+                                    await AppSettings()
+                                        .clearConnectionHistory();
                                   }
                                 },
                                 icon: const Icon(Icons.delete_sweep, size: 18),
@@ -2966,140 +2969,142 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                     Tooltip(
                                       message: '탭하여 재연결',
                                       child: InkWell(
-                                        onTap: () =>
-                                            _connectFromHistory(item),
+                                        onTap: () => _connectFromHistory(item),
                                         borderRadius: BorderRadius.vertical(
-                                        top: index == 0
-                                            ? const Radius.circular(12)
-                                            : Radius.zero,
-                                        bottom: isLast
-                                            ? const Radius.circular(12)
-                                            : Radius.zero,
-                                      ),
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 12, vertical: 10),
-                                        child: Row(
-                                          children: [
-                                            Container(
-                                              padding: const EdgeInsets.all(6),
-                                              decoration: BoxDecoration(
-                                                color: item.type ==
-                                                        ConnectionType.local
-                                                    ? Theme.of(context)
-                                                        .colorScheme
-                                                        .secondaryContainer
-                                                    : Theme.of(context)
-                                                        .colorScheme
-                                                        .primaryContainer,
-                                                borderRadius:
-                                                    BorderRadius.circular(6),
-                                              ),
-                                              child: Icon(
-                                                item.type ==
-                                                        ConnectionType.local
-                                                    ? Icons.computer
-                                                    : Icons.cloud,
-                                                size: 14,
-                                                color: item.type ==
-                                                        ConnectionType.local
-                                                    ? Theme.of(context)
-                                                        .colorScheme
-                                                        .onSecondaryContainer
-                                                    : Theme.of(context)
-                                                        .colorScheme
-                                                        .onPrimaryContainer,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 10),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    item.displayText,
-                                                    style: TextStyle(
-                                                      fontSize: 13,
-                                                      fontWeight:
-                                                          FontWeight.w500,
-                                                      color: Theme.of(context)
+                                          top: index == 0
+                                              ? const Radius.circular(12)
+                                              : Radius.zero,
+                                          bottom: isLast
+                                              ? const Radius.circular(12)
+                                              : Radius.zero,
+                                        ),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 12, vertical: 10),
+                                          child: Row(
+                                            children: [
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.all(6),
+                                                decoration: BoxDecoration(
+                                                  color: item.type ==
+                                                          ConnectionType.local
+                                                      ? Theme.of(context)
                                                           .colorScheme
-                                                          .onSurface,
-                                                      fontFamily: 'monospace',
-                                                    ),
-                                                  ),
-                                                  Text(
-                                                    item.relativeTime,
-                                                    style: TextStyle(
-                                                      fontSize: 11,
-                                                      color: Theme.of(context)
+                                                          .secondaryContainer
+                                                      : Theme.of(context)
                                                           .colorScheme
-                                                          .onSurfaceVariant,
-                                                    ),
-                                                  ),
-                                                ],
+                                                          .primaryContainer,
+                                                  borderRadius:
+                                                      BorderRadius.circular(6),
+                                                ),
+                                                child: Icon(
+                                                  item.type ==
+                                                          ConnectionType.local
+                                                      ? Icons.computer
+                                                      : Icons.cloud,
+                                                  size: 14,
+                                                  color: item.type ==
+                                                          ConnectionType.local
+                                                      ? Theme.of(context)
+                                                          .colorScheme
+                                                          .onSecondaryContainer
+                                                      : Theme.of(context)
+                                                          .colorScheme
+                                                          .onPrimaryContainer,
+                                                ),
                                               ),
-                                            ),
-                                            Icon(
-                                              Icons.refresh,
-                                              size: 20,
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .primary,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            IconButton(
-                                              icon: Icon(
-                                                Icons.delete_outline,
+                                              const SizedBox(width: 10),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      item.displayText,
+                                                      style: TextStyle(
+                                                        fontSize: 13,
+                                                        fontWeight:
+                                                            FontWeight.w500,
+                                                        color: Theme.of(context)
+                                                            .colorScheme
+                                                            .onSurface,
+                                                        fontFamily: 'monospace',
+                                                      ),
+                                                    ),
+                                                    Text(
+                                                      item.relativeTime,
+                                                      style: TextStyle(
+                                                        fontSize: 11,
+                                                        color: Theme.of(context)
+                                                            .colorScheme
+                                                            .onSurfaceVariant,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              Icon(
+                                                Icons.settings_ethernet,
                                                 size: 20,
                                                 color: Theme.of(context)
                                                     .colorScheme
-                                                    .error,
+                                                    .primary,
                                               ),
-                                              onPressed: () async {
-                                                final confirm =
-                                                    await showDialog<bool>(
-                                                  context: context,
-                                                  builder: (ctx) =>
-                                                      AlertDialog(
-                                                    title: const Text(
-                                                        '연결 삭제'),
-                                                    content: Text(
-                                                      '${item.displayText} 항목을 삭제하시겠습니까?',
+                                              const SizedBox(width: 4),
+                                              IconButton(
+                                                icon: Icon(
+                                                  Icons.delete_outline,
+                                                  size: 20,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .error,
+                                                ),
+                                                onPressed: () async {
+                                                  final confirm =
+                                                      await showDialog<bool>(
+                                                    context: context,
+                                                    builder: (ctx) =>
+                                                        AlertDialog(
+                                                      title:
+                                                          const Text('연결 삭제'),
+                                                      content: Text(
+                                                        '${item.displayText} 항목을 삭제하시겠습니까?',
+                                                      ),
+                                                      actions: [
+                                                        TextButton(
+                                                          onPressed: () =>
+                                                              Navigator.of(ctx)
+                                                                  .pop(false),
+                                                          child:
+                                                              const Text('취소'),
+                                                        ),
+                                                        TextButton(
+                                                          onPressed: () =>
+                                                              Navigator.of(ctx)
+                                                                  .pop(true),
+                                                          child:
+                                                              const Text('삭제'),
+                                                        ),
+                                                      ],
                                                     ),
-                                                    actions: [
-                                                      TextButton(
-                                                        onPressed: () =>
-                                                            Navigator.of(ctx)
-                                                                .pop(false),
-                                                        child: const Text(
-                                                            '취소'),
-                                                      ),
-                                                      TextButton(
-                                                        onPressed: () =>
-                                                            Navigator.of(ctx)
-                                                                .pop(true),
-                                                        child: const Text(
-                                                            '삭제'),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                );
-                                                if (confirm == true) {
-                                                  await AppSettings()
-                                                      .removeConnectionHistory(
-                                                          item);
-                                                }
-                                              },
-                                              padding: EdgeInsets.zero,
-                                              constraints: const BoxConstraints(
-                                                  minWidth: 32, minHeight: 32),
-                                            ),
-                                          ],
+                                                  );
+                                                  if (confirm == true) {
+                                                    await AppSettings()
+                                                        .removeConnectionHistory(
+                                                            item);
+                                                  }
+                                                },
+                                                padding: EdgeInsets.zero,
+                                                constraints:
+                                                    const BoxConstraints(
+                                                        minWidth: 32,
+                                                        minHeight: 32),
+                                              ),
+                                            ],
+                                          ),
                                         ),
                                       ),
-                                    ),
                                     ),
                                     if (!isLast)
                                       Divider(
