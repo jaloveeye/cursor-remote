@@ -559,6 +559,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// 같은 세션 재연결 시 메인 목록에 히스토리 반영용 (get_chat_history 응답 시 사용)
   bool _loadingSessionHistoryForDisplay = false;
 
+  /// 과거 메시지 불러오기 버튼으로 요청한 로드 (응답 시 _messages에 반영)
+  bool _loadingPastMessages = false;
+
   // 로컬 서버 관련
   WebSocketChannel? _localWebSocket;
   final TextEditingController _localIpController = TextEditingController();
@@ -870,11 +873,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       _applyChatHistoryToMessages(entries);
                     _loadingSessionHistoryForDisplay = false;
                   }
+                  // 과거 메시지 불러오기 버튼으로 요청한 경우 메인 목록에 반영 (중복 제외)
+                  if (_loadingPastMessages) {
+                    if (entries.isNotEmpty)
+                      _applyChatHistoryToMessages(entries, skipIfExists: true);
+                    _loadingPastMessages = false;
+                  }
                 });
               } else {
                 if (_loadingSessionHistoryForDisplay) {
                   _loadingSessionHistoryForDisplay = false;
                 }
+                if (_loadingPastMessages) _loadingPastMessages = false;
               }
             }
 
@@ -1382,10 +1392,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   if (entries.isNotEmpty) _applyChatHistoryToMessages(entries);
                   _loadingSessionHistoryForDisplay = false;
                 }
+                // 과거 메시지 불러오기 버튼으로 요청한 경우 메인 목록에 반영 (중복 제외)
+                if (_loadingPastMessages) {
+                  if (entries.isNotEmpty)
+                    _applyChatHistoryToMessages(entries, skipIfExists: true);
+                  _loadingPastMessages = false;
+                }
               });
             } else {
               if (_loadingSessionHistoryForDisplay) {
                 setState(() => _loadingSessionHistoryForDisplay = false);
+              }
+              if (_loadingPastMessages) {
+                setState(() => _loadingPastMessages = false);
               }
             }
           }
@@ -2595,14 +2614,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  /// get_chat_history 응답 entries를 메인 메시지 목록(_messages)에 반영 (같은 세션 재연결 시)
-  void _applyChatHistoryToMessages(List<Map<String, dynamic>> entries) {
+  /// get_chat_history 응답 entries를 메인 메시지 목록(_messages)에 반영
+  /// [skipIfExists] true면 이미 같은 userMessage가 있으면 해당 entry 건너뜀 (중복 방지)
+  void _applyChatHistoryToMessages(List<Map<String, dynamic>> entries,
+      {bool skipIfExists = false}) {
     if (entries.isEmpty) return;
-    // Extension은 최신순 반환 → 오래된 순으로 표시하려면 역순
     final oldestFirst = List<Map<String, dynamic>>.from(entries.reversed);
     for (final entry in oldestFirst) {
       final userMsg = entry['userMessage'] as String? ?? '';
       final assistantMsg = entry['assistantResponse'] as String? ?? '';
+      if (skipIfExists &&
+          _messages.any(
+              (m) => m.type == MessageType.userPrompt && m.text == userMsg)) {
+        continue;
+      }
       final agentMode = entry['agentMode'] as String?;
       _messages.add(MessageItem(userMsg,
           type: MessageType.userPrompt, agentMode: agentMode));
@@ -3871,6 +3896,41 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                       ),
                                     ),
                                   ),
+                                  if (_isConnected) ...[
+                                    const SizedBox(width: 8),
+                                    TextButton.icon(
+                                      onPressed: _loadingPastMessages
+                                          ? null
+                                          : () {
+                                              setState(() {
+                                                _loadingPastMessages = true;
+                                              });
+                                              _loadChatHistory(
+                                                  sessionId: _sessionId);
+                                            },
+                                      icon: _loadingPastMessages
+                                          ? SizedBox(
+                                              width: 16,
+                                              height: 16,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                valueColor:
+                                                    AlwaysStoppedAnimation<
+                                                            Color>(
+                                                        Theme.of(context)
+                                                            .colorScheme
+                                                            .primary),
+                                              ),
+                                            )
+                                          : const Icon(Icons.history, size: 18),
+                                      label: Text(
+                                        _loadingPastMessages
+                                            ? '불러오는 중...'
+                                            : '과거 메시지 불러오기',
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                               const SizedBox(height: 8),
