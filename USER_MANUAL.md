@@ -29,6 +29,8 @@ Cursor Remote는 모바일 기기에서 PC의 Cursor IDE를 원격으로 제어�
 - ⚡ Cursor IDE 명령 원격 실행
 - 🤖 AI 응답 실시간 확인
 - 📊 작업 결과 모바일에서 확인
+- 🌍 릴레이 모드로 어디서든 연결 (같은 네트워크 불필요)
+- 🔐 세션 ID 저장/재사용, Heartbeat 기반 연결 관리
 
 ### 시스템 구성
 
@@ -315,22 +317,37 @@ npm start
 
 ## 6. 릴레이 서버 연결 방법
 
-### 아키텍처
+### 아키텍처 (0.3.6+)
 
 ```
 ┌─────────────┐                    ┌─────────────────┐                    ┌─────────────┐
-│   Mobile    │◄── HTTP/SSE ──────►│  Vercel Relay   │◄── HTTP/SSE ──────►│  PC Server  │
-│     App     │    (인터넷)         │     Server      │    (인터넷)         │  (Node.js)  │
-└─────────────┘                    │                 │                    └──────┬──────┘
-                                   │  ┌───────────┐  │                           │
-                                   │  │  Upstash  │  │                           │
-                                   │  │   Redis   │  │                    ┌──────┴──────┐
-                                   │  └───────────┘  │                    │  Cursor IDE │
-                                   └─────────────────┘                    │  Extension  │
-                                                                          └─────────────┘
+│   Mobile    │◄── HTTP/SSE ──────►│  Vercel Relay   │◄── HTTP/Polling ──►│  Cursor IDE │
+│     App     │    (인터넷)         │     Server      │    (인터넷)         │  Extension  │
+└─────────────┘                    │                 │                    │ (RelayClient│
+       │                           │  ┌───────────┐  │                    │  + CLI)     │
+       │                           │  │  Upstash  │  │                    └─────────────┘
+       │                           │  │   Redis   │  │                           │
+       │                           │  └───────────┘  │                           │
+       │                           └─────────────────┘                           │
+       │                                   │                                     │
+       └───────── Session ID (예: ABC123) ─┴─────────────────────────────────────┘
 
 ※ PC와 모바일이 다른 네트워크에 있어도 연결 가능
+※ PC 서버 없이 Extension이 직접 릴레이 서버에 연결 (Heartbeat로 연결 유지)
 ```
+
+### 익스텐션: 세션 ID 입력·저장
+
+- **첫 실행 시**: 익스텐션이 활성화되면 **세션 ID 6자** 입력 프롬프트가 뜹니다. (모바일에서 생성·연결할 세션 ID를 입력하세요.)
+- **저장**: 입력한 세션 ID는 **globalState**에 저장되어, 다음부터는 자동으로 그 세션만 연결을 시도합니다.
+- **변경**: 명령 팔레트 → **"Cursor Remote: 릴레이 세션 ID 설정 (다음 시작 시 사용)"** 으로 저장된 세션 ID를 바꿀 수 있습니다. **"Cursor Remote: 세션 ID로 릴레이 연결"** 으로 다른 세션에 바로 연결할 수도 있으며, 연결 성공 시 그 세션 ID가 저장됩니다.
+- **중복 사용**: 같은 세션 ID를 **다른 PC(다른 Cursor 창)** 에서 쓰면, 릴레이 서버가 **409 "Session already in use by another PC"** 를 반환합니다. 다른 PC를 닫거나, 모바일에서 새 세션을 만든 뒤 그 세션 ID를 사용하세요.
+
+### 세션 ID 연속성
+
+- 세션 ID는 **릴레이 서버 TTL(기본 24시간)** 동안 유효합니다. 같은 ID로 24시간 이내에는 재접속 가능합니다.
+- **24시간 경과 후**에는 세션이 만료되므로, 모바일에서 **새 세션을 생성**한 뒤 익스텐션에 그 세션 ID를 설정(또는 "세션 ID로 릴레이 연결")해야 합니다.
+- 즉, "같은 세션 ID를 영구적으로 보장"하는 구조는 아니며, **만료 전까지** 연속성이 유지됩니다.
 
 ### 사전 준비: 릴레이 서버 배포 (한 번만)
 
@@ -382,89 +399,39 @@ vercel env add UPSTASH_REDIS_REST_TOKEN
 1. Cursor IDE 실행
 2. 상태 표시줄에서 "Cursor Remote: Waiting" 확인
 
-### Step 2: PC 서버를 릴레이 모드로 실행
+### Step 2: Extension이 릴레이 모드로 연결
 
-#### 방법 1: 환경변수로 실행 (권장)
+> **0.3.6 이후**: PC 서버가 없어졌습니다. Extension이 직접 릴레이 서버에 연결합니다.
 
-```bash
-cd pc-server
-npm install
-npm run build
+#### 첫 실행 시
 
-# 릴레이 서버 URL과 함께 실행
-RELAY_SERVER=https://relay.jaloveeye.com npm start
+1. Cursor IDE 실행 및 Extension 활성화
+2. **세션 ID 입력 프롬프트**가 자동으로 표시됩니다
+3. 6자리 영숫자 세션 ID를 입력합니다 (예: `ABC123`)
+4. Extension이 해당 세션 ID로 릴레이 서버에 연결을 시도합니다
+
+**연결 성공 예시 (Output 패널):**
+```
+[Cursor Remote] Starting relay client...
+[Cursor Remote] Target session ID: ABC123
+[Cursor Remote] ✅ 익스텐션은 릴레이 서버를 통해 세션 ABC123에 접속했습니다.
+[Cursor Remote] 💓 Heartbeat 시작 (30초마다, 2분 무응답 시 연결 해제로 간주)
 ```
 
-#### 방법 2: 환경변수 파일 사용
+#### 세션 ID 변경
 
-```bash
-# pc-server/.env 파일 생성
-echo "RELAY_SERVER=https://relay.jaloveeye.com" > .env
-npm start
-```
+| 명령어 | 설명 |
+|--------|------|
+| `Cursor Remote: 세션 ID로 릴레이 연결` | 다른 세션에 **즉시** 연결 (성공 시 저장됨) |
+| `Cursor Remote: 릴레이 세션 ID 설정` | 저장된 세션 ID 변경 (**다음 실행 시** 사용) |
+| `Cursor Remote: 릴레이 서버 상태 확인` | 릴레이 서버 상태 및 세션 수 확인 |
 
-#### 방법 3: 세션 ID로 직접 연결
+#### Heartbeat 및 세션 해제
 
-모바일 앱에서 생성한 세션 ID로 PC 서버를 시작:
-
-```bash
-cd pc-server
-npm start <SESSION_ID>
-```
-
-**예시:**
-```bash
-npm start ABC123XYZ
-```
-
-서버가 시작되면 자동으로 해당 세션에 연결을 시도합니다.
-
-**실행 결과 예시:**
-```
-[2026-01-21 10:00:00] PC Server started (Relay Mode)
-[2026-01-21 10:00:00] Relay Server: https://relay.jaloveeye.com
-[2026-01-21 10:00:01] Session created: ABC123
-[2026-01-21 10:00:01] Waiting for mobile connection...
-```
-
-> 📝 **메모**: 표시되는 **세션 코드** (예: `ABC123`)를 기억하세요. 모바일 앱에서 사용합니다.
-
-#### HTTP API로 세션 연결
-
-서버가 이미 실행 중인 경우, HTTP API를 통해 세션에 연결할 수 있습니다:
-
-```bash
-curl -X POST http://localhost:8765/session/connect \
-  -H "Content-Type: application/json" \
-  -d '{"sessionId": "ABC123XYZ"}'
-```
-
-**응답:**
-```json
-{
-  "success": true,
-  "sessionId": "ABC123XYZ",
-  "isConnected": true
-}
-```
-
-#### 새 세션 생성 및 자동 연결
-
-PC 서버에서 새 세션을 생성하고 자동으로 연결:
-
-```bash
-curl -X POST http://localhost:8765/session/create
-```
-
-**응답:**
-```json
-{
-  "success": true,
-  "sessionId": "NEW_SESSION_ID"
-}
-```
-
-생성된 세션 ID를 모바일 앱에 입력하면 연결됩니다.
+- Extension이 30초마다 heartbeat를 전송합니다
+- **2분간 heartbeat가 없으면** 서버가 해당 PC를 연결 끊김으로 간주합니다
+- 이후 같은 세션 ID로 다른 PC가 연결할 수 있습니다
+- Cursor 창을 닫으면 자동으로 세션이 해제됩니다 (2분 후)
 
 ### Step 3: 모바일 앱 연결
 
@@ -472,14 +439,27 @@ curl -X POST http://localhost:8765/session/create
 2. **연결 모드**: "릴레이 서버" 선택
 3. **릴레이 서버 URL**: 배포한 릴레이 서버 주소 입력
    - 기본: `https://relay.jaloveeye.com`
-4. **세션 코드**: PC 서버에 표시된 6자리 코드 입력 (예: `ABC123`)
+4. **세션 ID**: Extension에 입력한 **동일한 6자리 코드** 입력 (예: `ABC123`)
 5. **Connect** 버튼 클릭
 
 ### Step 4: 연결 확인
 
 **성공 시:**
 - 모바일 앱: 연결 상태 아이콘이 녹색으로 변경
-- PC 서버: "Mobile connected via relay" 로그 출력
+- Extension Output 패널: "Mobile client connected via relay" 또는 폴링 메시지 확인
+
+### 세션 충돌 (409 에러)
+
+같은 세션 ID를 **다른 PC(다른 Cursor 창)**에서 사용하면 다음 에러가 발생합니다:
+
+```
+Session already in use by another PC
+```
+
+**해결 방법:**
+1. 다른 PC/Cursor 창을 닫습니다
+2. 또는 모바일에서 새 세션을 생성한 뒤 해당 세션 ID를 사용합니다
+3. 기존 PC가 2분 이상 비활성 상태이면 자동으로 세션이 해제됩니다
 
 ### 릴레이 서버 API 엔드포인트
 
@@ -487,9 +467,12 @@ curl -X POST http://localhost:8765/session/create
 |-----------|--------|------|
 | `/api/health` | GET | 서버 상태 확인 |
 | `/api/session` | POST | 새 세션 생성 |
-| `/api/connect` | POST | 세션에 연결 |
+| `/api/connect` | POST | 세션에 연결 (PC 연결 시 세션 자동 생성 가능) |
+| `/api/heartbeat` | GET | PC "살아있음" 신호 (sessionId, deviceId 쿼리) |
 | `/api/send` | POST | 메시지 전송 |
+| `/api/poll` | GET | 메시지 폴링 |
 | `/api/stream` | GET | SSE 스트림 연결 |
+| `/api/debug-sessions` | GET | 서버 상태 확인 (세션 수, PC 연결 현황) |
 
 ### 세션 및 메시지 유효 기간
 
@@ -970,4 +953,4 @@ RELAY_SERVER=https://relay.jaloveeye.com npm start
 ---
 
 **작성 시간**: 2026년 1월 21일  
-**수정 시간**: 2026년 1월 30일 (Cursor 2.4 섹션 추가)
+**수정 시간**: 2026년 2월 2일 (릴레이 모드 세션 ID 입력/저장, Heartbeat 방식 반영)
