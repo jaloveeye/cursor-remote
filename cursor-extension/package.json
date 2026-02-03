@@ -2,7 +2,7 @@
   "name": "cursor-remote-extension",
   "displayName": "Cursor Remote",
   "description": "Remote control Cursor AI from your mobile device via WebSocket or Relay Server - Code anywhere, anytime with session-based connection",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "publisher": "jaloveeye",
   "license": "MIT",
   "repository": {
