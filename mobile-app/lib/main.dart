@@ -607,7 +607,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     LogLevel.info: true,
   };
 
-  // 필터링된 메시지 목록
+  // 필터링된 메시지 목록 (카테고리 필터만)
   List<MessageItem> get _filteredMessages {
     return _messages.where((msg) {
       final category = msg.filterCategory;
@@ -621,6 +621,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
 
       return _activeFilters[category] ?? true;
+    }).toList();
+  }
+
+  // 검색: 전체(프롬프트+답변) 또는 답변만
+  static const String _searchScopeAll = 'all';
+  static const String _searchScopeAnswerOnly = 'answer_only';
+  String _searchQuery = '';
+  String _searchScope = _searchScopeAll;
+
+  // 검색 적용된 표시용 메시지 목록
+  List<MessageItem> get _displayMessages {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return _filteredMessages;
+    return _filteredMessages.where((m) {
+      final inScope = _searchScope == _searchScopeAnswerOnly
+          ? m.filterCategory == MessageFilter.aiResponse
+          : true;
+      return inScope && m.text.toLowerCase().contains(q);
     }).toList();
   }
 
@@ -2607,15 +2625,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  /// 메시지 리스트 위젯 (필터 적용된 목록, 컴팩트/일반 뷰 공용)
+  /// 메시지 리스트 위젯 (필터·검색 적용된 목록, 컴팩트/일반 뷰 공용)
   Widget _buildMessageList() {
-    if (_filteredMessages.isEmpty && !_isWaitingForResponse) {
+    if (_displayMessages.isEmpty && !_isWaitingForResponse) {
+      final isSearchActive = _searchQuery.trim().isNotEmpty;
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              _messages.isEmpty ? Icons.chat_bubble_outline : Icons.filter_alt,
+              _messages.isEmpty
+                  ? Icons.chat_bubble_outline
+                  : (isSearchActive ? Icons.search_off : Icons.filter_alt),
               size: 64,
               color: Theme.of(context)
                   .colorScheme
@@ -2624,7 +2645,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
             const SizedBox(height: 16),
             Text(
-              _messages.isEmpty ? '메시지가 없습니다' : '필터와 일치하는 메시지가 없습니다',
+              _messages.isEmpty
+                  ? '메시지가 없습니다'
+                  : (isSearchActive
+                      ? '검색 결과가 없습니다'
+                      : '필터와 일치하는 메시지가 없습니다'),
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 15,
@@ -2650,10 +2675,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     return ListView.builder(
       controller: _scrollController,
-      itemCount: _filteredMessages.length + (_isWaitingForResponse ? 1 : 0),
+      itemCount: _displayMessages.length + (_isWaitingForResponse ? 1 : 0),
       padding: const EdgeInsets.symmetric(vertical: 4),
       itemBuilder: (context, index) {
-        if (index == _filteredMessages.length && _isWaitingForResponse) {
+        if (index == _displayMessages.length && _isWaitingForResponse) {
           return Container(
             margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
             padding: const EdgeInsets.all(16.0),
@@ -2690,7 +2715,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
           );
         }
-        final message = _filteredMessages[index];
+        final message = _displayMessages[index];
         return GestureDetector(
           onLongPress: () {
             Clipboard.setData(ClipboardData(text: message.text));
@@ -3818,7 +3843,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: Text(
-                                      '${_filteredMessages.length}/${_messages.length}',
+                                      _searchQuery.trim().isEmpty
+                                          ? '${_filteredMessages.length}/${_messages.length}'
+                                          : '검색 ${_displayMessages.length}건',
                                       style: TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w500,
@@ -3827,6 +3854,59 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                             .onSurfaceVariant,
                                       ),
                                     ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              // 검색: 입력창 + 범위(전체/답변만)
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      onChanged: (v) =>
+                                          setState(() => _searchQuery = v),
+                                      decoration: InputDecoration(
+                                        hintText: '메시지 검색',
+                                        isDense: true,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                                horizontal: 12, vertical: 8),
+                                        prefixIcon: const Icon(
+                                            Icons.search, size: 20),
+                                        suffixIcon: _searchQuery.isNotEmpty
+                                            ? IconButton(
+                                                icon: const Icon(Icons.clear,
+                                                    size: 18),
+                                                onPressed: () => setState(() =>
+                                                    _searchQuery = ''),
+                                              )
+                                            : null,
+                                        border: OutlineInputBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  SegmentedButton<String>(
+                                    segments: [
+                                      ButtonSegment<String>(
+                                        value: _searchScopeAll,
+                                        label: const Text('전체'),
+                                        icon: const Icon(Icons.chat, size: 14),
+                                      ),
+                                      ButtonSegment<String>(
+                                        value: _searchScopeAnswerOnly,
+                                        label: const Text('답변만'),
+                                        icon: const Icon(
+                                            Icons.smart_toy, size: 14),
+                                      ),
+                                    ],
+                                    selected: {_searchScope},
+                                    onSelectionChanged: (Set<String> s) {
+                                      setState(() => _searchScope = s.first);
+                                    },
                                   ),
                                 ],
                               ),
