@@ -276,10 +276,14 @@ export class CommandRouter {
   ): Promise<CommandResult> {
     const clientId = command.clientId;
     const sessionId = (command as any).sessionId as string | undefined;
+    const relaySessionId = (command as any).relaySessionId as
+      | string
+      | undefined;
     const limit = ((command as any).limit as number | undefined) || 50;
     const history = await this.commandHandler.getChatHistory(
       clientId,
       sessionId,
+      relaySessionId,
       limit
     );
     return { success: true, data: history };

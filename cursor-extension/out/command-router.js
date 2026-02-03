@@ -216,8 +216,9 @@ class CommandRouter {
     async handleGetChatHistory(command) {
         const clientId = command.clientId;
         const sessionId = command.sessionId;
+        const relaySessionId = command.relaySessionId;
         const limit = command.limit || 50;
-        const history = await this.commandHandler.getChatHistory(clientId, sessionId, limit);
+        const history = await this.commandHandler.getChatHistory(clientId, sessionId, relaySessionId, limit);
         return { success: true, data: history };
     }
     /**

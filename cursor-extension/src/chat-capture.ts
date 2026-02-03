@@ -2,304 +2,355 @@
  * Chat capture module for monitoring and capturing AI responses
  */
 
-import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
-import { WebSocketServer } from './websocket-server';
-import { CONFIG } from './config';
-import { ChatDocumentMonitor } from './types';
+import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
+import { WebSocketServer } from "./websocket-server";
+import { CONFIG } from "./config";
+import { ChatDocumentMonitor } from "./types";
 
 export class ChatCapture {
-    private outputChannel: vscode.OutputChannel;
-    private wsServer: WebSocketServer;
-    private monitor: ChatDocumentMonitor = {
-        interval: null,
-        lastContent: '',
-        currentUri: null,
-        isProcessing: false,
-        lastProcessedHash: '',
-        debounceTimer: null
-    };
+  private outputChannel: vscode.OutputChannel;
+  private wsServer: WebSocketServer;
+  private monitor: ChatDocumentMonitor = {
+    interval: null,
+    lastContent: "",
+    currentUri: null,
+    isProcessing: false,
+    lastProcessedHash: "",
+    debounceTimer: null,
+  };
 
-    constructor(outputChannel: vscode.OutputChannel, wsServer: WebSocketServer) {
-        this.outputChannel = outputChannel;
-        this.wsServer = wsServer;
+  constructor(outputChannel: vscode.OutputChannel, wsServer: WebSocketServer) {
+    this.outputChannel = outputChannel;
+    this.wsServer = wsServer;
+  }
+
+  private log(message: string) {
+    const timestamp = new Date().toLocaleTimeString();
+    const logMessage = `[${timestamp}] ${message}`;
+    this.outputChannel.appendLine(logMessage);
+    console.log(logMessage);
+  }
+
+  /**
+   * Setup chat document monitoring
+   */
+  setup(context: vscode.ExtensionContext) {
+    this.log("Setting up chat document monitoring...");
+    this.outputChannel.show(true);
+
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (workspaceFolders && workspaceFolders.length > 0) {
+      const workspaceRoot = workspaceFolders[0].uri.fsPath;
+      this.startDocumentMonitoring(context);
+    } else {
+      this.log("⚠️ No workspace folder found, skipping chat monitoring");
     }
 
-    private log(message: string) {
-        const timestamp = new Date().toLocaleTimeString();
-        const logMessage = `[${timestamp}] ${message}`;
-        this.outputChannel.appendLine(logMessage);
-        console.log(logMessage);
-    }
+    this.log("✅ Chat document monitoring setup complete");
+  }
 
-    /**
-     * Setup chat document monitoring
-     */
-    setup(context: vscode.ExtensionContext) {
-        this.log('Setting up chat document monitoring...');
-        this.outputChannel.show(true);
+  /**
+   * Start monitoring chat documents
+   */
+  private startDocumentMonitoring(context: vscode.ExtensionContext) {
+    this.log("🔍 Checking all open documents...");
+    vscode.workspace.textDocuments.forEach((doc) => {
+      this.log(`📄 Document: ${doc.uri.scheme}://${doc.uri.toString()}`);
+    });
 
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (workspaceFolders && workspaceFolders.length > 0) {
-            const workspaceRoot = workspaceFolders[0].uri.fsPath;
-            this.startDocumentMonitoring(context);
-        } else {
-            this.log('⚠️ No workspace folder found, skipping chat monitoring');
-        }
+    // Active editor change listener
+    const editorChangeListener = vscode.window.onDidChangeActiveTextEditor(
+      (editor) => {
+        if (editor) {
+          const uri = editor.document.uri;
+          this.log(
+            `🔄 Active editor changed: ${uri.scheme}://${uri.toString()}`
+          );
 
-        this.log('✅ Chat document monitoring setup complete');
-    }
-
-    /**
-     * Start monitoring chat documents
-     */
-    private startDocumentMonitoring(context: vscode.ExtensionContext) {
-        this.log('🔍 Checking all open documents...');
-        vscode.workspace.textDocuments.forEach((doc) => {
-            this.log(`📄 Document: ${doc.uri.scheme}://${doc.uri.toString()}`);
-        });
-
-        // Active editor change listener
-        const editorChangeListener = vscode.window.onDidChangeActiveTextEditor((editor) => {
-            if (editor) {
-                const uri = editor.document.uri;
-                this.log(`🔄 Active editor changed: ${uri.scheme}://${uri.toString()}`);
-
-                const isChatDocument = this.isChatDocument(uri, editor.document);
-                if (isChatDocument) {
-                    this.log(`📝 Chat document detected: ${uri.toString()}`);
-                    this.monitor.currentUri = uri;
-                    this.monitor.lastContent = editor.document.getText();
-                    this.log(`📊 Initial content length: ${this.monitor.lastContent.length} bytes`);
-
-                    if (!this.monitor.interval) {
-                        this.startPolling();
-                    }
-                } else {
-                    // Monitor any document for debugging
-                    this.log(`📝 Monitoring any document: ${uri.toString()}`);
-                    this.monitor.currentUri = uri;
-                    this.monitor.lastContent = editor.document.getText();
-
-                    if (!this.monitor.interval) {
-                        this.startPolling();
-                    }
-                }
-            }
-        });
-        context.subscriptions.push(editorChangeListener);
-
-        // Initial active editor check
-        const activeEditor = vscode.window.activeTextEditor;
-        if (activeEditor) {
-            const uri = activeEditor.document.uri;
-            this.log(`📄 Initial active editor: ${uri.scheme}://${uri.toString()}`);
-            this.monitor.currentUri = uri;
-            this.monitor.lastContent = activeEditor.document.getText();
-            this.log(`📊 Initial content: ${this.monitor.lastContent.length} bytes`);
-            this.startPolling();
-        } else {
-            this.log('⚠️ No active editor found');
-        }
-
-        // Document change listener
-        const documentChangeListener = vscode.workspace.onDidChangeTextDocument((event) => {
-            const uri = event.document.uri;
-
-            if (uri.scheme === 'output') {
-                return; // Ignore output channel changes
-            }
-
-            if (this.monitor.isProcessing) {
-                return;
-            }
-
-            if (this.monitor.currentUri && event.document.uri.toString() === this.monitor.currentUri.toString()) {
-                const newContent = event.document.getText();
-
-                // Duplicate check
-                const contentHash = newContent.substring(Math.max(0, newContent.length - CONFIG.MAX_CONTENT_CHECK_LENGTH));
-                if (contentHash === this.monitor.lastProcessedHash && newContent.length === this.monitor.lastContent.length) {
-                    return;
-                }
-
-                if (newContent.length > this.monitor.lastContent.length) {
-                    // Debounce
-                    if (this.monitor.debounceTimer) {
-                        clearTimeout(this.monitor.debounceTimer);
-                    }
-
-                    this.monitor.debounceTimer = setTimeout(() => {
-                        const addedContent = newContent.substring(this.monitor.lastContent.length);
-
-                        const addedContentHash = addedContent.substring(0, Math.min(500, addedContent.length));
-                        if (addedContentHash === this.monitor.lastProcessedHash) {
-                            return;
-                        }
-
-                        this.monitor.lastProcessedHash = contentHash;
-                        this.processNewContent(addedContent, newContent);
-                        this.monitor.lastContent = newContent;
-                    }, CONFIG.CHAT_DEBOUNCE_DELAY);
-                }
-            }
-        });
-        context.subscriptions.push(documentChangeListener);
-    }
-
-    /**
-     * Check if document is a chat document
-     */
-    private isChatDocument(uri: vscode.Uri, document: vscode.TextDocument): boolean {
-        return uri.scheme === 'vscode' ||
-            uri.scheme === 'cursor' ||
-            uri.scheme === 'output' ||
-            uri.fsPath.includes('chat') ||
-            uri.toString().includes('chat') ||
-            uri.toString().includes('Chat') ||
-            document.languageId === 'markdown' ||
-            document.fileName.includes('chat');
-    }
-
-    /**
-     * Start polling chat document
-     */
-    private startPolling() {
-        if (this.monitor.interval) {
-            return; // Already running
-        }
-
-        this.monitor.interval = setInterval(() => {
-            if (this.monitor.isProcessing) {
-                return;
-            }
-
-            if (!this.monitor.currentUri) {
-                // Check all documents
-                const allDocs = vscode.workspace.textDocuments;
-                if (allDocs.length > 0) {
-                    const doc = allDocs[allDocs.length - 1];
-                    if (doc.uri.scheme !== 'output') {
-                        this.monitor.currentUri = doc.uri;
-                        this.monitor.lastContent = doc.getText();
-                    }
-                }
-                return;
-            }
-
-            try {
-                const document = vscode.workspace.textDocuments.find(doc =>
-                    doc.uri.toString() === this.monitor.currentUri!.toString()
-                );
-
-                if (document) {
-                    if (document.uri.scheme === 'output') {
-                        return;
-                    }
-
-                    const currentContent = document.getText();
-                    if (currentContent.length > this.monitor.lastContent.length) {
-                        const newContent = currentContent.substring(this.monitor.lastContent.length);
-
-                        const contentHash = currentContent.substring(Math.max(0, currentContent.length - CONFIG.MAX_CONTENT_CHECK_LENGTH));
-                        if (contentHash !== this.monitor.lastProcessedHash) {
-                            this.monitor.lastProcessedHash = contentHash;
-                            this.processNewContent(newContent, currentContent);
-                            this.monitor.lastContent = currentContent;
-                        }
-                    } else if (currentContent.length < this.monitor.lastContent.length) {
-                        // Content decreased (new chat started)
-                        this.monitor.lastContent = currentContent;
-                        this.monitor.lastProcessedHash = '';
-                    }
-                }
-            } catch (error) {
-                // Silently handle errors
-            }
-        }, CONFIG.CHAT_POLLING_INTERVAL);
-    }
-
-    /**
-     * Process new chat content
-     */
-    private processNewContent(newContent: string, fullContent: string) {
-        if (this.monitor.isProcessing) {
+          // 출력 채널(로그 패널)은 채팅 문서가 아님 - 모니터링하지 않음
+          if (uri.scheme === "output") {
             return;
+          }
+
+          const isChatDocument = this.isChatDocument(uri, editor.document);
+          if (isChatDocument) {
+            this.log(`📝 Chat document detected: ${uri.toString()}`);
+            this.monitor.currentUri = uri;
+            this.monitor.lastContent = editor.document.getText();
+            this.log(
+              `📊 Initial content length: ${this.monitor.lastContent.length} bytes`
+            );
+
+            if (!this.monitor.interval) {
+              this.startPolling();
+            }
+          } else {
+            // Monitor any document for debugging
+            this.log(`📝 Monitoring any document: ${uri.toString()}`);
+            this.monitor.currentUri = uri;
+            this.monitor.lastContent = editor.document.getText();
+
+            if (!this.monitor.interval) {
+              this.startPolling();
+            }
+          }
         }
-        this.monitor.isProcessing = true;
+      }
+    );
+    context.subscriptions.push(editorChangeListener);
 
-        try {
-            const lines = fullContent.split('\n');
+    // Initial active editor check (출력 채널이면 모니터링하지 않음)
+    const activeEditor = vscode.window.activeTextEditor;
+    if (activeEditor && activeEditor.document.uri.scheme !== "output") {
+      const uri = activeEditor.document.uri;
+      this.log(`📄 Initial active editor: ${uri.scheme}://${uri.toString()}`);
+      this.monitor.currentUri = uri;
+      this.monitor.lastContent = activeEditor.document.getText();
+      this.log(`📊 Initial content: ${this.monitor.lastContent.length} bytes`);
+      this.startPolling();
+    } else if (!activeEditor) {
+      this.log("⚠️ No active editor found");
+    }
 
-            // Find AI response start
-            let aiResponseStart = -1;
-            for (let i = lines.length - 1; i >= 0; i--) {
-                for (const pattern of CONFIG.AI_RESPONSE_PATTERNS) {
-                    if (lines[i].match(pattern)) {
-                        aiResponseStart = i;
-                        break;
-                    }
-                }
-                if (aiResponseStart >= 0) break;
+    // Document change listener
+    const documentChangeListener = vscode.workspace.onDidChangeTextDocument(
+      (event) => {
+        const uri = event.document.uri;
+
+        if (uri.scheme === "output") {
+          return; // Ignore output channel changes
+        }
+
+        if (this.monitor.isProcessing) {
+          return;
+        }
+
+        if (
+          this.monitor.currentUri &&
+          event.document.uri.toString() === this.monitor.currentUri.toString()
+        ) {
+          const newContent = event.document.getText();
+
+          // Duplicate check
+          const contentHash = newContent.substring(
+            Math.max(0, newContent.length - CONFIG.MAX_CONTENT_CHECK_LENGTH)
+          );
+          if (
+            contentHash === this.monitor.lastProcessedHash &&
+            newContent.length === this.monitor.lastContent.length
+          ) {
+            return;
+          }
+
+          if (newContent.length > this.monitor.lastContent.length) {
+            // Debounce
+            if (this.monitor.debounceTimer) {
+              clearTimeout(this.monitor.debounceTimer);
             }
 
-            // If pattern not found but content is large enough, treat as AI response
-            if (aiResponseStart < 0 && newContent.length > 100) {
-                const lastBlock = lines.slice(Math.max(0, lines.length - 20)).join('\n').trim();
-                if (lastBlock.length > CONFIG.MIN_AI_RESPONSE_LENGTH) {
-                    const blockHash = lastBlock.substring(0, Math.min(CONFIG.CONTENT_HASH_LENGTH, lastBlock.length));
-                    if (blockHash !== this.monitor.lastProcessedHash) {
-                        this.monitor.lastProcessedHash = blockHash;
+            this.monitor.debounceTimer = setTimeout(() => {
+              const addedContent = newContent.substring(
+                this.monitor.lastContent.length
+              );
 
-                        if (this.wsServer) {
-                            this.wsServer.sendFromHook({
-                                type: 'chat_response',
-                                text: lastBlock,
-                                timestamp: new Date().toISOString()
-                            });
-                        }
-                    }
-                }
+              const addedContentHash = addedContent.substring(
+                0,
+                Math.min(500, addedContent.length)
+              );
+              if (addedContentHash === this.monitor.lastProcessedHash) {
                 return;
-            }
+              }
 
-            if (aiResponseStart >= 0) {
-                const aiResponse = lines.slice(aiResponseStart + 1).join('\n').trim();
-
-                if (aiResponse.length > CONFIG.MIN_AI_RESPONSE_LENGTH) {
-                    const responseHash = aiResponse.substring(0, Math.min(CONFIG.CONTENT_HASH_LENGTH, aiResponse.length));
-                    if (responseHash !== this.monitor.lastProcessedHash) {
-                        this.monitor.lastProcessedHash = responseHash;
-
-                        if (this.wsServer) {
-                            this.wsServer.sendFromHook({
-                                type: 'chat_response',
-                                text: aiResponse,
-                                timestamp: new Date().toISOString()
-                            });
-                        }
-                    }
-                }
-            }
-        } finally {
-            setTimeout(() => {
-                this.monitor.isProcessing = false;
-            }, 500);
+              this.monitor.lastProcessedHash = contentHash;
+              this.processNewContent(addedContent, newContent);
+              this.monitor.lastContent = newContent;
+            }, CONFIG.CHAT_DEBOUNCE_DELAY);
+          }
         }
+      }
+    );
+    context.subscriptions.push(documentChangeListener);
+  }
+
+  /**
+   * Check if document is a chat document
+   */
+  private isChatDocument(
+    uri: vscode.Uri,
+    document: vscode.TextDocument
+  ): boolean {
+    // output 스킴은 출력 채널(로그)이므로 채팅 문서로 취급하지 않음
+    return (
+      uri.scheme === "vscode" ||
+      uri.scheme === "cursor" ||
+      (uri.scheme !== "output" &&
+        (uri.fsPath.includes("chat") ||
+          uri.toString().includes("chat") ||
+          uri.toString().includes("Chat") ||
+          document.languageId === "markdown" ||
+          document.fileName.includes("chat")))
+    );
+  }
+
+  /**
+   * Start polling chat document
+   */
+  private startPolling() {
+    if (this.monitor.interval) {
+      return; // Already running
     }
 
-    /**
-     * Dispose resources
-     */
-    dispose() {
-        if (this.monitor.interval) {
-            clearInterval(this.monitor.interval);
-            this.monitor.interval = null;
+    this.monitor.interval = setInterval(() => {
+      if (this.monitor.isProcessing) {
+        return;
+      }
+
+      if (!this.monitor.currentUri) {
+        // Check all documents
+        const allDocs = vscode.workspace.textDocuments;
+        if (allDocs.length > 0) {
+          const doc = allDocs[allDocs.length - 1];
+          if (doc.uri.scheme !== "output") {
+            this.monitor.currentUri = doc.uri;
+            this.monitor.lastContent = doc.getText();
+          }
         }
-        if (this.monitor.debounceTimer) {
-            clearTimeout(this.monitor.debounceTimer);
-            this.monitor.debounceTimer = null;
+        return;
+      }
+
+      try {
+        const document = vscode.workspace.textDocuments.find(
+          (doc) => doc.uri.toString() === this.monitor.currentUri!.toString()
+        );
+
+        if (document) {
+          if (document.uri.scheme === "output") {
+            return;
+          }
+
+          const currentContent = document.getText();
+          if (currentContent.length > this.monitor.lastContent.length) {
+            const newContent = currentContent.substring(
+              this.monitor.lastContent.length
+            );
+
+            const contentHash = currentContent.substring(
+              Math.max(
+                0,
+                currentContent.length - CONFIG.MAX_CONTENT_CHECK_LENGTH
+              )
+            );
+            if (contentHash !== this.monitor.lastProcessedHash) {
+              this.monitor.lastProcessedHash = contentHash;
+              this.processNewContent(newContent, currentContent);
+              this.monitor.lastContent = currentContent;
+            }
+          } else if (currentContent.length < this.monitor.lastContent.length) {
+            // Content decreased (new chat started)
+            this.monitor.lastContent = currentContent;
+            this.monitor.lastProcessedHash = "";
+          }
         }
+      } catch (error) {
+        // Silently handle errors
+      }
+    }, CONFIG.CHAT_POLLING_INTERVAL);
+  }
+
+  /**
+   * Process new chat content
+   */
+  private processNewContent(newContent: string, fullContent: string) {
+    if (this.monitor.isProcessing) {
+      return;
     }
+    this.monitor.isProcessing = true;
+
+    try {
+      const lines = fullContent.split("\n");
+
+      // Find AI response start
+      let aiResponseStart = -1;
+      for (let i = lines.length - 1; i >= 0; i--) {
+        for (const pattern of CONFIG.AI_RESPONSE_PATTERNS) {
+          if (lines[i].match(pattern)) {
+            aiResponseStart = i;
+            break;
+          }
+        }
+        if (aiResponseStart >= 0) break;
+      }
+
+      // If pattern not found but content is large enough, treat as AI response
+      if (aiResponseStart < 0 && newContent.length > 100) {
+        const lastBlock = lines
+          .slice(Math.max(0, lines.length - 20))
+          .join("\n")
+          .trim();
+        if (lastBlock.length > CONFIG.MIN_AI_RESPONSE_LENGTH) {
+          const blockHash = lastBlock.substring(
+            0,
+            Math.min(CONFIG.CONTENT_HASH_LENGTH, lastBlock.length)
+          );
+          if (blockHash !== this.monitor.lastProcessedHash) {
+            this.monitor.lastProcessedHash = blockHash;
+
+            if (this.wsServer) {
+              this.wsServer.sendFromHook({
+                type: "chat_response",
+                text: lastBlock,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          }
+        }
+        return;
+      }
+
+      if (aiResponseStart >= 0) {
+        const aiResponse = lines
+          .slice(aiResponseStart + 1)
+          .join("\n")
+          .trim();
+
+        if (aiResponse.length > CONFIG.MIN_AI_RESPONSE_LENGTH) {
+          const responseHash = aiResponse.substring(
+            0,
+            Math.min(CONFIG.CONTENT_HASH_LENGTH, aiResponse.length)
+          );
+          if (responseHash !== this.monitor.lastProcessedHash) {
+            this.monitor.lastProcessedHash = responseHash;
+
+            if (this.wsServer) {
+              this.wsServer.sendFromHook({
+                type: "chat_response",
+                text: aiResponse,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          }
+        }
+      }
+    } finally {
+      setTimeout(() => {
+        this.monitor.isProcessing = false;
+      }, 500);
+    }
+  }
+
+  /**
+   * Dispose resources
+   */
+  dispose() {
+    if (this.monitor.interval) {
+      clearInterval(this.monitor.interval);
+      this.monitor.interval = null;
+    }
+    if (this.monitor.debounceTimer) {
+      clearTimeout(this.monitor.debounceTimer);
+      this.monitor.debounceTimer = null;
+    }
+  }
 }

@@ -31,6 +31,11 @@ export class CommandHandler {
     this.log("[Cursor Remote] CLI mode enabled");
   }
 
+  /** 릴레이 모드일 때 챗 히스토리에 relaySessionId를 넣기 위한 getter 설정 */
+  setGetRelaySessionId(getter: () => string | null): void {
+    this.cliHandler?.setGetRelaySessionId(getter);
+  }
+
   private log(message: string) {
     const timestamp = new Date().toLocaleTimeString();
     const logMessage = `[${timestamp}] ${message}`;
@@ -562,6 +567,7 @@ export class CommandHandler {
   async getChatHistory(
     clientId?: string,
     sessionId?: string,
+    relaySessionId?: string,
     limit: number = 50
   ): Promise<any> {
     if (!this.cliHandler) {
@@ -570,7 +576,12 @@ export class CommandHandler {
 
     const cliHandlerAny = this.cliHandler as any;
     const getChatHistory = cliHandlerAny.getChatHistory as
-      | ((clientId?: string, sessionId?: string, limit?: number) => any[])
+      | ((
+          clientId?: string,
+          sessionId?: string,
+          relaySessionId?: string,
+          limit?: number
+        ) => any[])
       | undefined;
 
     if (getChatHistory) {
@@ -578,6 +589,7 @@ export class CommandHandler {
         this.cliHandler,
         clientId,
         sessionId,
+        relaySessionId,
         limit
       );
       return { entries };

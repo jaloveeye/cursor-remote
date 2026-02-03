@@ -14,6 +14,7 @@ interface ChatHistoryEntry {
   assistantResponse: string;
   timestamp: string;
   agentMode?: string; // 에이전트 모드 (agent, ask, plan, debug, auto)
+  relaySessionId?: string; // 릴레이 모드일 때 릴레이 세션 ID
 }
 
 interface ChatHistory {
@@ -35,6 +36,7 @@ export class CLIHandler {
   private lastStreamedText: Map<string, string> = new Map(); // clientId -> 마지막으로 전송한 텍스트 (중복 제거용)
   private lastPromptByClient: Map<string, string> = new Map(); // clientId -> 마지막으로 실행한 프롬프트 (IME 중복 방지용)
   private currentSenderDeviceId: string | null = null; // 유니캐스트 응답용 - 현재 요청을 보낸 모바일 디바이스 ID
+  private getRelaySessionId: (() => string | null) | null = null; // 릴레이 세션 ID 조회 (저장 시 사용)
 
   constructor(
     outputChannel?: vscode.OutputChannel,
@@ -55,6 +57,11 @@ export class CLIHandler {
       }
       this.chatHistoryFile = path.join(cursorDir, "CHAT_HISTORY.json");
     }
+  }
+
+  /** 릴레이 모드일 때 저장되는 히스토리에 relaySessionId를 넣기 위한 getter 설정 */
+  setGetRelaySessionId(getter: () => string | null): void {
+    this.getRelaySessionId = getter;
   }
 
   private log(message: string, sendToClient: boolean = false) {
@@ -1073,6 +1080,11 @@ export class CLIHandler {
         timestamp: entry.timestamp,
         agentMode: entry.agentMode, // 에이전트 모드 추가
       };
+      // 릴레이 모드일 때 릴레이 세션 ID 함께 저장
+      if (entry.clientId === "relay-client" && this.getRelaySessionId) {
+        const rid = this.getRelaySessionId();
+        if (rid) newEntry.relaySessionId = rid;
+      }
 
       // 디버깅: agentMode 저장 확인
       if (newEntry.userMessage) {
@@ -1189,6 +1201,10 @@ export class CLIHandler {
         ) {
           lastEntry.sessionId = newEntry.sessionId;
         }
+        // 릴레이 세션 ID 업데이트 (릴레이 모드 응답 저장 시)
+        if (newEntry.relaySessionId) {
+          lastEntry.relaySessionId = newEntry.relaySessionId;
+        }
         // 타임스탬프 업데이트
         lastEntry.timestamp = newEntry.timestamp;
         this.log(
@@ -1294,6 +1310,7 @@ export class CLIHandler {
   getChatHistory(
     clientId?: string,
     sessionId?: string,
+    relaySessionId?: string,
     limit: number = 50
   ): ChatHistoryEntry[] {
     if (!this.chatHistoryFile || !fs.existsSync(this.chatHistoryFile)) {
@@ -1343,9 +1360,16 @@ export class CLIHandler {
       }
       // clientId가 없으면 모든 히스토리 반환 (최근 히스토리 조회용)
 
-      // 세션 ID로 필터링
+      // 세션 ID로 필터링 (Cursor CLI 채팅 스레드 ID)
       if (sessionId) {
         filtered = filtered.filter((entry) => entry.sessionId === sessionId);
+      }
+      // 릴레이 세션 ID로 필터링 (릴레이 모드에서 현재 세션만)
+      if (relaySessionId) {
+        filtered = filtered.filter(
+          (entry) =>
+            (entry as ChatHistoryEntry).relaySessionId === relaySessionId
+        );
       }
 
       // 최신순으로 정렬하고 제한

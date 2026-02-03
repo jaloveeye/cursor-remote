@@ -57,6 +57,10 @@ class CommandHandler {
         this.cliHandler = new cli_handler_1.CLIHandler(outputChannel, wsServer, workspaceRoot);
         this.log("[Cursor Remote] CLI mode enabled");
     }
+    /** 릴레이 모드일 때 챗 히스토리에 relaySessionId를 넣기 위한 getter 설정 */
+    setGetRelaySessionId(getter) {
+        this.cliHandler?.setGetRelaySessionId(getter);
+    }
     log(message) {
         const timestamp = new Date().toLocaleTimeString();
         const logMessage = `[${timestamp}] ${message}`;
@@ -448,14 +452,14 @@ class CommandHandler {
     /**
      * 대화 히스토리 조회
      */
-    async getChatHistory(clientId, sessionId, limit = 50) {
+    async getChatHistory(clientId, sessionId, relaySessionId, limit = 50) {
         if (!this.cliHandler) {
             return { entries: [] };
         }
         const cliHandlerAny = this.cliHandler;
         const getChatHistory = cliHandlerAny.getChatHistory;
         if (getChatHistory) {
-            const entries = getChatHistory.call(this.cliHandler, clientId, sessionId, limit);
+            const entries = getChatHistory.call(this.cliHandler, clientId, sessionId, relaySessionId, limit);
             return { entries };
         }
         return { entries: [] };
