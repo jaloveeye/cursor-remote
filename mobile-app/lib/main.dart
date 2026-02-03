@@ -556,6 +556,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Map<String, dynamic>? _sessionInfo; // 현재 세션 정보
   List<Map<String, dynamic>> _chatHistory = []; // 대화 히스토리 목록
   List<String> _availableSessions = []; // 사용 가능한 세션 목록
+  /// 같은 세션 재연결 시 메인 목록에 히스토리 반영용 (get_chat_history 응답 시 사용)
+  bool _loadingSessionHistoryForDisplay = false;
 
   // 로컬 서버 관련
   WebSocketChannel? _localWebSocket;
@@ -852,16 +854,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 data['data'] != null) {
               final historyData = data['data'] as Map<String, dynamic>;
               if (historyData['entries'] != null) {
+                final entries = List<Map<String, dynamic>>.from(
+                    historyData['entries'] as List);
                 setState(() {
-                  _chatHistory = List<Map<String, dynamic>>.from(
-                      historyData['entries'] as List);
+                  _chatHistory = entries;
                   // 세션 목록 추출
                   _availableSessions = _chatHistory
                       .map((entry) => entry['sessionId'] as String? ?? '')
                       .where((id) => id.isNotEmpty)
                       .toSet()
                       .toList();
+                  // 같은 세션 재연결 시 메인 목록에 이전 프롬프트/답변 반영
+                  if (_loadingSessionHistoryForDisplay) {
+                    if (entries.isNotEmpty)
+                      _applyChatHistoryToMessages(entries);
+                    _loadingSessionHistoryForDisplay = false;
+                  }
                 });
+              } else {
+                if (_loadingSessionHistoryForDisplay) {
+                  _loadingSessionHistoryForDisplay = false;
+                }
               }
             }
 
@@ -1167,10 +1180,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // 폴링 시작
         _startPolling();
 
-        // 연결 성공 시 즉시 최근 히스토리 조회 (clientId 없이도 가능)
-        // clientId는 첫 메시지 응답에서 받을 수 있으므로, 일단 모든 최근 히스토리 조회
+        // 같은 세션이면 이전 프롬프트/답변을 메인 목록에 가져오기 위해 해당 세션 히스토리 조회
+        _loadingSessionHistoryForDisplay = true;
         Future.delayed(const Duration(milliseconds: 300), () {
-          _loadChatHistory(); // clientId 없이 최근 히스토리 조회
+          _loadChatHistory(sessionId: _sessionId);
         });
       } else if (response.statusCode == 403 &&
           (errorCode == 'PIN_REQUIRED' ||
@@ -1354,16 +1367,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               messageData['data'] != null) {
             final historyData = messageData['data'] as Map<String, dynamic>;
             if (historyData['entries'] != null) {
+              final entries = List<Map<String, dynamic>>.from(
+                  historyData['entries'] as List);
               setState(() {
-                _chatHistory = List<Map<String, dynamic>>.from(
-                    historyData['entries'] as List);
+                _chatHistory = entries;
                 // 세션 목록 추출
                 _availableSessions = _chatHistory
                     .map((entry) => entry['sessionId'] as String? ?? '')
                     .where((id) => id.isNotEmpty)
                     .toSet()
                     .toList();
+                // 같은 세션 재연결 시 메인 목록에 이전 프롬프트/답변 반영
+                if (_loadingSessionHistoryForDisplay) {
+                  if (entries.isNotEmpty) _applyChatHistoryToMessages(entries);
+                  _loadingSessionHistoryForDisplay = false;
+                }
               });
+            } else {
+              if (_loadingSessionHistoryForDisplay) {
+                setState(() => _loadingSessionHistoryForDisplay = false);
+              }
             }
           }
 
@@ -2572,6 +2595,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  /// get_chat_history 응답 entries를 메인 메시지 목록(_messages)에 반영 (같은 세션 재연결 시)
+  void _applyChatHistoryToMessages(List<Map<String, dynamic>> entries) {
+    if (entries.isEmpty) return;
+    // Extension은 최신순 반환 → 오래된 순으로 표시하려면 역순
+    final oldestFirst = List<Map<String, dynamic>>.from(entries.reversed);
+    for (final entry in oldestFirst) {
+      final userMsg = entry['userMessage'] as String? ?? '';
+      final assistantMsg = entry['assistantResponse'] as String? ?? '';
+      final agentMode = entry['agentMode'] as String?;
+      _messages.add(MessageItem(userMsg,
+          type: MessageType.userPrompt, agentMode: agentMode));
+      _messages.add(MessageItem('', type: MessageType.chatResponseDivider));
+      _messages.add(MessageItem('🤖 Cursor AI Response',
+          type: MessageType.chatResponseHeader));
+      _messages.add(MessageItem(assistantMsg, type: MessageType.chatResponse));
+      _messages.add(MessageItem('', type: MessageType.chatResponseDivider));
+    }
+  }
+
   // 연결 상태 확인 및 필요시 재연결
   void _checkConnectionState() {
     if (_connectionType == ConnectionType.local) {
@@ -2647,9 +2689,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             Text(
               _messages.isEmpty
                   ? '메시지가 없습니다'
-                  : (isSearchActive
-                      ? '검색 결과가 없습니다'
-                      : '필터와 일치하는 메시지가 없습니다'),
+                  : (isSearchActive ? '검색 결과가 없습니다' : '필터와 일치하는 메시지가 없습니다'),
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 15,
@@ -3015,778 +3055,754 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       children: [
                         Padding(
                           padding: const EdgeInsets.all(16.0),
-                          child: SingleChildScrollView(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                // 연결 타입 선택
-                                Text(
-                                  '연결 타입',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color:
-                                        Theme.of(context).colorScheme.onSurface,
-                                  ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              // 연결 타입 선택
+                              Text(
+                                '연결 타입',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color:
+                                      Theme.of(context).colorScheme.onSurface,
                                 ),
-                                const SizedBox(height: 12),
-                                SegmentedButton<ConnectionType>(
-                                  segments: const [
-                                    ButtonSegment<ConnectionType>(
-                                      value: ConnectionType.local,
-                                      label: Text('로컬 서버'),
-                                      icon: Icon(Icons.computer, size: 18),
-                                    ),
-                                    ButtonSegment<ConnectionType>(
-                                      value: ConnectionType.relay,
-                                      label: Text('릴레이 서버'),
-                                      icon: Icon(Icons.cloud, size: 18),
-                                    ),
-                                  ],
-                                  selected: {_connectionType},
-                                  onSelectionChanged: _isConnected
-                                      ? null
-                                      : (Set<ConnectionType> newSelection) {
-                                          setState(() {
-                                            _connectionType =
-                                                newSelection.first;
-                                          });
-                                        },
-                                ),
-                                const SizedBox(height: 16),
-                                // 로컬 서버 연결 UI
-                                if (_connectionType ==
-                                    ConnectionType.local) ...[
-                                  TextField(
-                                    controller: _localIpController,
-                                    focusNode: _localIpFocusNode,
-                                    decoration: const InputDecoration(
-                                      labelText: 'PC IP (Extension이 실행 중인 PC)',
-                                      hintText: '192.168.0.10',
-                                      border: OutlineInputBorder(),
-                                      isDense: true,
-                                      contentPadding: EdgeInsets.all(12),
-                                      prefixIcon: Icon(Icons.computer),
-                                      helperText: '이전에 사용한 IP 주소가 자동으로 표시됩니다',
-                                    ),
-                                    enabled: !_isConnected,
-                                    keyboardType: TextInputType.number,
-                                    textInputAction: TextInputAction.done,
-                                    onSubmitted: (value) {
-                                      if (!_isConnected) {
-                                        _connect();
-                                      }
-                                    },
-                                    onChanged: (value) {
-                                      // IP 주소 변경 시 자동 저장 (선택사항)
-                                      if (value.trim().isNotEmpty) {
-                                        _saveConnectionSettings();
-                                      }
-                                    },
+                              ),
+                              const SizedBox(height: 12),
+                              SegmentedButton<ConnectionType>(
+                                segments: const [
+                                  ButtonSegment<ConnectionType>(
+                                    value: ConnectionType.local,
+                                    label: Text('로컬 서버'),
+                                    icon: Icon(Icons.computer, size: 18),
                                   ),
-                                  const SizedBox(height: 8),
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .tertiaryContainer
-                                          .withOpacity(0.5),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .tertiary
-                                            .withOpacity(0.3),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.info_outline,
-                                            size: 18,
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .tertiary),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            'PC와 모바일이 같은 네트워크에 있어야 합니다',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w500,
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurface,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ] else ...[
-                                  // 릴레이 서버 연결 UI
-                                  TextField(
-                                    controller: _sessionIdController,
-                                    focusNode: _sessionIdFocusNode,
-                                    decoration: const InputDecoration(
-                                      labelText:
-                                          'Session ID (PC에서 먼저 생성·연결한 ID)',
-                                      hintText: 'ABC123',
-                                      border: OutlineInputBorder(),
-                                      isDense: true,
-                                      contentPadding: EdgeInsets.all(12),
-                                      prefixIcon: Icon(Icons.cloud),
-                                      helperText:
-                                          'PC(익스텐션) 상태줄 클릭 → 세션 ID 생성 후 같은 ID 입력',
-                                    ),
-                                    enabled: !_isConnected,
-                                    keyboardType: TextInputType.text,
-                                    textCapitalization:
-                                        TextCapitalization.characters,
-                                    textInputAction: TextInputAction.done,
-                                    onSubmitted: (value) {
-                                      if (!_isConnected) {
-                                        _connect();
-                                      }
-                                    },
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .primaryContainer
-                                          .withOpacity(0.5),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary
-                                            .withOpacity(0.2),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.info_outline,
-                                            size: 18,
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .primary),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            '먼저 PC(익스텐션)에서 상태줄을 클릭해 세션 ID를 생성·연결한 뒤, 여기에 같은 ID를 입력하세요.',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w500,
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurface,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                                  ButtonSegment<ConnectionType>(
+                                    value: ConnectionType.relay,
+                                    label: Text('릴레이 서버'),
+                                    icon: Icon(Icons.cloud, size: 18),
                                   ),
                                 ],
-                                const SizedBox(height: 12),
-                                // 최근 연결 목록
-                                if (!_isConnected &&
-                                    AppSettings()
-                                        .connectionHistory
-                                        .isNotEmpty) ...[
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
+                                selected: {_connectionType},
+                                onSelectionChanged: _isConnected
+                                    ? null
+                                    : (Set<ConnectionType> newSelection) {
+                                        setState(() {
+                                          _connectionType = newSelection.first;
+                                        });
+                                      },
+                              ),
+                              const SizedBox(height: 16),
+                              // 로컬 서버 연결 UI
+                              if (_connectionType == ConnectionType.local) ...[
+                                TextField(
+                                  controller: _localIpController,
+                                  focusNode: _localIpFocusNode,
+                                  decoration: const InputDecoration(
+                                    labelText: 'PC IP (Extension이 실행 중인 PC)',
+                                    hintText: '192.168.0.10',
+                                    border: OutlineInputBorder(),
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.all(12),
+                                    prefixIcon: Icon(Icons.computer),
+                                    helperText: '이전에 사용한 IP 주소가 자동으로 표시됩니다',
+                                  ),
+                                  enabled: !_isConnected,
+                                  keyboardType: TextInputType.number,
+                                  textInputAction: TextInputAction.done,
+                                  onSubmitted: (value) {
+                                    if (!_isConnected) {
+                                      _connect();
+                                    }
+                                  },
+                                  onChanged: (value) {
+                                    // IP 주소 변경 시 자동 저장 (선택사항)
+                                    if (value.trim().isNotEmpty) {
+                                      _saveConnectionSettings();
+                                    }
+                                  },
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .tertiaryContainer
+                                        .withOpacity(0.5),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .tertiary
+                                          .withOpacity(0.3),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Row(
                                     children: [
-                                      Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            '최근 연결',
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w600,
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurface,
-                                            ),
+                                      Icon(Icons.info_outline,
+                                          size: 18,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .tertiary),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'PC와 모바일이 같은 네트워크에 있어야 합니다',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
                                           ),
-                                          Text(
-                                            '탭하면 재연결됩니다',
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurfaceVariant,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      TextButton.icon(
-                                        onPressed: () async {
-                                          final confirm =
-                                              await showDialog<bool>(
-                                            context: context,
-                                            builder: (ctx) => AlertDialog(
-                                              title: const Text('전체 삭제'),
-                                              content: const Text(
-                                                '최근 연결 목록을 모두 삭제하시겠습니까?',
-                                              ),
-                                              actions: [
-                                                TextButton(
-                                                  onPressed: () =>
-                                                      Navigator.of(ctx)
-                                                          .pop(false),
-                                                  child: const Text('취소'),
-                                                ),
-                                                TextButton(
-                                                  onPressed: () =>
-                                                      Navigator.of(ctx)
-                                                          .pop(true),
-                                                  child: const Text('전체 삭제'),
-                                                ),
-                                              ],
-                                            ),
-                                          );
-                                          if (confirm == true) {
-                                            await AppSettings()
-                                                .clearConnectionHistory();
-                                          }
-                                        },
-                                        icon: const Icon(Icons.delete_sweep,
-                                            size: 18),
-                                        label: const Text('전체 삭제'),
+                                        ),
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 8),
-                                  Container(
-                                    decoration: BoxDecoration(
+                                ),
+                              ] else ...[
+                                // 릴레이 서버 연결 UI
+                                TextField(
+                                  controller: _sessionIdController,
+                                  focusNode: _sessionIdFocusNode,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Session ID (PC에서 먼저 생성·연결한 ID)',
+                                    hintText: 'ABC123',
+                                    border: OutlineInputBorder(),
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.all(12),
+                                    prefixIcon: Icon(Icons.cloud),
+                                    helperText:
+                                        'PC(익스텐션) 상태줄 클릭 → 세션 ID 생성 후 같은 ID 입력',
+                                  ),
+                                  enabled: !_isConnected,
+                                  keyboardType: TextInputType.text,
+                                  textCapitalization:
+                                      TextCapitalization.characters,
+                                  textInputAction: TextInputAction.done,
+                                  onSubmitted: (value) {
+                                    if (!_isConnected) {
+                                      _connect();
+                                    }
+                                  },
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primaryContainer
+                                        .withOpacity(0.5),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
                                       color: Theme.of(context)
                                           .colorScheme
-                                          .surfaceContainerHighest
-                                          .withOpacity(0.5),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .outline
-                                            .withOpacity(0.2),
-                                        width: 1,
-                                      ),
+                                          .primary
+                                          .withOpacity(0.2),
+                                      width: 1,
                                     ),
-                                    child: Column(
-                                      children: AppSettings()
-                                          .connectionHistory
-                                          .asMap()
-                                          .entries
-                                          .map((entry) {
-                                        final index = entry.key;
-                                        final item = entry.value;
-                                        final isLast = index ==
-                                            AppSettings()
-                                                    .connectionHistory
-                                                    .length -
-                                                1;
-                                        return Column(
-                                          children: [
-                                            Tooltip(
-                                              message: '탭하여 재연결',
-                                              child: InkWell(
-                                                onTap: () =>
-                                                    _connectFromHistory(item),
-                                                borderRadius:
-                                                    BorderRadius.vertical(
-                                                  top: index == 0
-                                                      ? const Radius.circular(
-                                                          12)
-                                                      : Radius.zero,
-                                                  bottom: isLast
-                                                      ? const Radius.circular(
-                                                          12)
-                                                      : Radius.zero,
-                                                ),
-                                                child: Padding(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(
-                                                      horizontal: 12,
-                                                      vertical: 10),
-                                                  child: Row(
-                                                    children: [
-                                                      Container(
-                                                        padding:
-                                                            const EdgeInsets
-                                                                .all(6),
-                                                        decoration:
-                                                            BoxDecoration(
-                                                          color: item.type ==
-                                                                  ConnectionType
-                                                                      .local
-                                                              ? Theme.of(
-                                                                      context)
-                                                                  .colorScheme
-                                                                  .secondaryContainer
-                                                              : Theme.of(
-                                                                      context)
-                                                                  .colorScheme
-                                                                  .primaryContainer,
-                                                          borderRadius:
-                                                              BorderRadius
-                                                                  .circular(6),
-                                                        ),
-                                                        child: Icon(
-                                                          item.type ==
-                                                                  ConnectionType
-                                                                      .local
-                                                              ? Icons.computer
-                                                              : Icons.cloud,
-                                                          size: 14,
-                                                          color: item.type ==
-                                                                  ConnectionType
-                                                                      .local
-                                                              ? Theme.of(
-                                                                      context)
-                                                                  .colorScheme
-                                                                  .onSecondaryContainer
-                                                              : Theme.of(
-                                                                      context)
-                                                                  .colorScheme
-                                                                  .onPrimaryContainer,
-                                                        ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.info_outline,
+                                          size: 18,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .primary),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          '먼저 PC(익스텐션)에서 상태줄을 클릭해 세션 ID를 생성·연결한 뒤, 여기에 같은 ID를 입력하세요.',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 12),
+                              // 최근 연결 목록
+                              if (!_isConnected &&
+                                  AppSettings()
+                                      .connectionHistory
+                                      .isNotEmpty) ...[
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '최근 연결',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
+                                          ),
+                                        ),
+                                        Text(
+                                          '탭하면 재연결됩니다',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    TextButton.icon(
+                                      onPressed: () async {
+                                        final confirm = await showDialog<bool>(
+                                          context: context,
+                                          builder: (ctx) => AlertDialog(
+                                            title: const Text('전체 삭제'),
+                                            content: const Text(
+                                              '최근 연결 목록을 모두 삭제하시겠습니까?',
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () =>
+                                                    Navigator.of(ctx)
+                                                        .pop(false),
+                                                child: const Text('취소'),
+                                              ),
+                                              TextButton(
+                                                onPressed: () =>
+                                                    Navigator.of(ctx).pop(true),
+                                                child: const Text('전체 삭제'),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                        if (confirm == true) {
+                                          await AppSettings()
+                                              .clearConnectionHistory();
+                                        }
+                                      },
+                                      icon: const Icon(Icons.delete_sweep,
+                                          size: 18),
+                                      label: const Text('전체 삭제'),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerHighest
+                                        .withOpacity(0.5),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .outline
+                                          .withOpacity(0.2),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    children: AppSettings()
+                                        .connectionHistory
+                                        .asMap()
+                                        .entries
+                                        .map((entry) {
+                                      final index = entry.key;
+                                      final item = entry.value;
+                                      final isLast = index ==
+                                          AppSettings()
+                                                  .connectionHistory
+                                                  .length -
+                                              1;
+                                      return Column(
+                                        children: [
+                                          Tooltip(
+                                            message: '탭하여 재연결',
+                                            child: InkWell(
+                                              onTap: () =>
+                                                  _connectFromHistory(item),
+                                              borderRadius:
+                                                  BorderRadius.vertical(
+                                                top: index == 0
+                                                    ? const Radius.circular(12)
+                                                    : Radius.zero,
+                                                bottom: isLast
+                                                    ? const Radius.circular(12)
+                                                    : Radius.zero,
+                                              ),
+                                              child: Padding(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 12,
+                                                        vertical: 10),
+                                                child: Row(
+                                                  children: [
+                                                    Container(
+                                                      padding:
+                                                          const EdgeInsets.all(
+                                                              6),
+                                                      decoration: BoxDecoration(
+                                                        color: item.type ==
+                                                                ConnectionType
+                                                                    .local
+                                                            ? Theme.of(context)
+                                                                .colorScheme
+                                                                .secondaryContainer
+                                                            : Theme.of(context)
+                                                                .colorScheme
+                                                                .primaryContainer,
+                                                        borderRadius:
+                                                            BorderRadius
+                                                                .circular(6),
                                                       ),
-                                                      const SizedBox(width: 10),
-                                                      Expanded(
-                                                        child: Column(
-                                                          crossAxisAlignment:
-                                                              CrossAxisAlignment
-                                                                  .start,
-                                                          children: [
-                                                            Text(
-                                                              item.displayText,
-                                                              style: TextStyle(
-                                                                fontSize: 13,
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .w500,
-                                                                color: Theme.of(
-                                                                        context)
-                                                                    .colorScheme
-                                                                    .onSurface,
-                                                                fontFamily:
-                                                                    'monospace',
-                                                              ),
-                                                            ),
-                                                            Text(
-                                                              item.relativeTime,
-                                                              style: TextStyle(
-                                                                fontSize: 11,
-                                                                color: Theme.of(
-                                                                        context)
-                                                                    .colorScheme
-                                                                    .onSurfaceVariant,
-                                                              ),
-                                                            ),
-                                                          ],
-                                                        ),
+                                                      child: Icon(
+                                                        item.type ==
+                                                                ConnectionType
+                                                                    .local
+                                                            ? Icons.computer
+                                                            : Icons.cloud,
+                                                        size: 14,
+                                                        color: item.type ==
+                                                                ConnectionType
+                                                                    .local
+                                                            ? Theme.of(context)
+                                                                .colorScheme
+                                                                .onSecondaryContainer
+                                                            : Theme.of(context)
+                                                                .colorScheme
+                                                                .onPrimaryContainer,
                                                       ),
-                                                      Icon(
-                                                        Icons.settings_ethernet,
+                                                    ),
+                                                    const SizedBox(width: 10),
+                                                    Expanded(
+                                                      child: Column(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
+                                                        children: [
+                                                          Text(
+                                                            item.displayText,
+                                                            style: TextStyle(
+                                                              fontSize: 13,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w500,
+                                                              color: Theme.of(
+                                                                      context)
+                                                                  .colorScheme
+                                                                  .onSurface,
+                                                              fontFamily:
+                                                                  'monospace',
+                                                            ),
+                                                          ),
+                                                          Text(
+                                                            item.relativeTime,
+                                                            style: TextStyle(
+                                                              fontSize: 11,
+                                                              color: Theme.of(
+                                                                      context)
+                                                                  .colorScheme
+                                                                  .onSurfaceVariant,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                    Icon(
+                                                      Icons.settings_ethernet,
+                                                      size: 20,
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .primary,
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    IconButton(
+                                                      icon: Icon(
+                                                        Icons.delete_outline,
                                                         size: 20,
                                                         color: Theme.of(context)
                                                             .colorScheme
-                                                            .primary,
+                                                            .error,
                                                       ),
-                                                      const SizedBox(width: 4),
-                                                      IconButton(
-                                                        icon: Icon(
-                                                          Icons.delete_outline,
-                                                          size: 20,
-                                                          color:
-                                                              Theme.of(context)
-                                                                  .colorScheme
-                                                                  .error,
-                                                        ),
-                                                        onPressed: () async {
-                                                          final confirm =
-                                                              await showDialog<
-                                                                  bool>(
-                                                            context: context,
-                                                            builder: (ctx) =>
-                                                                AlertDialog(
-                                                              title: const Text(
-                                                                  '연결 삭제'),
-                                                              content: Text(
-                                                                '${item.displayText} 항목을 삭제하시겠습니까?',
-                                                              ),
-                                                              actions: [
-                                                                TextButton(
-                                                                  onPressed: () =>
-                                                                      Navigator.of(
-                                                                              ctx)
-                                                                          .pop(
-                                                                              false),
-                                                                  child:
-                                                                      const Text(
-                                                                          '취소'),
-                                                                ),
-                                                                TextButton(
-                                                                  onPressed: () =>
-                                                                      Navigator.of(
-                                                                              ctx)
-                                                                          .pop(
-                                                                              true),
-                                                                  child:
-                                                                      const Text(
-                                                                          '삭제'),
-                                                                ),
-                                                              ],
-                                                            ),
-                                                          );
-                                                          if (confirm == true) {
-                                                            await AppSettings()
-                                                                .removeConnectionHistory(
-                                                                    item);
-                                                          }
-                                                        },
-                                                        padding:
-                                                            EdgeInsets.zero,
-                                                        constraints:
-                                                            const BoxConstraints(
-                                                                minWidth: 32,
-                                                                minHeight: 32),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                            if (!isLast)
-                                              Divider(
-                                                height: 1,
-                                                indent: 12,
-                                                endIndent: 12,
-                                                color: Theme.of(context)
-                                                    .colorScheme
-                                                    .outline
-                                                    .withOpacity(0.2),
-                                              ),
-                                          ],
-                                        );
-                                      }).toList(),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                ],
-                                // 재연결 중 상태 표시
-                                if (_isReconnecting) ...[
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .tertiaryContainer
-                                          .withOpacity(0.5),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .tertiary
-                                            .withOpacity(0.3),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            valueColor:
-                                                AlwaysStoppedAnimation<Color>(
-                                              Theme.of(context)
-                                                  .colorScheme
-                                                  .tertiary,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Text(
-                                            '재연결 시도 중... ($_reconnectAttempts회)',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w500,
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurface,
-                                            ),
-                                          ),
-                                        ),
-                                        TextButton(
-                                          onPressed: _stopReconnect,
-                                          child: const Text('취소',
-                                              style: TextStyle(fontSize: 12)),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                ],
-                                // 연결 에러 표시
-                                if (_lastConnectionError != null &&
-                                    !_isConnected &&
-                                    !_isReconnecting) ...[
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .errorContainer
-                                          .withOpacity(0.3),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .error
-                                            .withOpacity(0.2),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          Icons.error_outline,
-                                          size: 20,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .error,
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Text(
-                                            '연결 실패: ${_lastConnectionError!.length > 50 ? '${_lastConnectionError!.substring(0, 50)}...' : _lastConnectionError}',
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w500,
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onErrorContainer,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                ],
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceEvenly,
-                                  children: [
-                                    Expanded(
-                                      child: FilledButton.icon(
-                                        onPressed:
-                                            _isConnected || _isReconnecting
-                                                ? null
-                                                : _connect,
-                                        icon: Icon(
-                                          _connectionType ==
-                                                  ConnectionType.local
-                                              ? Icons.computer
-                                              : Icons.cloud,
-                                          size: 18,
-                                        ),
-                                        label: Text(
-                                          _connectionType ==
-                                                  ConnectionType.local
-                                              ? '연결'
-                                              : (_sessionIdController.text
-                                                      .trim()
-                                                      .isEmpty
-                                                  ? '생성 & 연결'
-                                                  : '연결'),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    if (!_isConnected &&
-                                        _lastConnectionError != null) ...[
-                                      Expanded(
-                                        child: OutlinedButton.icon(
-                                          onPressed: _isReconnecting
-                                              ? null
-                                              : _manualReconnect,
-                                          icon: const Icon(Icons.refresh,
-                                              size: 18),
-                                          label: const Text('재연결'),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                    ],
-                                    Expanded(
-                                      child: OutlinedButton(
-                                        onPressed:
-                                            _isConnected ? _disconnect : null,
-                                        child: const Text('연결 해제'),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                // 연결 상태 표시
-                                if (_isConnected) ...[
-                                  const SizedBox(height: 12),
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .primaryContainer
-                                          .withOpacity(0.3),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary
-                                            .withOpacity(0.2),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          Icons.check_circle,
-                                          size: 20,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .primary,
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                _connectionType ==
-                                                        ConnectionType.local
-                                                    ? '로컬 서버에 연결됨'
-                                                    : '릴레이 서버에 연결됨',
-                                                style: TextStyle(
-                                                  fontSize: 14,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: Theme.of(context)
-                                                      .colorScheme
-                                                      .onSurface,
-                                                ),
-                                              ),
-                                              if (_connectionType ==
-                                                      ConnectionType.relay &&
-                                                  _sessionId != null) ...[
-                                                const SizedBox(height: 4),
-                                                Row(
-                                                  children: [
-                                                    Expanded(
-                                                      child: Text(
-                                                        '세션 ID: $_sessionId',
-                                                        style: TextStyle(
-                                                          fontSize: 12,
-                                                          fontWeight:
-                                                              FontWeight.w500,
-                                                          color: Theme.of(
-                                                                  context)
-                                                              .colorScheme
-                                                              .onSurfaceVariant,
-                                                          fontFamily:
-                                                              'monospace',
-                                                        ),
-                                                      ),
-                                                    ),
-                                                    IconButton(
-                                                      icon: const Icon(
-                                                          Icons.copy,
-                                                          size: 16),
-                                                      padding: EdgeInsets.zero,
-                                                      constraints:
-                                                          const BoxConstraints(),
-                                                      onPressed: () {
-                                                        Clipboard.setData(
-                                                            ClipboardData(
-                                                                text:
-                                                                    _sessionId!));
-                                                        ScaffoldMessenger.of(
-                                                                context)
-                                                            .showSnackBar(
-                                                          const SnackBar(
+                                                      onPressed: () async {
+                                                        final confirm =
+                                                            await showDialog<
+                                                                bool>(
+                                                          context: context,
+                                                          builder: (ctx) =>
+                                                              AlertDialog(
+                                                            title: const Text(
+                                                                '연결 삭제'),
                                                             content: Text(
-                                                                '세션 ID가 클립보드에 복사되었습니다'),
-                                                            duration: Duration(
-                                                                seconds: 1),
+                                                              '${item.displayText} 항목을 삭제하시겠습니까?',
+                                                            ),
+                                                            actions: [
+                                                              TextButton(
+                                                                onPressed: () =>
+                                                                    Navigator.of(
+                                                                            ctx)
+                                                                        .pop(
+                                                                            false),
+                                                                child:
+                                                                    const Text(
+                                                                        '취소'),
+                                                              ),
+                                                              TextButton(
+                                                                onPressed: () =>
+                                                                    Navigator.of(
+                                                                            ctx)
+                                                                        .pop(
+                                                                            true),
+                                                                child:
+                                                                    const Text(
+                                                                        '삭제'),
+                                                              ),
+                                                            ],
                                                           ),
                                                         );
+                                                        if (confirm == true) {
+                                                          await AppSettings()
+                                                              .removeConnectionHistory(
+                                                                  item);
+                                                        }
                                                       },
+                                                      padding: EdgeInsets.zero,
+                                                      constraints:
+                                                          const BoxConstraints(
+                                                              minWidth: 32,
+                                                              minHeight: 32),
                                                     ),
                                                   ],
                                                 ),
-                                              ],
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ] else if (!_isConnected &&
-                                    !_isReconnecting) ...[
-                                  const SizedBox(height: 12),
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .surfaceContainerHighest
-                                          .withOpacity(0.5),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .outline
-                                            .withOpacity(0.2),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          Icons.cloud_off,
-                                          size: 20,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant,
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Text(
-                                            '연결되지 않음',
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w500,
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurfaceVariant,
+                                              ),
                                             ),
                                           ),
+                                          if (!isLast)
+                                            Divider(
+                                              height: 1,
+                                              indent: 12,
+                                              endIndent: 12,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .outline
+                                                  .withOpacity(0.2),
+                                            ),
+                                        ],
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                              ],
+                              // 재연결 중 상태 표시
+                              if (_isReconnecting) ...[
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .tertiaryContainer
+                                        .withOpacity(0.5),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .tertiary
+                                          .withOpacity(0.3),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                            Theme.of(context)
+                                                .colorScheme
+                                                .tertiary,
+                                          ),
                                         ),
-                                      ],
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          '재연결 시도 중... ($_reconnectAttempts회)',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
+                                          ),
+                                        ),
+                                      ),
+                                      TextButton(
+                                        onPressed: _stopReconnect,
+                                        child: const Text('취소',
+                                            style: TextStyle(fontSize: 12)),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                              ],
+                              // 연결 에러 표시
+                              if (_lastConnectionError != null &&
+                                  !_isConnected &&
+                                  !_isReconnecting) ...[
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .errorContainer
+                                        .withOpacity(0.3),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .error
+                                          .withOpacity(0.2),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.error_outline,
+                                        size: 20,
+                                        color:
+                                            Theme.of(context).colorScheme.error,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          '연결 실패: ${_lastConnectionError!.length > 50 ? '${_lastConnectionError!.substring(0, 50)}...' : _lastConnectionError}',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w500,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onErrorContainer,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                              ],
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  Expanded(
+                                    child: FilledButton.icon(
+                                      onPressed: _isConnected || _isReconnecting
+                                          ? null
+                                          : _connect,
+                                      icon: Icon(
+                                        _connectionType == ConnectionType.local
+                                            ? Icons.computer
+                                            : Icons.cloud,
+                                        size: 18,
+                                      ),
+                                      label: Text(
+                                        _connectionType == ConnectionType.local
+                                            ? '연결'
+                                            : (_sessionIdController.text
+                                                    .trim()
+                                                    .isEmpty
+                                                ? '생성 & 연결'
+                                                : '연결'),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  if (!_isConnected &&
+                                      _lastConnectionError != null) ...[
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: _isReconnecting
+                                            ? null
+                                            : _manualReconnect,
+                                        icon:
+                                            const Icon(Icons.refresh, size: 18),
+                                        label: const Text('재연결'),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
+                                  Expanded(
+                                    child: OutlinedButton(
+                                      onPressed:
+                                          _isConnected ? _disconnect : null,
+                                      child: const Text('연결 해제'),
                                     ),
                                   ),
                                 ],
+                              ),
+                              // 연결 상태 표시
+                              if (_isConnected) ...[
+                                const SizedBox(height: 12),
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primaryContainer
+                                        .withOpacity(0.3),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .primary
+                                          .withOpacity(0.2),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.check_circle,
+                                        size: 20,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              _connectionType ==
+                                                      ConnectionType.local
+                                                  ? '로컬 서버에 연결됨'
+                                                  : '릴레이 서버에 연결됨',
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w600,
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .onSurface,
+                                              ),
+                                            ),
+                                            if (_connectionType ==
+                                                    ConnectionType.relay &&
+                                                _sessionId != null) ...[
+                                              const SizedBox(height: 4),
+                                              Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      '세션 ID: $_sessionId',
+                                                      style: TextStyle(
+                                                        fontSize: 12,
+                                                        fontWeight:
+                                                            FontWeight.w500,
+                                                        color: Theme.of(context)
+                                                            .colorScheme
+                                                            .onSurfaceVariant,
+                                                        fontFamily: 'monospace',
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  IconButton(
+                                                    icon: const Icon(Icons.copy,
+                                                        size: 16),
+                                                    padding: EdgeInsets.zero,
+                                                    constraints:
+                                                        const BoxConstraints(),
+                                                    onPressed: () {
+                                                      Clipboard.setData(
+                                                          ClipboardData(
+                                                              text:
+                                                                  _sessionId!));
+                                                      ScaffoldMessenger.of(
+                                                              context)
+                                                          .showSnackBar(
+                                                        const SnackBar(
+                                                          content: Text(
+                                                              '세션 ID가 클립보드에 복사되었습니다'),
+                                                          duration: Duration(
+                                                              seconds: 1),
+                                                        ),
+                                                      );
+                                                    },
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ] else if (!_isConnected && !_isReconnecting) ...[
+                                const SizedBox(height: 12),
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerHighest
+                                        .withOpacity(0.5),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .outline
+                                          .withOpacity(0.2),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.cloud_off,
+                                        size: 20,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          '연결되지 않음',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w500,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ],
-                            ),
+                            ],
                           ),
                         ),
                       ],
@@ -3844,7 +3860,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                     ),
                                     child: Text(
                                       _searchQuery.trim().isEmpty
-                                          ? '${_filteredMessages.length}/${_messages.length}'
+                                          ? '표시 ${_filteredMessages.length} / 전체 ${_messages.length}'
                                           : '검색 ${_displayMessages.length}건',
                                       style: TextStyle(
                                         fontSize: 12,
@@ -3858,9 +3874,37 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 ],
                               ),
                               const SizedBox(height: 8),
-                              // 검색: 입력창 + 범위(전체/답변만)
+                              // 검색: 범위(전체/답변만) + 입력창
                               Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
+                                  ConstrainedBox(
+                                    constraints:
+                                        const BoxConstraints(minWidth: 200),
+                                    child: SegmentedButton<String>(
+                                      segments: const [
+                                        ButtonSegment<String>(
+                                          value: _searchScopeAll,
+                                          label: Text('전체',
+                                              softWrap: false,
+                                              overflow: TextOverflow.clip),
+                                          icon: Icon(Icons.chat, size: 14),
+                                        ),
+                                        ButtonSegment<String>(
+                                          value: _searchScopeAnswerOnly,
+                                          label: Text('답변만',
+                                              softWrap: false,
+                                              overflow: TextOverflow.clip),
+                                          icon: Icon(Icons.smart_toy, size: 14),
+                                        ),
+                                      ],
+                                      selected: {_searchScope},
+                                      onSelectionChanged: (Set<String> s) {
+                                        setState(() => _searchScope = s.first);
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
                                   Expanded(
                                     child: TextField(
                                       onChanged: (v) =>
@@ -3871,14 +3915,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                         contentPadding:
                                             const EdgeInsets.symmetric(
                                                 horizontal: 12, vertical: 8),
-                                        prefixIcon: const Icon(
-                                            Icons.search, size: 20),
+                                        prefixIcon:
+                                            const Icon(Icons.search, size: 20),
                                         suffixIcon: _searchQuery.isNotEmpty
                                             ? IconButton(
                                                 icon: const Icon(Icons.clear,
                                                     size: 18),
-                                                onPressed: () => setState(() =>
-                                                    _searchQuery = ''),
+                                                onPressed: () => setState(
+                                                    () => _searchQuery = ''),
                                               )
                                             : null,
                                         border: OutlineInputBorder(
@@ -3887,26 +3931,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                         ),
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  SegmentedButton<String>(
-                                    segments: [
-                                      ButtonSegment<String>(
-                                        value: _searchScopeAll,
-                                        label: const Text('전체'),
-                                        icon: const Icon(Icons.chat, size: 14),
-                                      ),
-                                      ButtonSegment<String>(
-                                        value: _searchScopeAnswerOnly,
-                                        label: const Text('답변만'),
-                                        icon: const Icon(
-                                            Icons.smart_toy, size: 14),
-                                      ),
-                                    ],
-                                    selected: {_searchScope},
-                                    onSelectionChanged: (Set<String> s) {
-                                      setState(() => _searchScope = s.first);
-                                    },
                                   ),
                                 ],
                               ),
