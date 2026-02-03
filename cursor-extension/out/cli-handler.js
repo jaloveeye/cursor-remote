@@ -52,6 +52,7 @@ class CLIHandler {
         this.lastStreamedText = new Map(); // clientId -> 마지막으로 전송한 텍스트 (중복 제거용)
         this.lastPromptByClient = new Map(); // clientId -> 마지막으로 실행한 프롬프트 (IME 중복 방지용)
         this.currentSenderDeviceId = null; // 유니캐스트 응답용 - 현재 요청을 보낸 모바일 디바이스 ID
+        this.getRelaySessionId = null; // 릴레이 세션 ID 조회 (저장 시 사용)
         this.outputChannel = outputChannel || null;
         this.wsServer = wsServer || null;
         this.workspaceRoot = workspaceRoot || null;
@@ -64,6 +65,10 @@ class CLIHandler {
             }
             this.chatHistoryFile = path.join(cursorDir, "CHAT_HISTORY.json");
         }
+    }
+    /** 릴레이 모드일 때 저장되는 히스토리에 relaySessionId를 넣기 위한 getter 설정 */
+    setGetRelaySessionId(getter) {
+        this.getRelaySessionId = getter;
     }
     log(message, sendToClient = false) {
         const timestamp = new Date().toLocaleTimeString();
@@ -836,6 +841,12 @@ class CLIHandler {
                 timestamp: entry.timestamp,
                 agentMode: entry.agentMode, // 에이전트 모드 추가
             };
+            // 릴레이 모드일 때 릴레이 세션 ID 함께 저장
+            if (entry.clientId === "relay-client" && this.getRelaySessionId) {
+                const rid = this.getRelaySessionId();
+                if (rid)
+                    newEntry.relaySessionId = rid;
+            }
             // 디버깅: agentMode 저장 확인
             if (newEntry.userMessage) {
                 this.log(`💾 Creating new entry - agentMode: ${newEntry.agentMode || "undefined"}, userMessage: ${newEntry.userMessage.substring(0, 30)}...`);
@@ -913,6 +924,10 @@ class CLIHandler {
                     !newEntry.sessionId.startsWith("pending-")) {
                     lastEntry.sessionId = newEntry.sessionId;
                 }
+                // 릴레이 세션 ID 업데이트 (릴레이 모드 응답 저장 시)
+                if (newEntry.relaySessionId) {
+                    lastEntry.relaySessionId = newEntry.relaySessionId;
+                }
                 // 타임스탬프 업데이트
                 lastEntry.timestamp = newEntry.timestamp;
                 this.log(`💾 Entry updated - final agentMode: ${lastEntry.agentMode || "undefined"}`);
@@ -989,7 +1004,7 @@ class CLIHandler {
     /**
      * 대화 히스토리 조회
      */
-    getChatHistory(clientId, sessionId, limit = 50) {
+    getChatHistory(clientId, sessionId, relaySessionId, limit = 50) {
         if (!this.chatHistoryFile || !fs.existsSync(this.chatHistoryFile)) {
             return [];
         }
@@ -1032,9 +1047,13 @@ class CLIHandler {
                 filtered = filtered.filter((entry) => entry.clientId === clientId);
             }
             // clientId가 없으면 모든 히스토리 반환 (최근 히스토리 조회용)
-            // 세션 ID로 필터링
+            // 세션 ID로 필터링 (Cursor CLI 채팅 스레드 ID)
             if (sessionId) {
                 filtered = filtered.filter((entry) => entry.sessionId === sessionId);
+            }
+            // 릴레이 세션 ID로 필터링 (릴레이 모드에서 현재 세션만)
+            if (relaySessionId) {
+                filtered = filtered.filter((entry) => entry.relaySessionId === relaySessionId);
             }
             // 최신순으로 정렬하고 제한
             filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());

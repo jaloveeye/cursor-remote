@@ -5,6 +5,21 @@ All notable changes to the "Cursor Remote" extension will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.8] - 2026-02-03
+
+### Added
+- **릴레이 세션 ID 저장**: 챗 히스토리 저장 시 릴레이 세션 ID(relaySessionId) 함께 저장
+- **현재 세션 히스토리만 표시**: get_chat_history에 relaySessionId 필터 적용, 새 세션 접속 시 해당 세션 메시지만 표시
+
+### Changed
+- **메시지 수 표시**: 표시/전체 개수를 사용자 프롬프트+AI 응답만 카운트하도록 변경
+- **채팅 문서 감시**: 출력 채널(output)을 채팅 문서로 인식하지 않도록 수정
+- **모바일**: 릴레이 전송 후 응답 대기 상태 유지, 빈 메시지 영역 문구 단순화
+- **모바일**: 표시/전체·과거 메시지 불러오기 UI 잠시 숨김
+
+### Fixed
+- 새 세션에서 프롬프트 1회·응답 1회 시 "표시 2 / 전체 2"로 올바르게 표시되도록 수정
+
 ## [0.3.7] - 2026-02-03
 
 ### Added

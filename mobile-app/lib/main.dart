@@ -647,6 +647,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }).toList();
   }
 
+  /// 대화 메시지 수 (사용자 프롬프트 + AI 응답만, 구분선/헤더 제외)
+  int get _contentMessageCount => _messages
+      .where((m) =>
+          m.type == MessageType.userPrompt ||
+          m.type == MessageType.chatResponse)
+      .length;
+  int get _filteredContentMessageCount => _filteredMessages
+      .where((m) =>
+          m.type == MessageType.userPrompt ||
+          m.type == MessageType.chatResponse)
+      .length;
+
   // 새 세션 생성 (릴레이 서버 연결 시에만 사용)
   Future<void> _createSession() async {
     try {
@@ -852,28 +864,34 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 }
               });
             }
-            // 대화 히스토리 조회 결과 처리
+            // 대화 히스토리 조회 결과 처리 (Extension은 data에 배열 직접 반환 또는 { entries: [] } 반환)
             else if (commandType == 'get_chat_history' &&
                 data['data'] != null) {
-              final historyData = data['data'] as Map<String, dynamic>;
-              if (historyData['entries'] != null) {
-                final entries = List<Map<String, dynamic>>.from(
-                    historyData['entries'] as List);
+              final raw = data['data'];
+              final List<Map<String, dynamic>> entries = raw is List
+                  ? List<Map<String, dynamic>>.from(
+                      raw.map((e) => e as Map<String, dynamic>))
+                  : (raw is Map<String, dynamic> && raw['entries'] != null)
+                      ? List<Map<String, dynamic>>.from((raw['entries'] as List)
+                          .map((e) => e as Map<String, dynamic>))
+                      : <Map<String, dynamic>>[];
+              if (entries.isNotEmpty ||
+                  _loadingSessionHistoryForDisplay ||
+                  _loadingPastMessages) {
                 setState(() {
                   _chatHistory = entries;
-                  // 세션 목록 추출
                   _availableSessions = _chatHistory
                       .map((entry) => entry['sessionId'] as String? ?? '')
                       .where((id) => id.isNotEmpty)
                       .toSet()
                       .toList();
-                  // 같은 세션 재연결 시 메인 목록에 이전 프롬프트/답변 반영
                   if (_loadingSessionHistoryForDisplay) {
+                    // 연결 직후: 이전 세션 대화는 제거하고 현재 릴레이 세션 히스토리만 표시
                     if (entries.isNotEmpty)
-                      _applyChatHistoryToMessages(entries);
+                      _applyChatHistoryToMessages(entries,
+                          replaceConversation: true);
                     _loadingSessionHistoryForDisplay = false;
                   }
-                  // 과거 메시지 불러오기 버튼으로 요청한 경우 메인 목록에 반영 (중복 제외)
                   if (_loadingPastMessages) {
                     if (entries.isNotEmpty)
                       _applyChatHistoryToMessages(entries, skipIfExists: true);
@@ -1372,34 +1390,37 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               }
             });
           }
-          // 대화 히스토리 조회 결과 처리
+          // 대화 히스토리 조회 결과 처리 (Extension은 data에 배열 직접 또는 { entries: [] })
           else if (commandType == 'get_chat_history' &&
               messageData['data'] != null) {
-            final historyData = messageData['data'] as Map<String, dynamic>;
-            if (historyData['entries'] != null) {
-              final entries = List<Map<String, dynamic>>.from(
-                  historyData['entries'] as List);
-              setState(() {
-                _chatHistory = entries;
-                // 세션 목록 추출
-                _availableSessions = _chatHistory
-                    .map((entry) => entry['sessionId'] as String? ?? '')
-                    .where((id) => id.isNotEmpty)
-                    .toSet()
-                    .toList();
-                // 같은 세션 재연결 시 메인 목록에 이전 프롬프트/답변 반영
-                if (_loadingSessionHistoryForDisplay) {
-                  if (entries.isNotEmpty) _applyChatHistoryToMessages(entries);
-                  _loadingSessionHistoryForDisplay = false;
-                }
-                // 과거 메시지 불러오기 버튼으로 요청한 경우 메인 목록에 반영 (중복 제외)
-                if (_loadingPastMessages) {
-                  if (entries.isNotEmpty)
-                    _applyChatHistoryToMessages(entries, skipIfExists: true);
-                  _loadingPastMessages = false;
-                }
-              });
-            } else {
+            final raw = messageData['data'];
+            final List<Map<String, dynamic>> entries = raw is List
+                ? List<Map<String, dynamic>>.from(
+                    raw.map((e) => e as Map<String, dynamic>))
+                : (raw is Map<String, dynamic> && raw['entries'] != null)
+                    ? List<Map<String, dynamic>>.from((raw['entries'] as List)
+                        .map((e) => e as Map<String, dynamic>))
+                    : <Map<String, dynamic>>[];
+            setState(() {
+              _chatHistory = entries;
+              _availableSessions = _chatHistory
+                  .map((entry) => entry['sessionId'] as String? ?? '')
+                  .where((id) => id.isNotEmpty)
+                  .toSet()
+                  .toList();
+              if (_loadingSessionHistoryForDisplay) {
+                if (entries.isNotEmpty)
+                  _applyChatHistoryToMessages(entries,
+                      replaceConversation: true);
+                _loadingSessionHistoryForDisplay = false;
+              }
+              if (_loadingPastMessages) {
+                if (entries.isNotEmpty)
+                  _applyChatHistoryToMessages(entries, skipIfExists: true);
+                _loadingPastMessages = false;
+              }
+            });
+            if (entries.isEmpty) {
               if (_loadingSessionHistoryForDisplay) {
                 setState(() => _loadingSessionHistoryForDisplay = false);
               }
@@ -1893,6 +1914,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       bool? newSession,
       String? clientId,
       String? sessionId,
+      String? relaySessionId,
       int? limit,
       String? agentMode}) async {
     // 연결 상태 재확인
@@ -1935,6 +1957,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (newSession != null) 'newSession': newSession,
         if (clientId != null) 'clientId': clientId,
         if (sessionId != null) 'sessionId': sessionId,
+        if (relaySessionId != null) 'relaySessionId': relaySessionId,
         if (limit != null) 'limit': limit,
         // 자동 모드일 때도 감지된 모드를 전달하여 히스토리에 저장되도록 함
         if (finalModeForCommand != null) 'agentMode': finalModeForCommand,
@@ -1978,46 +2001,71 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         if (_sessionId == null) {
           throw Exception('Session ID is required for relay connection');
         }
+        // '응답 대기 중' UI가 먼저 그려지도록 다음 프레임에서 전송
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          if (!mounted || _sessionId == null) return;
+          try {
+            final response = await http.post(
+              Uri.parse('$RELAY_SERVER_URL/api/send'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({
+                'sessionId': _sessionId,
+                'deviceId': _deviceId,
+                'deviceType': 'mobile',
+                'type': type,
+                'data': commandData,
+              }),
+            );
 
-        final response = await http.post(
-          Uri.parse('$RELAY_SERVER_URL/api/send'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'sessionId': _sessionId,
-            'deviceId': _deviceId,
-            'deviceType': 'mobile',
-            'type': type,
-            'data': commandData,
-          }),
-        );
-
-        if (mounted) {
-          final responseData = jsonDecode(response.body);
-          setState(() {
-            _messages.add(MessageItem('Sent: ${commandData.toString()}',
-                type: MessageType.system));
-            if (response.statusCode == 200 && responseData['success'] == true) {
-              _messages.add(MessageItem('✅ Message sent to relay',
-                  type: MessageType.system));
-            } else {
-              _messages.add(MessageItem(
-                  '❌ Failed to send: ${responseData['error'] ?? 'Unknown error'}',
-                  type: MessageType.system));
-              _isWaitingForResponse = false;
+            if (mounted) {
+              // 응답 파싱 실패 시에도 대기 상태 유지 (파싱 오류 ≠ 전송 실패)
+              Map<String, dynamic>? responseData;
+              if (response.body.isNotEmpty) {
+                try {
+                  responseData =
+                      jsonDecode(response.body) as Map<String, dynamic>?;
+                } catch (_) {
+                  responseData = null;
+                }
+              }
+              final success = response.statusCode == 200 &&
+                  (responseData?['success'] == true);
+              setState(() {
+                if (success) {
+                  _messages.add(MessageItem('✅ 메시지 전송됨, 응답 대기 중…',
+                      type: MessageType.system));
+                  // _isWaitingForResponse는 이미 true, 유지
+                } else {
+                  _messages.add(MessageItem(
+                      '❌ 전송 실패: ${responseData?['error'] ?? 'HTTP ${response.statusCode}'}',
+                      type: MessageType.system));
+                  _isWaitingForResponse = false;
+                }
+              });
+              _scrollToBottom();
             }
-          });
-          _scrollToBottom();
-        }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('전송 오류: $e')),
+              );
+              setState(() {
+                _isWaitingForResponse = false;
+                _messages
+                    .add(MessageItem('전송 오류: $e', type: MessageType.system));
+              });
+            }
+          }
+        });
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send command: $e')),
+          SnackBar(content: Text('전송 오류: $e')),
         );
         setState(() {
           _isWaitingForResponse = false;
-          _messages
-              .add(MessageItem('Send error: $e', type: MessageType.system));
+          _messages.add(MessageItem('전송 오류: $e', type: MessageType.system));
         });
       }
     }
@@ -2599,25 +2647,43 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   // 대화 히스토리 조회
+  // 릴레이 모드일 때 relaySessionId를 넘기면 현재 릴레이 세션의 히스토리만 반환됨
   Future<void> _loadChatHistory({String? sessionId, int limit = 50}) async {
     if (!_isConnected) return;
 
-    // clientId가 없어도 최근 히스토리를 조회할 수 있도록 수정
-    // clientId가 있으면 해당 클라이언트의 히스토리만, 없으면 모든 최근 히스토리 조회
     try {
       await _sendCommand('get_chat_history',
-          clientId: _currentClientId, // null이어도 됨 (Extension에서 모든 히스토리 반환)
+          clientId: _currentClientId,
           sessionId: sessionId ?? _currentCursorSessionId,
+          relaySessionId: _sessionId, // 릴레이 모드: 현재 세션 히스토리만
           limit: limit);
     } catch (e) {
       // 에러는 조용히 무시
     }
   }
 
+  /// 대화 메시지만 제거 (시스템/로그 메시지는 유지) - 현재 세션만 표시할 때 사용
+  void _clearConversationMessages() {
+    _messages.removeWhere((m) {
+      switch (m.type) {
+        case MessageType.userPrompt:
+        case MessageType.chatResponse:
+        case MessageType.chatResponseHeader:
+        case MessageType.chatResponseDivider:
+        case MessageType.chatResponseChunk:
+        case MessageType.chatResponseComplete:
+          return true;
+        default:
+          return false;
+      }
+    });
+  }
+
   /// get_chat_history 응답 entries를 메인 메시지 목록(_messages)에 반영
   /// [skipIfExists] true면 이미 같은 userMessage가 있으면 해당 entry 건너뜀 (중복 방지)
   void _applyChatHistoryToMessages(List<Map<String, dynamic>> entries,
-      {bool skipIfExists = false}) {
+      {bool skipIfExists = false, bool replaceConversation = false}) {
+    if (replaceConversation) _clearConversationMessages();
     if (entries.isEmpty) return;
     final oldestFirst = List<Map<String, dynamic>>.from(entries.reversed);
     for (final entry in oldestFirst) {
@@ -2712,9 +2778,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
             const SizedBox(height: 16),
             Text(
-              _messages.isEmpty
-                  ? '메시지가 없습니다'
-                  : (isSearchActive ? '검색 결과가 없습니다' : '필터와 일치하는 메시지가 없습니다'),
+              isSearchActive ? '검색 결과가 없습니다' : '메시지가 없습니다',
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 15,
@@ -3873,64 +3937,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                       ),
                                     ],
                                   ),
-                                  // 메시지 개수 표시
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .surfaceContainerHighest,
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      _searchQuery.trim().isEmpty
-                                          ? '표시 ${_filteredMessages.length} / 전체 ${_messages.length}'
-                                          : '검색 ${_displayMessages.length}건',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w500,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ),
-                                  if (_isConnected) ...[
-                                    const SizedBox(width: 8),
-                                    TextButton.icon(
-                                      onPressed: _loadingPastMessages
-                                          ? null
-                                          : () {
-                                              setState(() {
-                                                _loadingPastMessages = true;
-                                              });
-                                              _loadChatHistory(
-                                                  sessionId: _sessionId);
-                                            },
-                                      icon: _loadingPastMessages
-                                          ? SizedBox(
-                                              width: 16,
-                                              height: 16,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                                valueColor:
-                                                    AlwaysStoppedAnimation<
-                                                            Color>(
-                                                        Theme.of(context)
-                                                            .colorScheme
-                                                            .primary),
-                                              ),
-                                            )
-                                          : const Icon(Icons.history, size: 18),
-                                      label: Text(
-                                        _loadingPastMessages
-                                            ? '불러오는 중...'
-                                            : '과거 메시지 불러오기',
-                                        style: const TextStyle(fontSize: 12),
-                                      ),
-                                    ),
-                                  ],
+                                  // 표시/전체, 과거 메시지 불러오기 - 잠시 숨김
                                 ],
                               ),
                               const SizedBox(height: 8),

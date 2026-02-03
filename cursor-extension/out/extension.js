@@ -479,6 +479,10 @@ async function activate(context) {
         wsServer.setRelayClient(relayClient);
         outputChannel.appendLine(`[${new Date().toLocaleTimeString()}] ✅ Relay client set in WebSocket server`);
     }
+    // 릴레이 모드일 때 챗 히스토리 저장 시 relaySessionId 포함하도록 getter 설정
+    if (commandHandler) {
+        commandHandler.setGetRelaySessionId(() => relayClient?.getSessionId() ?? null);
+    }
     // Status bar: reflect relay connection (클라이언트 접속 시 "Connected" 표시)
     if (statusBarManager && relayClient) {
         statusBarManager.setRelayClient(relayClient);
