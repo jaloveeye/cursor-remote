@@ -473,11 +473,17 @@ export class RelayClient {
           this.onSessionConnectedCallback();
         }
       } else {
-        this.logError(
-          `Failed to connect: ${
-            (result.body as any)?.error ?? result.statusCode
-          }`
-        );
+        const errMsg =
+          (result.body as any)?.error ??
+          (typeof result.body === "object" && result.body !== null
+            ? JSON.stringify(result.body)
+            : String(result.statusCode));
+        this.logError(`Failed to connect: ${errMsg}`);
+        if (result.statusCode >= 500 && result.body) {
+          this.logError(
+            `[Relay] Server 500 response: ${JSON.stringify(result.body)}`
+          );
+        }
       }
     } catch (error) {
       this.logError("Error connecting to session", error);
@@ -613,16 +619,20 @@ export class RelayClient {
           data += chunk;
         });
         res.on("end", () => {
+          const statusCode = res.statusCode ?? 0;
           let parsed: any = null;
           try {
             parsed = data ? JSON.parse(data) : null;
           } catch {
             parsed = null;
           }
-          resolve({
-            statusCode: res.statusCode ?? 0,
-            body: parsed,
-          });
+          // 5xx인데 JSON이 아니면 원문 일부를 남겨 로그로 확인 가능하게
+          if (statusCode >= 500 && !parsed && data) {
+            parsed = {
+              error: data.length > 800 ? data.substring(0, 800) + "…" : data,
+            };
+          }
+          resolve({ statusCode, body: parsed });
         });
       });
 

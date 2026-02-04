@@ -116,6 +116,28 @@ curl -s https://relay.jaloveeye.com/api/sessions-waiting-for-pc | jq .
 curl -s https://relay.jaloveeye.com/api/debug-sessions | jq .
 ```
 
+### Connect API 직접 호출 (500 디버깅)
+
+익스텐션이 "Failed to connect: 500" 일 때, **실제 응답 본문**을 보려면 터미널에서:
+
+```bash
+# PC 연결 시도 (익스텐션과 동일한 요청)
+curl -X POST https://relay.jaloveeye.com/api/connect \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId":"JALOVE","deviceId":"pc-1770089910200","deviceType":"pc"}' \
+  -w "\n\nHTTP_CODE:%{http_code}\n" -s
+
+# PIN 있을 때
+curl -X POST https://relay.jaloveeye.com/api/connect \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId":"JALOVE","deviceId":"pc-1770089910200","deviceType":"pc","pin":"1234"}' \
+  -w "\n\nHTTP_CODE:%{http_code}\n" -s
+```
+
+- **200** + `"success":true` → 정상
+- **500** + `"error":"..."` → 본문의 `error` 문자열이 서버 측 원인 (Redis 오류 메시지 등)
+- **500** + HTML → Vercel/런타임 오류; Vercel 대시보드 → Deployments → 해당 배포 → Functions → connect 로그 확인
+
 ---
 
 ## 4. 로컬에서 릴레이 서버 띄워서 테스트

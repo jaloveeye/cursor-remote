@@ -93,22 +93,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 세션 존재 확인 (없으면 PC 연결 시에만 해당 ID로 세션 생성)
-    let existingSession = await getSession(sessionId);
+    let existingSession: Session | null = null;
+    try {
+      existingSession = await getSession(sessionId);
+    } catch (e) {
+      console.error("getSession error:", e);
+      return res.status(500).json({
+        success: false,
+        error:
+          e instanceof Error ? e.message : "Redis error while loading session",
+        timestamp: Date.now(),
+      });
+    }
     if (!existingSession) {
       if (deviceType === "pc") {
         // PC가 먼저 연결할 때: 사용자가 입력한 세션 ID로 세션 생성 (모바일이 나중에 같은 ID로 접속)
         if (/^[A-Z0-9]{6}$/.test(sessionId)) {
-          await createSession(sessionId);
-          existingSession = await getSession(sessionId);
+          try {
+            await createSession(sessionId);
+            existingSession = await getSession(sessionId);
+          } catch (e) {
+            console.error("createSession error:", e);
+            return res.status(500).json({
+              success: false,
+              error:
+                e instanceof Error ? e.message : "Failed to create session",
+              timestamp: Date.now(),
+            });
+          }
         }
       }
       if (!existingSession) {
-        const response: ApiResponse = {
+        return res.status(404).json({
           success: false,
           error: "Session not found",
           timestamp: Date.now(),
-        };
-        return res.status(404).json(response);
+        });
       }
     }
 
@@ -158,7 +178,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // PC 연결 시: 이미 다른 PC가 최근에 사용 중이면 409 (중복 사용)
-    const PC_STALE_MS = 2 * 60 * 1000; // 2분
     if (deviceType === "pc" && existingSession.pcDeviceId) {
       const now = Date.now();
       const pcActive =
@@ -176,15 +195,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 세션에 디바이스 연결
-    const session = await joinSession(effectiveSessionId, deviceId, deviceType);
-
-    if (!session) {
-      const response: ApiResponse = {
+    let session: Session | null = null;
+    try {
+      session = await joinSession(effectiveSessionId, deviceId, deviceType);
+    } catch (e) {
+      console.error("joinSession error:", e);
+      return res.status(500).json({
         success: false,
-        error: "Failed to join session",
+        error: e instanceof Error ? e.message : "Failed to join session",
         timestamp: Date.now(),
-      };
-      return res.status(500).json(response);
+      });
+    }
+    if (!session) {
+      return res.status(500).json({
+        success: false,
+        error: "Failed to join session (session not found after join)",
+        timestamp: Date.now(),
+      });
     }
 
     // PC 연결 시 PIN 설정 (설정하면 모바일은 이 PIN을 알아야만 접속 가능)

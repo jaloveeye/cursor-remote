@@ -81,8 +81,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json(response);
     }
 
-    // 세션 ID 결정 (제공된 것 또는 디바이스에서 조회)
-    let sessionId = providedSessionId;
+    // 세션 ID 결정 (connect와 동일하게 대문자 정규화 — PC/모바일 동일 키 매칭)
+    let sessionId =
+      providedSessionId && typeof providedSessionId === "string"
+        ? providedSessionId.trim().toUpperCase()
+        : undefined;
     if (!sessionId) {
       sessionId = (await getDeviceSession(deviceId)) || undefined;
     }
