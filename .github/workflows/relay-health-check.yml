@@ -1,0 +1,119 @@
+# 릴레이 서버 정기 점검: health + debug-sessions 호출 후 실패 시 이슈 생성 (이슈 알림으로 수신)
+# 작성: 2026-02-02
+
+name: Relay server health check
+
+permissions:
+  contents: read
+  issues: write
+
+on:
+  schedule:
+    # 매일 09:00, 15:00, 21:00 KST (00:00, 06:00, 12:00 UTC)
+    - cron: '0 0,6,12 * * *'
+  workflow_dispatch:
+    inputs:
+      relay_base_url:
+        description: 'Relay server base URL'
+        required: false
+        default: 'https://relay.jaloveeye.com'
+
+env:
+  RELAY_BASE_URL: ${{ github.event.inputs.relay_base_url || 'https://relay.jaloveeye.com' }}
+
+jobs:
+  check:
+    name: Check relay health
+    runs-on: ubuntu-latest
+    outputs:
+      failed: ${{ steps.validate.outputs.failed }}
+    steps:
+      - name: Health check
+        id: health
+        run: |
+          set -e
+          resp=$(curl -s -w "\n%{http_code}" "$RELAY_BASE_URL/api/health")
+          code=$(echo "$resp" | tail -n1)
+          body=$(echo "$resp" | sed '$d')
+          echo "http_code=$code" >> $GITHUB_OUTPUT
+          echo "$body" > health.json
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$body" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Debug sessions check
+        id: debug
+        run: |
+          set -e
+          resp=$(curl -s -w "\n%{http_code}" "$RELAY_BASE_URL/api/debug-sessions")
+          code=$(echo "$resp" | tail -n1)
+          body=$(echo "$resp" | sed '$d')
+          echo "http_code=$code" >> $GITHUB_OUTPUT
+          echo "$body" > debug.json
+
+      - name: Validate and prepare summary
+        id: validate
+        run: |
+          failed=""
+          summary=""
+          if [ "$(jq -r '.success' health.json 2>/dev/null)" != "true" ] || [ "$(jq -r '.data.status' health.json 2>/dev/null)" != "healthy" ]; then
+            failed="yes"
+            summary="${summary}- **Health**: 응답이 정상이 아님 (success/status 확인)\n"
+          fi
+          if [ "$(jq -r '.success' debug.json 2>/dev/null)" != "true" ]; then
+            failed="yes"
+            summary="${summary}- **Debug sessions**: 응답이 정상이 아님\n"
+          fi
+          if [ -n "$failed" ]; then
+            echo "## 릴레이 서버 점검 실패\n\n$summary\n\n**Health 응답:**\n\`\`\`json\n$(cat health.json)\n\`\`\`\n\n**Debug sessions 응답:**\n\`\`\`json\n$(cat debug.json)\n\`\`\`" > error_summary.md
+          else
+            echo "OK" > error_summary.md
+          fi
+          echo "failed=$failed" >> $GITHUB_OUTPUT
+
+      - name: Upload result artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: relay-check-result
+          path: |
+            health.json
+            debug.json
+            error_summary.md
+          if-no-files-found: ignore
+
+      - name: Fail if validation failed
+        if: steps.validate.outputs.failed == 'yes'
+        run: exit 1
+
+  notify:
+    name: Notify on failure
+    needs: check
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download check result
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: relay-check-result
+
+      - name: Create GitHub Issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '자동 점검(Relay server health check)에서 실패했습니다.\n\n';
+            try {
+              body += fs.readFileSync('error_summary.md', 'utf8');
+            } catch (e) {
+              body += '상세는 Actions 로그를 확인하세요.';
+            }
+            body += '\n\n---\n*이 이슈는 `.github/workflows/relay-health-check.yml`에서 자동 생성되었습니다.*';
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[Relay Health] 릴레이 서버 점검 실패 (${new Date().toISOString().slice(0,10)})`,
+              body,
+              labels: [],
+            });
+

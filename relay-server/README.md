@@ -229,6 +229,10 @@ PC Server                    Relay Server                 Mobile App
 - **메시지 TTL**: 메시지는 5분간 보관 후 자동 삭제
 - **세션 TTL**: 세션은 24시간 후 자동 만료
 
+## 정기 점검
+
+운영 중 주기적으로 서버 상태를 확인하려면 [MAINTENANCE.md](./MAINTENANCE.md)의 체크리스트를 사용하세요. (health, debug-sessions, 필요 시 connect 샘플 호출)
+
 ## 로컬 개발
 
 ```bash
