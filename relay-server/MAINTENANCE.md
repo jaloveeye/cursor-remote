@@ -100,7 +100,7 @@ echo "=== health ===" && curl -s https://relay.jaloveeye.com/api/health | jq '.s
 - **수동 실행**: Actions 탭에서 "Relay server health check" → "Run workflow" 로 URL 지정 가능
 - **실패 시**: GitHub 이슈 자동 생성. **GitHub 알림 설정**에서 이슈를 이메일로 받도록 하면 점검 실패 시 이메일 수신 가능 (Settings → Notifications → Email 선택)
 
-- **확인**: Actions 탭에서 "Relay server health check" 워크플로가 보이면 정상. 스케줄 실행이 안 되면 **Settings → Actions → General** 에서 "Allow all actions and reusable workflows" 등이 제한되어 있지 않은지 확인.
+- **확인**: Actions 탭에서 "Relay server health check" 워크플로가 보이면 정상. **스케줄(cron)은 기본 브랜치(main)에 워크플로가 있을 때만 실행됩니다.** 워크플로가 develop 에만 있으면 Actions에 안 보이거나 스케줄이 안 돌 수 있으므로, 릴리스 시 main 에 머지해 두세요.
 
 ### 4.1 점검 실패 시 확인할 것
 

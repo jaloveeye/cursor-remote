@@ -5,6 +5,12 @@ All notable changes to the "Cursor Remote" extension will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-02-03
+
+### Added
+- **연결 정보에 릴레이 저장소 표시**: 상태줄 클릭 → 연결 정보에서 릴레이 서버가 사용 중인 저장소(Supabase / Upstash Redis) 및 서버 URL 표시
+- 릴레이 서버 `/api/store` 호출로 저장소 정보 조회 후 패널에 반영
+
 ## [0.3.8] - 2026-02-03
 
 ### Added

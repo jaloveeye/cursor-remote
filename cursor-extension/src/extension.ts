@@ -23,15 +23,27 @@ let connectionsPanel: vscode.WebviewPanel | null = null;
 /** 패널 열린 동안 주기 갱신 타이머 (dispose 시 해제) */
 let connectionsPanelRefreshInterval: ReturnType<typeof setInterval> | null =
   null;
+/** 릴레이 서버 저장소 라벨 (연결 정보 패널에서 표시, /api/store 조회 결과) */
+let lastRelayStoreLabel: string | null = null;
 
 /** 연결 정보 Webview용 HTML 생성 */
 function getConnectionsViewHtml(data: {
   serverRunning: boolean;
   serverPort: number | null;
   relaySessionId: string | null;
+  relayStoreLabel: string | null;
+  relayServerUrl: string | null;
   localClientIds: string[];
 }): string {
-  const { serverRunning, serverPort, relaySessionId, localClientIds } = data;
+  const { serverRunning, serverPort, relaySessionId, relayStoreLabel, relayServerUrl, localClientIds } = data;
+  const relayStoreLine =
+    relayStoreLabel != null
+      ? `<p class="relay-meta"><strong>저장소:</strong> ${escapeHtml(relayStoreLabel)}</p>`
+      : "";
+  const relayUrlLine =
+    relayServerUrl != null
+      ? `<p class="relay-meta"><strong>서버:</strong> <code>${escapeHtml(relayServerUrl)}</code></p>`
+      : "";
   const relaySection =
     relaySessionId != null
       ? `
@@ -41,11 +53,15 @@ function getConnectionsViewHtml(data: {
       <p class="session-id"><strong>세션 ID:</strong> <code>${escapeHtml(
         relaySessionId
       )}</code></p>
+      ${relayStoreLine}
+      ${relayUrlLine}
     </section>`
       : `
     <section class="section">
       <h2>📡 릴레이</h2>
       <p class="status disconnected">연결 안 됨</p>
+      ${relayStoreLine}
+      ${relayUrlLine}
     </section>`;
 
   const localSection =
@@ -76,6 +92,7 @@ function getConnectionsViewHtml(data: {
     .status.disconnected { color: var(--vscode-descriptionForeground); }
     code { background: var(--vscode-textBlockQuote-background); padding: 0.2em 0.4em; border-radius: 4px; }
     ul { margin: 0.25rem 0; padding-left: 1.25rem; }
+    .relay-meta { font-size: 0.9em; color: var(--vscode-descriptionForeground); margin-top: 0.25rem; }
   </style>
 </head>
 <body>
@@ -119,6 +136,8 @@ function updateConnectionsView() {
     serverRunning: serverStatus.isRunning,
     serverPort: serverStatus.port,
     relaySessionId,
+    relayStoreLabel: lastRelayStoreLabel,
+    relayServerUrl: CONFIG.RELAY_SERVER_URL,
     localClientIds,
   });
 }
@@ -448,7 +467,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const showConnectionsCommand = vscode.commands.registerCommand(
     "cursorRemote.showConnections",
-    () => {
+    async () => {
       const serverStatus = wsServer
         ? wsServer.getConnectionStatus()
         : {
@@ -462,10 +481,26 @@ export async function activate(context: vscode.ExtensionContext) {
           : null;
       const localClientIds = wsServer ? wsServer.getClientIds() : [];
 
+      // 릴레이 서버 저장소 정보 조회 (Supabase / Upstash Redis)
+      try {
+        const res = await fetch(`${CONFIG.RELAY_SERVER_URL}/api/store`);
+        const json = (await res.json()) as {
+          success?: boolean;
+          data?: { storeLabel?: string };
+        };
+        if (json?.success && json?.data?.storeLabel) {
+          lastRelayStoreLabel = json.data.storeLabel;
+        }
+      } catch {
+        lastRelayStoreLabel = null;
+      }
+
       const html = getConnectionsViewHtml({
         serverRunning: serverStatus.isRunning,
         serverPort: serverStatus.port,
         relaySessionId,
+        relayStoreLabel: lastRelayStoreLabel,
+        relayServerUrl: CONFIG.RELAY_SERVER_URL,
         localClientIds,
       });
 

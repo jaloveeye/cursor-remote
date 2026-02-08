@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { receiveMessages, getSession, getDeviceSession, hasMessages } from '../lib/redis.js';
+import { receiveMessages, getSession, getDeviceSession, hasMessages } from '../lib/store.js';
 import { DeviceType, RelayMessage } from '../lib/types.js';
 
 // SSE 이벤트 포맷

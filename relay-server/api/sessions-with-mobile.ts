@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { findSessionsWithMobile } from "../lib/redis.js";
+import { findSessionsWithMobile } from "../lib/store.js";
 import { ApiResponse, Session } from "../lib/types.js";
 
 /**

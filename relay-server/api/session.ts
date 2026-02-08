@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createSession, getSession } from '../lib/redis.js';
+import { createSession, getSession } from '../lib/store.js';
 import { ApiResponse, Session } from '../lib/types.js';
 
 // 랜덤 세션 ID 생성 (6자리)

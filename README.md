@@ -1,6 +1,7 @@
 # Cursor Remote 📱
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-♥-ea4aaa?logo=github)](https://github.com/sponsors/jaloveeye)
 [![Version](https://img.shields.io/badge/version-0.3.6-blue.svg)](https://github.com/jaloveeye/cursor-remote)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
 [![Flutter](https://img.shields.io/badge/Flutter-3.0+-blue)](https://flutter.dev/)
@@ -10,6 +11,8 @@
 
 > Use Cursor AI right from your smartphone or tablet! Code anywhere, anytime with Cursor CLI.
 
+이 프로젝트가 도움이 되었다면 [GitHub Sponsors](https://github.com/sponsors/jaloveeye)로 후원해 주세요 ♥
+
 ---
 
 ## 🇺🇸 English
@@ -17,6 +20,8 @@
 **Control Cursor AI from Your Mobile Device!**
 
 Cursor Remote is an open-source system that allows you to remotely control Cursor AI from your mobile devices. Send commands to your PC's Cursor CLI through a Flutter app and check AI responses and work results in real-time. Code anywhere, anytime using Cursor CLI from your smartphone or tablet!
+
+If this project helps you, consider [sponsoring](https://github.com/sponsors/jaloveeye) ♥
 
 ### Key Features
 

@@ -7,6 +7,7 @@ node_modules/
 dist/
 build/
 *.vsix
+cursor-extension/out/
 
 # Logs
 logs

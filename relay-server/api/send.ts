@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { sendMessage, getSession, getDeviceSession } from "../lib/redis.js";
+import { sendMessage, getSession, getDeviceSession } from "../lib/store.js";
 import { ApiResponse, RelayMessage, DeviceType } from "../lib/types.js";
 
 interface SendRequest {

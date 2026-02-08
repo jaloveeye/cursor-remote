@@ -80,6 +80,12 @@ export async function getSession(sessionId: string): Promise<Session | null> {
   return typeof data === "string" ? JSON.parse(data) : data;
 }
 
+/** 세션 ID 목록 (디버그·스토어 공통 인터페이스) */
+export async function getSessionIds(): Promise<string[]> {
+  const ids = await redis.smembers<string[]>(REDIS_KEYS.sessionList());
+  return Array.isArray(ids) ? ids : [];
+}
+
 /** PC 폴링 시 호출. session.pcDeviceId === deviceId일 때만 pcLastSeenAt 갱신 */
 export async function updatePcLastSeen(
   sessionId: string,

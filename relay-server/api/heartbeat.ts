@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getSession, updatePcLastSeen } from "../lib/redis.js";
+import { getSession, updatePcLastSeen } from "../lib/store.js";
 import { ApiResponse } from "../lib/types.js";
 
 /**
