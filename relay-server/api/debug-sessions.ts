@@ -1,6 +1,9 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { redis, findSessionsWaitingForPC } from "../lib/redis.js";
-import { ApiResponse, REDIS_KEYS } from "../lib/types.js";
+import {
+  getSessionIds,
+  findSessionsWaitingForPC,
+} from "../lib/store.js";
+import { ApiResponse } from "../lib/types.js";
 
 /**
  * 디버그용: Redis 세션 목록 개수와 PC 대기 중인 세션 개수 반환
@@ -25,7 +28,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const sessionIds = await redis.smembers<string[]>(REDIS_KEYS.sessionList());
+    const sessionIds = await getSessionIds();
     const waitingForPc = await findSessionsWaitingForPC();
     const totalSessions = Array.isArray(sessionIds) ? sessionIds.length : 0;
     const waitingCount = waitingForPc.length;

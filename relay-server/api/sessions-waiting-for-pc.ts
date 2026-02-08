@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { findSessionsWaitingForPC } from '../lib/redis.js';
+import { findSessionsWaitingForPC } from '../lib/store.js';
 import { ApiResponse, Session } from '../lib/types.js';
 
 /**

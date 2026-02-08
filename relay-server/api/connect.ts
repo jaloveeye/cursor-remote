@@ -5,7 +5,7 @@ import {
   getSession,
   setSessionPinHash,
   createSession,
-} from "../lib/redis.js";
+} from "../lib/store.js";
 import { ApiResponse, Session, DeviceType } from "../lib/types.js";
 
 interface ConnectRequest {

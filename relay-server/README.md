@@ -34,6 +34,7 @@ Vercel에 배포하여 사용하는 Cursor Remote 중계 서버입니다.
 | 엔드포인트 | 메서드 | 설명 |
 |-----------|--------|------|
 | `/api/health` | GET | 서버 상태 확인 |
+| `/api/store` | GET | 사용 중인 저장소 (Supabase / Upstash Redis) |
 | `/api/session` | POST | 새 세션 생성 |
 | `/api/session?sessionId=XXX` | GET | 세션 정보 조회 |
 | `/api/connect` | POST | 세션에 디바이스 연결 |
@@ -44,13 +45,28 @@ Vercel에 배포하여 사용하는 Cursor Remote 중계 서버입니다.
 
 **연결 끊김 판단**: PC는 주기적으로 `/api/heartbeat`를 호출해 `pcLastSeenAt`을 갱신한다. **2분간 heartbeat가 없으면** 해당 PC는 연결 끊김으로 간주하고, 같은 세션 ID로 다른 PC가 접속할 수 있다. "접속 끊을게요" API 없이도 안전하게 세션 해제가 가능하다.
 
+## 스토어 선택 (Supabase / Redis)
+
+- **SUPABASE_URL** 이 설정되어 있으면 **Supabase(PostgreSQL)** 를 사용합니다.
+- 설정되어 있지 않으면 **Upstash Redis** 를 사용합니다.
+
+Supabase 사용 시 무료 티어로 명령 한도 부담 없이 운영할 수 있습니다.
+
 ## 배포 방법
 
-### 1. Upstash Redis 설정
+### 1-A. Supabase 사용 시
+
+1. [Supabase](https://supabase.com)에서 프로젝트 생성
+2. SQL Editor에서 [supabase/schema.sql](./supabase/schema.sql) 내용 실행
+3. Project Settings > API에서 **Project URL**과 **service_role** 키 복사
+4. Vercel 환경변수: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` 설정
+
+### 1-B. Upstash Redis 사용 시
 
 1. [Upstash Console](https://console.upstash.com)에서 계정 생성
 2. 새 Redis 데이터베이스 생성
 3. REST API URL과 Token 복사
+4. Vercel 환경변수: `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` 설정
 
 ### 2. Vercel 배포
 
@@ -76,14 +92,10 @@ vercel --prod
 
 ### 3. 환경변수 설정
 
-Vercel 대시보드 또는 CLI에서 환경변수 설정:
+Vercel 대시보드 > Project Settings > Environment Variables에서 설정:
 
-```bash
-vercel env add UPSTASH_REDIS_REST_URL
-vercel env add UPSTASH_REDIS_REST_TOKEN
-```
-
-또는 Vercel 대시보드 > Project Settings > Environment Variables에서 설정
+- **Supabase 사용**: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Redis 사용**: `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` (SUPABASE_URL이 없을 때 사용)
 
 ## API 사용 예제
 

@@ -4,7 +4,7 @@ import {
   getSession,
   getDeviceSession,
   updatePcLastSeen,
-} from "../lib/redis.js";
+} from "../lib/store.js";
 import { ApiResponse, RelayMessage, DeviceType } from "../lib/types.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
