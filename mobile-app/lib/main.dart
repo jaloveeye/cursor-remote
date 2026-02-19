@@ -364,7 +364,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final FocusNode _localIpFocusNode = FocusNode();
   final FocusNode _commandFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
-  final ExpansibleController _expansionTileController = ExpansibleController();
+  final ExpansionTileController _expansionTileController =
+      ExpansionTileController();
 
   /// 스크롤 버튼 표시: 위로/아래로 스크롤 가능할 때만
   bool _canScrollUp = false;
