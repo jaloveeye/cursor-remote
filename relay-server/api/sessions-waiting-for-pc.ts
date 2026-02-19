@@ -2,6 +2,24 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { findSessionsWaitingForPC } from '../lib/store.js';
 import { ApiResponse, Session } from '../lib/types.js';
 
+type DiscoverySession = {
+  sessionId: string;
+  createdAt: number;
+  expiresAt: number;
+  hasPc: boolean;
+  mobileCount: number;
+};
+
+function toDiscoverySession(session: Session): DiscoverySession {
+  return {
+    sessionId: session.sessionId,
+    createdAt: session.createdAt,
+    expiresAt: session.expiresAt,
+    hasPc: !!session.pcDeviceId,
+    mobileCount: session.mobileDeviceIds?.length ?? 0,
+  };
+}
+
 /**
  * PC deviceId가 없는 세션 목록 조회
  * PC Server가 세션 ID 없이 시작했을 때, 모바일 클라이언트가 이미 연결한 세션을 찾기 위해 사용
@@ -38,9 +56,11 @@ export default async function handler(
 
   try {
     // PC deviceId가 없고 mobileDeviceId가 있는 세션 찾기
-    const waitingSessions = await findSessionsWaitingForPC();
+    const waitingSessions = (await findSessionsWaitingForPC()).map(
+      toDiscoverySession
+    );
     
-    const response: ApiResponse<{ sessions: Session[] }> = {
+    const response: ApiResponse<{ sessions: DiscoverySession[] }> = {
       success: true,
       data: {
         sessions: waitingSessions,

@@ -48,7 +48,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         hint:
           totalSessions === 0
             ? '모바일에서 "새 세션"으로 세션을 먼저 생성해야 합니다.'
-            : waitingForPc === 0
+            : waitingCount === 0
             ? '모든 세션이 이미 PC와 연결된 상태입니다. 모바일에서 "새 세션"으로 새로 만든 뒤, 그 세션으로 연결하면 PC가 발견합니다.'
             : "PC 익스텐션이 이 세션들을 발견해 연결할 수 있습니다.",
       },
