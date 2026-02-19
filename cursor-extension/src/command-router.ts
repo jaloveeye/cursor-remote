@@ -37,6 +37,21 @@ export class CommandRouter {
     console.error(logMessage);
   }
 
+  private extractExitCode(payload: Record<string, any>): number | null {
+    const candidates = [
+      payload.exit_code,
+      payload.exitCode,
+      payload.result?.exit_code,
+      payload.result?.exitCode,
+    ];
+    for (const value of candidates) {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+      }
+    }
+    return null;
+  }
+
   /**
    * Handle incoming command
    */
@@ -52,6 +67,7 @@ export class CommandRouter {
       }`
     );
 
+    const startedAt = Date.now();
     try {
       let result: CommandResult | null = null;
 
@@ -92,6 +108,10 @@ export class CommandRouter {
               id: commandId,
               type: "command_result",
               success: false,
+              command_type: command.type,
+              duration_ms: Date.now() - startedAt,
+              exit_code: 1,
+              error_message: errorMsg,
               error: errorMsg,
             })
           );
@@ -107,6 +127,12 @@ export class CommandRouter {
           resultWithoutSuccess.error ||
           resultWithoutSuccess.message ||
           `Command ${command.type} failed`;
+        const exitCode =
+          this.extractExitCode(resultWithoutSuccess as Record<string, any>) ?? 1;
+        const durationMs =
+          typeof (resultWithoutSuccess as any).duration_ms === "number"
+            ? ((resultWithoutSuccess as any).duration_ms as number)
+            : Date.now() - startedAt;
         this.log(`Command ${command.type} failed: ${fallbackError}`);
         this.wsServer.send(
           JSON.stringify({
@@ -115,6 +141,9 @@ export class CommandRouter {
             success: false,
             command_type: command.type,
             ...resultWithoutSuccess,
+            duration_ms: durationMs,
+            exit_code: exitCode,
+            error_message: String(fallbackError),
             ...(resultWithoutSuccess.error
               ? {}
               : { error: String(fallbackError) }),
@@ -125,6 +154,13 @@ export class CommandRouter {
 
       // Send success response
       const successMsg = `Command ${command.type} executed successfully`;
+      const durationMs =
+        typeof (resultWithoutSuccess as any).duration_ms === "number"
+          ? ((resultWithoutSuccess as any).duration_ms as number)
+          : Date.now() - startedAt;
+      const exitCode = this.extractExitCode(
+        resultWithoutSuccess as Record<string, any>
+      );
       this.log(successMsg);
       this.wsServer.send(
         JSON.stringify({
@@ -133,6 +169,9 @@ export class CommandRouter {
           success: true,
           command_type: command.type,
           ...resultWithoutSuccess,
+          duration_ms: durationMs,
+          exit_code: exitCode,
+          error_message: null,
         })
       );
     } catch (error) {
@@ -144,6 +183,10 @@ export class CommandRouter {
           id: commandId,
           type: "command_result",
           success: false,
+          command_type: command.type,
+          duration_ms: Date.now() - startedAt,
+          exit_code: 1,
+          error_message: errorMsg,
           error: errorMsg,
         })
       );

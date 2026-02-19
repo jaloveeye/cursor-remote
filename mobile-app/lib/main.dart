@@ -325,6 +325,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Map<String, dynamic>? _sessionInfo; // 현재 세션 정보
   List<Map<String, dynamic>> _chatHistory = []; // 대화 히스토리 목록
   List<String> _availableSessions = []; // 사용 가능한 세션 목록
+  List<Map<String, dynamic>> _pendingCommandApprovals = [];
+  List<Map<String, dynamic>> _recentCommandEvents = [];
+  bool _loadingCommandApprovals = false;
+  bool _loadingCommandEvents = false;
+  DateTime? _lastCommandMetaRefreshAt;
   /// 같은 세션 재연결 시 메인 목록에 히스토리 반영용 (get_chat_history 응답 시 사용)
   bool _loadingSessionHistoryForDisplay = false;
 
@@ -962,6 +967,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _isReconnecting = false;
           _reconnectAttempts = 0;
           _lastConnectionError = null;
+          _lastCommandMetaRefreshAt = null;
           _stopReconnect();
           _messages.add(MessageItem('✅ Connected to session $sessionId',
               type: MessageType.system));
@@ -991,6 +997,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _loadingSessionHistoryForDisplay = true;
         Future.delayed(const Duration(milliseconds: 300), () {
           _loadChatHistory(sessionId: _sessionId);
+        });
+        Future.delayed(const Duration(milliseconds: 300), () {
+          _loadCommandApprovals(silent: true);
+          _loadCommandEvents(silent: true);
         });
       } else if (response.statusCode == 403 &&
           (errorCode == 'PIN_REQUIRED' ||
@@ -1131,6 +1141,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               _handleRelayMessage(msg);
             }
           }
+          unawaited(_refreshCommandMetaIfStale());
         }
       } catch (e) {
         // 폴링 에러는 조용히 무시 (일시적인 네트워크 문제일 수 있음)
@@ -1622,6 +1633,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _sessionId = null;
         _isReconnecting = false;
         _reconnectAttempts = 0;
+        _pendingCommandApprovals = [];
+        _recentCommandEvents = [];
+        _loadingCommandApprovals = false;
+        _loadingCommandEvents = false;
+        _lastCommandMetaRefreshAt = null;
         _messages.add(MessageItem('Disconnected', type: MessageType.system));
       });
     }
@@ -1812,11 +1828,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               }
               final success = response.statusCode == 200 &&
                   (responseData?['success'] == true);
+              final responseMeta =
+                  responseData?['data'] as Map<String, dynamic>? ?? {};
+              final policyDecision =
+                  responseMeta['policyDecision']?.toString() ?? '';
+              final approvalId = responseMeta['approvalId']?.toString();
+              final riskLevel = responseMeta['riskLevel']?.toString() ?? '';
+
               setState(() {
                 if (success) {
                   _messages.add(MessageItem('✅ 메시지 전송됨, 응답 대기 중…',
                       type: MessageType.system));
                   // _isWaitingForResponse는 이미 true, 유지
+                } else if (policyDecision == 'approval_required') {
+                  _messages.add(MessageItem(
+                      '⏳ 승인 필요: $approvalId (risk: $riskLevel)',
+                      type: MessageType.system));
+                  _isWaitingForResponse = false;
+                } else if (policyDecision == 'deny') {
+                  _messages.add(MessageItem(
+                      '🚫 정책 차단: ${responseData?['error'] ?? 'command denied'}',
+                      type: MessageType.system));
+                  _isWaitingForResponse = false;
                 } else {
                   _messages.add(MessageItem(
                       '❌ 전송 실패: ${responseData?['error'] ?? 'HTTP ${response.statusCode}'}',
@@ -1824,6 +1857,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   _isWaitingForResponse = false;
                 }
               });
+
+              if (policyDecision == 'approval_required') {
+                _loadCommandApprovals(silent: true);
+                _loadCommandEvents(silent: true);
+              }
               _scrollToBottom();
             }
           } catch (e) {
@@ -2448,6 +2486,203 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           limit: limit);
     } catch (e) {
       // 에러는 조용히 무시
+    }
+  }
+
+  Future<void> _refreshCommandMetaIfStale(
+      {Duration minInterval = const Duration(seconds: 6)}) async {
+    if (!_isConnected || _connectionType != ConnectionType.relay) return;
+    final now = DateTime.now();
+    if (_lastCommandMetaRefreshAt != null &&
+        now.difference(_lastCommandMetaRefreshAt!) < minInterval) {
+      return;
+    }
+    _lastCommandMetaRefreshAt = now;
+    await _loadCommandApprovals(silent: true);
+    await _loadCommandEvents(silent: true);
+  }
+
+  Future<void> _loadCommandApprovals({bool silent = false}) async {
+    if (!_isConnected || _sessionId == null) return;
+    if (_connectionType != ConnectionType.relay) return;
+    if (_loadingCommandApprovals) return;
+
+    if (mounted) {
+      setState(() => _loadingCommandApprovals = true);
+    }
+
+    try {
+      final uri = Uri.parse('$RELAY_SERVER_URL/api/command-approvals')
+          .replace(queryParameters: {'sessionId': _sessionId});
+      final response = await http.get(uri);
+      final body = response.body.isNotEmpty
+          ? jsonDecode(response.body) as Map<String, dynamic>
+          : <String, dynamic>{};
+
+      if (!mounted) return;
+      if (response.statusCode == 200 && body['success'] == true) {
+        final data = body['data'] as Map<String, dynamic>? ?? {};
+        final approvals =
+            List<Map<String, dynamic>>.from((data['approvals'] as List? ?? [])
+                .map((e) => Map<String, dynamic>.from(e as Map)));
+
+        setState(() {
+          _pendingCommandApprovals = approvals;
+          _loadingCommandApprovals = false;
+        });
+
+        if (!silent) {
+          setState(() {
+            _messages.add(MessageItem('🔐 Pending approvals: ${approvals.length}',
+                type: MessageType.system));
+          });
+          _scrollToBottom();
+        }
+      } else {
+        setState(() => _loadingCommandApprovals = false);
+        if (!silent) {
+          setState(() {
+            _messages.add(MessageItem(
+                '❌ approvals 조회 실패: ${body['error'] ?? 'HTTP ${response.statusCode}'}',
+                type: MessageType.system));
+          });
+          _scrollToBottom();
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadingCommandApprovals = false);
+      if (!silent) {
+        setState(() {
+          _messages.add(
+              MessageItem('❌ approvals 조회 오류: $e', type: MessageType.system));
+        });
+        _scrollToBottom();
+      }
+    }
+  }
+
+  Future<void> _loadCommandEvents({int limit = 20, bool silent = false}) async {
+    if (!_isConnected || _sessionId == null) return;
+    if (_connectionType != ConnectionType.relay) return;
+    if (_loadingCommandEvents) return;
+
+    if (mounted) {
+      setState(() => _loadingCommandEvents = true);
+    }
+
+    try {
+      final uri = Uri.parse('$RELAY_SERVER_URL/api/command-events').replace(
+          queryParameters: {'sessionId': _sessionId, 'limit': '$limit'});
+      final response = await http.get(uri);
+      final body = response.body.isNotEmpty
+          ? jsonDecode(response.body) as Map<String, dynamic>
+          : <String, dynamic>{};
+
+      if (!mounted) return;
+      if (response.statusCode == 200 && body['success'] == true) {
+        final data = body['data'] as Map<String, dynamic>? ?? {};
+        final events =
+            List<Map<String, dynamic>>.from((data['events'] as List? ?? [])
+                .map((e) => Map<String, dynamic>.from(e as Map)));
+        setState(() {
+          _recentCommandEvents = events;
+          _loadingCommandEvents = false;
+        });
+
+        if (!silent) {
+          setState(() {
+            _messages.add(MessageItem('📚 Command events: ${events.length}',
+                type: MessageType.system));
+          });
+          _scrollToBottom();
+        }
+      } else {
+        setState(() => _loadingCommandEvents = false);
+        if (!silent) {
+          setState(() {
+            _messages.add(MessageItem(
+                '❌ command-events 조회 실패: ${body['error'] ?? 'HTTP ${response.statusCode}'}',
+                type: MessageType.system));
+          });
+          _scrollToBottom();
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadingCommandEvents = false);
+      if (!silent) {
+        setState(() {
+          _messages.add(MessageItem('❌ command-events 조회 오류: $e',
+              type: MessageType.system));
+        });
+        _scrollToBottom();
+      }
+    }
+  }
+
+  Future<void> _resolveCommandApproval(String approvalId, String action) async {
+    if (!_isConnected || _sessionId == null) return;
+    if (_connectionType != ConnectionType.relay) return;
+
+    try {
+      final response = await http.post(
+        Uri.parse('$RELAY_SERVER_URL/api/resolve-command-approval'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'sessionId': _sessionId,
+          'approvalId': approvalId,
+          'action': action,
+          'resolvedBy': _deviceId,
+          'reason': 'resolved via mobile app',
+        }),
+      );
+      final body = response.body.isNotEmpty
+          ? jsonDecode(response.body) as Map<String, dynamic>
+          : <String, dynamic>{};
+
+      if (!mounted) return;
+      if (response.statusCode == 200 && body['success'] == true) {
+        final status =
+            (body['data'] as Map<String, dynamic>? ?? {})['status'] ?? action;
+        setState(() {
+          _messages.add(MessageItem('✅ Approval resolved: $approvalId → $status',
+              type: MessageType.system));
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Approval $action 완료')),
+        );
+        _scrollToBottom();
+        await _loadCommandApprovals(silent: true);
+        await _loadCommandEvents(silent: true);
+      } else {
+        setState(() {
+          _messages.add(MessageItem(
+              '❌ Approval 처리 실패: ${body['error'] ?? 'HTTP ${response.statusCode}'}',
+              type: MessageType.system));
+        });
+        _scrollToBottom();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _messages.add(
+            MessageItem('❌ Approval 처리 오류: $e', type: MessageType.system));
+      });
+      _scrollToBottom();
+    }
+  }
+
+  Color _riskColor(String? riskLevel) {
+    switch (riskLevel) {
+      case 'critical':
+        return Colors.red;
+      case 'high':
+        return Colors.orange;
+      case 'medium':
+        return Colors.amber.shade700;
+      default:
+        return Colors.blueGrey;
     }
   }
 
@@ -4768,6 +5003,342 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                         ),
                                       ),
                                     ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            Container(
+                              margin: const EdgeInsets.only(top: 8.0),
+                              child: Card(
+                                child: ExpansionTile(
+                                  title: Text(
+                                    'Command approvals & events',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    'pending: ${_pendingCommandApprovals.length}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
+                                  ),
+                                  leading: Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .tertiaryContainer,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Icon(
+                                      Icons.security,
+                                      size: 18,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onTertiaryContainer,
+                                    ),
+                                  ),
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 8),
+                                      child: Row(
+                                        children: [
+                                          OutlinedButton.icon(
+                                            onPressed: _isConnected
+                                                ? () {
+                                                    _loadCommandApprovals();
+                                                    _loadCommandEvents();
+                                                  }
+                                                : null,
+                                            icon: const Icon(Icons.refresh,
+                                                size: 16),
+                                            label: const Text('새로고침'),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          if (_loadingCommandApprovals ||
+                                              _loadingCommandEvents)
+                                            const SizedBox(
+                                              width: 16,
+                                              height: 16,
+                                              child: CircularProgressIndicator(
+                                                  strokeWidth: 2),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 4),
+                                      child: Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text(
+                                          'Pending approvals',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    if (_pendingCommandApprovals.isEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                            12, 0, 12, 8),
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            '대기 중인 승인 요청이 없습니다.',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    else
+                                      ..._pendingCommandApprovals
+                                          .take(5)
+                                          .map((approval) {
+                                        final approvalId =
+                                            approval['approval_id']
+                                                    ?.toString() ??
+                                                '';
+                                        final commandMessage =
+                                            approval['command_message']
+                                                    as Map<String, dynamic>? ??
+                                                {};
+                                        final commandData =
+                                            commandMessage['data']
+                                                    as Map<String, dynamic>? ??
+                                                {};
+                                        final commandRaw =
+                                            commandData['command']
+                                                    ?.toString() ??
+                                                '(unknown)';
+                                        final policy = approval['policy']
+                                                as Map<String, dynamic>? ??
+                                            {};
+                                        final riskLevel =
+                                            policy['risk_level']?.toString() ??
+                                                'unknown';
+                                        final reasons = (policy['reasons']
+                                                    as List? ??
+                                                [])
+                                            .map((e) => e.toString())
+                                            .join(', ');
+                                        return Card(
+                                          margin: const EdgeInsets.fromLTRB(
+                                              12, 4, 12, 4),
+                                          elevation: 0,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                            side: BorderSide(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .outline
+                                                  .withOpacity(0.2),
+                                            ),
+                                          ),
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(10),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: Text(
+                                                        commandRaw,
+                                                        style: const TextStyle(
+                                                          fontSize: 12,
+                                                          fontFamily:
+                                                              'monospace',
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    Container(
+                                                      padding: const EdgeInsets
+                                                          .symmetric(
+                                                          horizontal: 8,
+                                                          vertical: 2),
+                                                      decoration: BoxDecoration(
+                                                        color: _riskColor(
+                                                                riskLevel)
+                                                            .withOpacity(0.14),
+                                                        borderRadius:
+                                                            BorderRadius
+                                                                .circular(12),
+                                                      ),
+                                                      child: Text(
+                                                        riskLevel,
+                                                        style: TextStyle(
+                                                          fontSize: 10,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          color: _riskColor(
+                                                              riskLevel),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                if (reasons.isNotEmpty) ...[
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    reasons,
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .onSurfaceVariant,
+                                                    ),
+                                                  ),
+                                                ],
+                                                const SizedBox(height: 8),
+                                                Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: OutlinedButton(
+                                                        onPressed: () {
+                                                          _resolveCommandApproval(
+                                                              approvalId,
+                                                              'reject');
+                                                        },
+                                                        child:
+                                                            const Text('Reject'),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Expanded(
+                                                      child: FilledButton(
+                                                        onPressed: () {
+                                                          _resolveCommandApproval(
+                                                              approvalId,
+                                                              'approve');
+                                                        },
+                                                        child:
+                                                            const Text('Approve'),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      }),
+                                    const Divider(height: 20),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 4),
+                                      child: Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text(
+                                          'Recent command events',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    if (_recentCommandEvents.isEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                            12, 0, 12, 12),
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            '표시할 command event가 없습니다.',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    else
+                                      ..._recentCommandEvents
+                                          .take(5)
+                                          .map((event) {
+                                        final result = event['result']
+                                                as Map<String, dynamic>? ??
+                                            {};
+                                        final command = event['command']
+                                                as Map<String, dynamic>? ??
+                                            {};
+                                        final approval = event['approval']
+                                                as Map<String, dynamic>? ??
+                                            {};
+                                        final risk = event['risk']
+                                                as Map<String, dynamic>? ??
+                                            {};
+                                        final status =
+                                            result['status']?.toString() ??
+                                                'unknown';
+                                        final raw = command['raw']
+                                                ?.toString() ??
+                                            '(unknown)';
+                                        final approvalStatus =
+                                            approval['status']?.toString() ??
+                                                'not_required';
+                                        final riskLevel =
+                                            risk['level']?.toString() ?? 'low';
+                                        Color statusColor;
+                                        switch (status) {
+                                          case 'success':
+                                            statusColor = Colors.green;
+                                            break;
+                                          case 'error':
+                                          case 'cancelled':
+                                            statusColor = Colors.red;
+                                            break;
+                                          default:
+                                            statusColor = Colors.orange;
+                                        }
+
+                                        return ListTile(
+                                          dense: true,
+                                          leading: Icon(Icons.bolt,
+                                              size: 16, color: statusColor),
+                                          title: Text(
+                                            '$status • $raw',
+                                            style:
+                                                const TextStyle(fontSize: 12),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          subtitle: Text(
+                                            'risk: $riskLevel · approval: $approvalStatus',
+                                            style:
+                                                const TextStyle(fontSize: 11),
+                                          ),
+                                        );
+                                      }),
+                                    const SizedBox(height: 8),
                                   ],
                                 ),
                               ),
