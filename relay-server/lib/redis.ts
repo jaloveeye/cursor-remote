@@ -1,5 +1,13 @@
 import { Redis } from "@upstash/redis";
-import { RelayMessage, Session, DeviceType, REDIS_KEYS, TTL } from "./types.js";
+import {
+  RelayMessage,
+  Session,
+  DeviceType,
+  REDIS_KEYS,
+  TTL,
+  CommandEvent,
+  CommandApprovalRequest,
+} from "./types.js";
 
 // Upstash Redis 클라이언트 (lazy initialization)
 let _redis: Redis | null = null;
@@ -38,8 +46,11 @@ const redis = {
   rpop: <T>(...args: Parameters<Redis["rpop"]>) => getRedis().rpop<T>(...args),
   llen: (...args: Parameters<Redis["llen"]>) => getRedis().llen(...args),
   expire: (...args: Parameters<Redis["expire"]>) => getRedis().expire(...args),
+  lrange: <T>(key: string, start: number, stop: number) =>
+    getRedis().lrange<T>(key, start, stop),
+  ltrim: (...args: Parameters<Redis["ltrim"]>) => getRedis().ltrim(...args),
   sadd: (...args: Parameters<Redis["sadd"]>) => getRedis().sadd(...args),
-  smembers: <T>(...args: Parameters<Redis["smembers"]>) =>
+  smembers: <T extends unknown[]>(...args: Parameters<Redis["smembers"]>) =>
     getRedis().smembers<T>(...args),
   srem: (...args: Parameters<Redis["srem"]>) => getRedis().srem(...args),
 };
@@ -355,12 +366,25 @@ export async function deleteSession(sessionId: string): Promise<void> {
   const session = await getSession(sessionId);
   if (!session) return;
 
+  const approvalIds = await redis.lrange<string>(
+    REDIS_KEYS.sessionApprovals(sessionId),
+    0,
+    -1
+  );
+
   // 관련 키 모두 삭제
   const keysToDelete = [
     REDIS_KEYS.session(sessionId),
     REDIS_KEYS.messagesPC2Mobile(sessionId),
     REDIS_KEYS.messagesMobile2PC(sessionId),
+    REDIS_KEYS.commandEvents(sessionId),
+    REDIS_KEYS.sessionApprovals(sessionId),
   ];
+  if (Array.isArray(approvalIds)) {
+    for (const approvalId of approvalIds) {
+      keysToDelete.push(REDIS_KEYS.commandApproval(approvalId));
+    }
+  }
 
   if (session.pcDeviceId) {
     keysToDelete.push(REDIS_KEYS.deviceSession(session.pcDeviceId));
@@ -377,6 +401,130 @@ export async function deleteSession(sessionId: string): Promise<void> {
 
   // 세션 목록에서도 제거
   await redis.srem(REDIS_KEYS.sessionList(), sessionId);
+}
+
+const MAX_COMMAND_EVENTS_PER_SESSION = 500;
+
+export async function appendCommandEvent(
+  sessionId: string,
+  event: CommandEvent
+): Promise<void> {
+  const key = REDIS_KEYS.commandEvents(sessionId);
+  await redis.lpush(key, JSON.stringify(event));
+  await redis.ltrim(key, 0, MAX_COMMAND_EVENTS_PER_SESSION - 1);
+  await redis.expire(key, TTL.session);
+}
+
+export async function listCommandEvents(
+  sessionId: string,
+  limit: number = 50
+): Promise<CommandEvent[]> {
+  const cappedLimit = Math.min(Math.max(limit, 1), 200);
+  const raw = await redis.lrange<string>(keyForEvents(sessionId), 0, cappedLimit - 1);
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => (typeof item === "string" ? JSON.parse(item) : item))
+    .filter(Boolean) as CommandEvent[];
+}
+
+function keyForEvents(sessionId: string): string {
+  return REDIS_KEYS.commandEvents(sessionId);
+}
+
+export async function createCommandApproval(
+  sessionId: string,
+  approval: CommandApprovalRequest
+): Promise<void> {
+  await redis.set(
+    REDIS_KEYS.commandApproval(approval.approval_id),
+    JSON.stringify(approval),
+    {
+      ex: TTL.session,
+    }
+  );
+  await redis.lpush(REDIS_KEYS.sessionApprovals(sessionId), approval.approval_id);
+  await redis.expire(REDIS_KEYS.sessionApprovals(sessionId), TTL.session);
+}
+
+export async function getCommandApproval(
+  approvalId: string
+): Promise<CommandApprovalRequest | null> {
+  const raw = await redis.get<string>(REDIS_KEYS.commandApproval(approvalId));
+  if (!raw) return null;
+  return (typeof raw === "string" ? JSON.parse(raw) : raw) as CommandApprovalRequest;
+}
+
+export async function listPendingCommandApprovals(
+  sessionId: string,
+  limit: number = 50
+): Promise<CommandApprovalRequest[]> {
+  const cappedLimit = Math.min(Math.max(limit, 1), 200);
+  const approvalIds = await redis.lrange<string>(
+    REDIS_KEYS.sessionApprovals(sessionId),
+    0,
+    -1
+  );
+  if (!Array.isArray(approvalIds) || approvalIds.length === 0) return [];
+
+  const pending: CommandApprovalRequest[] = [];
+  for (const approvalId of approvalIds) {
+    if (pending.length >= cappedLimit) break;
+    const approval = await getCommandApproval(approvalId);
+    if (!approval) continue;
+    if (approval.status !== "pending") continue;
+    pending.push(approval);
+  }
+  return pending;
+}
+
+export async function listCommandApprovals(
+  sessionId: string,
+  limit: number = 50
+): Promise<CommandApprovalRequest[]> {
+  const cappedLimit = Math.min(Math.max(limit, 1), 200);
+  const approvalIds = await redis.lrange<string>(
+    REDIS_KEYS.sessionApprovals(sessionId),
+    0,
+    -1
+  );
+  if (!Array.isArray(approvalIds) || approvalIds.length === 0) return [];
+
+  const approvals: CommandApprovalRequest[] = [];
+  for (const approvalId of approvalIds) {
+    if (approvals.length >= cappedLimit) break;
+    const approval = await getCommandApproval(approvalId);
+    if (!approval) continue;
+    approvals.push(approval);
+  }
+  return approvals;
+}
+
+export async function resolveCommandApproval(
+  approvalId: string,
+  sessionId: string,
+  action: "approve" | "reject",
+  resolvedBy?: string,
+  reason?: string
+): Promise<CommandApprovalRequest | null> {
+  const approval = await getCommandApproval(approvalId);
+  if (!approval) return null;
+  if (approval.session_id !== sessionId) return null;
+  if (approval.status !== "pending") return approval;
+
+  approval.status = action === "approve" ? "approved" : "rejected";
+  approval.resolved_at = Date.now();
+  approval.resolved_by = resolvedBy ?? null;
+  approval.resolution_reason = reason ?? null;
+
+  await redis.set(
+    REDIS_KEYS.commandApproval(approval.approval_id),
+    JSON.stringify(approval),
+    {
+      ex: TTL.session,
+    }
+  );
+
+  return approval;
 }
 
 export { redis };

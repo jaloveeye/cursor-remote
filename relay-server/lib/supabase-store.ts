@@ -2,13 +2,46 @@
  * Supabase(PostgreSQL) 스토어 — Redis와 동일한 세션/메시지 동작 제공
  */
 
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import type { RelayMessage, Session, DeviceType } from "./types.js";
+import { createRequire } from "node:module";
+import type {
+  RelayMessage,
+  Session,
+  DeviceType,
+  CommandEvent,
+  CommandApprovalRequest,
+} from "./types.js";
 import { TTL } from "./types.js";
 
 const PC_STALE_MS = 2 * 60 * 1000; // 2분
 
+type SupabaseClient = any;
+type SupabaseModule = {
+  createClient: (url: string, key: string) => SupabaseClient;
+};
+
+const require = createRequire(import.meta.url);
+
+let _createClient: SupabaseModule["createClient"] | null = null;
 let _client: SupabaseClient | null = null;
+
+function getCreateClient(): SupabaseModule["createClient"] {
+  if (_createClient) return _createClient;
+
+  try {
+    const mod = require("@supabase/supabase-js") as SupabaseModule;
+    if (typeof mod.createClient !== "function") {
+      throw new Error("createClient export not found");
+    }
+    _createClient = mod.createClient;
+    return _createClient;
+  } catch (error) {
+    const detail =
+      error instanceof Error ? error.message : "Unknown module load error";
+    throw new Error(
+      `Supabase SDK is not available. Install dependencies (npm install) before using SUPABASE_URL mode. ${detail}`
+    );
+  }
+}
 
 function getClient(): SupabaseClient {
   if (!_client) {
@@ -19,7 +52,7 @@ function getClient(): SupabaseClient {
         "Supabase not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY)."
       );
     }
-    _client = createClient(url, key);
+    _client = getCreateClient()(url, key);
   }
   return _client;
 }
@@ -86,7 +119,7 @@ export async function getSessionIds(): Promise<string[]> {
   const { data } = await getClient()
     .from("relay_sessions")
     .select("session_id");
-  return (data || []).map((r) => r.session_id);
+  return (data || []).map((r: { session_id: string }) => r.session_id);
 }
 
 export async function updatePcLastSeen(
@@ -318,8 +351,10 @@ export async function receiveMessages(
   const { data: rows } = await query;
   if (!rows || rows.length === 0) return [];
 
-  const ids = rows.map((r) => r.id);
-  const messages: RelayMessage[] = rows.map((r) => r.body as RelayMessage);
+  const ids = rows.map((r: { id: string | number }) => r.id);
+  const messages: RelayMessage[] = rows.map(
+    (r: { body: RelayMessage }) => r.body
+  );
 
   await client.from("relay_messages").delete().in("id", ids);
   return messages;
@@ -356,6 +391,8 @@ export async function deleteSession(sessionId: string): Promise<void> {
   if (!session) return;
   const client = getClient();
   await client.from("relay_messages").delete().eq("session_id", sessionId);
+  await client.from("relay_command_events").delete().eq("session_id", sessionId);
+  await client.from("relay_command_approvals").delete().eq("session_id", sessionId);
   await client.from("relay_device_sessions").delete().eq("session_id", sessionId);
   if (session.pcDeviceId) {
     await client
@@ -369,4 +406,122 @@ export async function deleteSession(sessionId: string): Promise<void> {
     }
   }
   await client.from("relay_sessions").delete().eq("session_id", sessionId);
+}
+
+export async function appendCommandEvent(
+  sessionId: string,
+  event: CommandEvent
+): Promise<void> {
+  const { error } = await getClient().from("relay_command_events").insert({
+    session_id: sessionId,
+    event_id: event.event_id,
+    ts: event.timestamp,
+    body: event,
+  });
+  if (error) throw new Error(`appendCommandEvent: ${error.message}`);
+}
+
+export async function listCommandEvents(
+  sessionId: string,
+  limit: number = 50
+): Promise<CommandEvent[]> {
+  const cappedLimit = Math.min(Math.max(limit, 1), 200);
+  const { data, error } = await getClient()
+    .from("relay_command_events")
+    .select("body")
+    .eq("session_id", sessionId)
+    .order("ts", { ascending: false })
+    .limit(cappedLimit);
+  if (error) throw new Error(`listCommandEvents: ${error.message}`);
+  return (data || []).map((row: { body: CommandEvent }) => row.body);
+}
+
+export async function createCommandApproval(
+  sessionId: string,
+  approval: CommandApprovalRequest
+): Promise<void> {
+  const { error } = await getClient().from("relay_command_approvals").insert({
+    approval_id: approval.approval_id,
+    session_id: sessionId,
+    status: approval.status,
+    created_at: approval.created_at,
+    body: approval,
+  });
+  if (error) throw new Error(`createCommandApproval: ${error.message}`);
+}
+
+export async function getCommandApproval(
+  approvalId: string
+): Promise<CommandApprovalRequest | null> {
+  const { data, error } = await getClient()
+    .from("relay_command_approvals")
+    .select("body")
+    .eq("approval_id", approvalId)
+    .single();
+  if (error || !data) return null;
+  return data.body as CommandApprovalRequest;
+}
+
+export async function listPendingCommandApprovals(
+  sessionId: string,
+  limit: number = 50
+): Promise<CommandApprovalRequest[]> {
+  const cappedLimit = Math.min(Math.max(limit, 1), 200);
+  const { data, error } = await getClient()
+    .from("relay_command_approvals")
+    .select("body")
+    .eq("session_id", sessionId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .limit(cappedLimit);
+  if (error) throw new Error(`listPendingCommandApprovals: ${error.message}`);
+  return (data || []).map((row: { body: CommandApprovalRequest }) => row.body);
+}
+
+export async function listCommandApprovals(
+  sessionId: string,
+  limit: number = 50
+): Promise<CommandApprovalRequest[]> {
+  const cappedLimit = Math.min(Math.max(limit, 1), 200);
+  const { data, error } = await getClient()
+    .from("relay_command_approvals")
+    .select("body")
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: false })
+    .limit(cappedLimit);
+  if (error) throw new Error(`listCommandApprovals: ${error.message}`);
+  return (data || []).map((row: { body: CommandApprovalRequest }) => row.body);
+}
+
+export async function resolveCommandApproval(
+  approvalId: string,
+  sessionId: string,
+  action: "approve" | "reject",
+  resolvedBy?: string,
+  reason?: string
+): Promise<CommandApprovalRequest | null> {
+  const approval = await getCommandApproval(approvalId);
+  if (!approval) return null;
+  if (approval.session_id !== sessionId) return null;
+  if (approval.status !== "pending") return approval;
+
+  approval.status = action === "approve" ? "approved" : "rejected";
+  approval.resolved_at = nowMs();
+  approval.resolved_by = resolvedBy ?? null;
+  approval.resolution_reason = reason ?? null;
+
+  const { error } = await getClient()
+    .from("relay_command_approvals")
+    .update({
+      status: approval.status,
+      resolved_at: approval.resolved_at,
+      resolved_by: approval.resolved_by,
+      resolution_reason: approval.resolution_reason,
+      body: approval,
+    })
+    .eq("approval_id", approvalId)
+    .eq("session_id", sessionId);
+
+  if (error) throw new Error(`resolveCommandApproval: ${error.message}`);
+  return approval;
 }

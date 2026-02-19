@@ -42,6 +42,10 @@ Vercel에 배포하여 사용하는 Cursor Remote 중계 서버입니다.
 | `/api/send` | POST | 메시지 전송 |
 | `/api/poll` | GET | 메시지 폴링 |
 | `/api/stream` | GET | SSE 스트림 연결 |
+| `/api/command-events?sessionId=XXX&approvalId=APR_...` | GET | 커맨드 정책/승인/결과 이벤트 조회 (approvalId 필터 지원) |
+| `/api/command-timeline-summary?sessionId=XXX&approvalId=APR_...` | GET | 커맨드 체인 1줄 요약 조회 (approvalId 필터 지원) |
+| `/api/command-approvals?sessionId=XXX` | GET | 대기 중인 커맨드 승인 요청 조회 |
+| `/api/resolve-command-approval` | POST | 승인 요청 approve/reject 처리 |
 
 **연결 끊김 판단**: PC는 주기적으로 `/api/heartbeat`를 호출해 `pcLastSeenAt`을 갱신한다. **2분간 heartbeat가 없으면** 해당 PC는 연결 끊김으로 간주하고, 같은 세션 ID로 다른 PC가 접속할 수 있다. "접속 끊을게요" API 없이도 안전하게 세션 해제가 가능하다.
 

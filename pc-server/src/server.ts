@@ -23,7 +23,7 @@ let isLocalMode = false; // 로컬 모드 여부
 // 재연결 관리
 let reconnectAttempts = 0;
 let reconnectTimer: NodeJS.Timeout | null = null;
-let reconnectDelay = CONFIG.RECONNECT_DELAY;
+let reconnectDelay: number = CONFIG.RECONNECT_DELAY;
 
 // Extension WebSocket 클라이언트 연결 (Extension이 서버를 열면 연결)
 function connectToExtension() {

@@ -1,6 +1,6 @@
 # Cursor Remote 📱
 
-[![Version](https://img.shields.io/badge/version-0.3.6-blue.svg)](https://github.com/jaloveeye/cursor-remote)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](https://github.com/jaloveeye/cursor-remote)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 **Control Cursor AI from Your Mobile Device**
@@ -30,7 +30,7 @@ Cursor Remote is an extension that allows you to remotely control Cursor AI from
 ### Features
 
 - 🌐 **WebSocket Server**: Real-time bidirectional communication (default port: 8766)
-- 🔌 **HTTP REST API**: REST API for command execution (default port: 8767)
+- 🔌 **HTTP Hook Endpoint**: Internal hook receiver (default port: 8768, `POST /hook`)
 - 📝 **Prompt Sending**: Send prompts to Cursor AI from mobile
 - ⚡ **CLI Integration**: AI interaction through Cursor CLI (`agent`) command
 - 💬 **AI Response Capture**: Forward AI responses to mobile in real-time
@@ -131,11 +131,10 @@ If another PC is using the same Session ID, you'll get a **409 error**. Solution
 
 ### Configuration
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `cursorRemote.autoStart` | `true` | Automatically start server when Cursor launches |
-| `cursorRemote.port` | `8766` | WebSocket server port |
-| `cursorRemote.httpPort` | `8768` | HTTP server port (for hooks) |
+The extension currently uses internal defaults:
+
+- WebSocket: `8766` (auto-fallback to next available port)
+- HTTP hook endpoint: `8768` (`POST /hook`, local only)
 
 ### API
 
@@ -159,17 +158,17 @@ ws.onmessage = (event) => {
 };
 ```
 
-#### HTTP REST API
+#### HTTP Hook Endpoint
+
+This endpoint is used internally for hook-based message delivery:
 
 ```bash
-# Check status
-curl http://localhost:8767/status
-
-# Execute command
-curl -X POST http://localhost:8767/command \
+curl -X POST http://localhost:8768/hook \
   -H "Content-Type: application/json" \
-  -d '{"command": "execute_command", "args": {"command": "cursorRemote.toggle"}}'
+  -d '{"type":"chat_response","text":"example"}'
 ```
+
+There is no public `/status` or `/command` REST API in the extension.
 
 ### Development
 
@@ -241,7 +240,7 @@ Cursor Remote는 모바일 기기에서 Cursor AI를 원격으로 제어할 수 
 ### 기능
 
 - 🌐 **WebSocket 서버**: 실시간 양방향 통신 (기본 포트: 8766)
-- 🔌 **HTTP REST API**: 명령 실행을 위한 REST API (기본 포트: 8767)
+- 🔌 **HTTP Hook 엔드포인트**: 내부 훅 수신용 (기본 포트: 8768, `POST /hook`)
 - 📝 **프롬프트 전송**: 모바일에서 Cursor AI에 프롬프트 전송
 - ⚡ **CLI 통합**: Cursor CLI(`agent`) 명령어를 통한 AI 상호작용
 - 💬 **AI 응답 캡처**: AI 응답을 실시간으로 모바일로 전달
@@ -342,11 +341,10 @@ Extension이 설치되면 자동으로 서버가 시작됩니다. 상태바에�
 
 ### 설정
 
-| 설정 | 기본값 | 설명 |
-|------|--------|------|
-| `cursorRemote.autoStart` | `true` | Cursor 시작 시 자동으로 서버 시작 |
-| `cursorRemote.port` | `8766` | WebSocket 서버 포트 |
-| `cursorRemote.httpPort` | `8767` | HTTP 서버 포트 |
+현재 익스텐션은 내부 기본값을 사용합니다.
+
+- WebSocket: `8766` (충돌 시 다음 사용 가능한 포트로 자동 시작)
+- HTTP 훅 엔드포인트: `8768` (`POST /hook`, 로컬 전용)
 
 ### API
 
@@ -370,17 +368,17 @@ ws.onmessage = (event) => {
 };
 ```
 
-#### HTTP REST API
+#### HTTP Hook 엔드포인트
+
+이 엔드포인트는 훅 기반 메시지 전달을 위한 내부 용도입니다.
 
 ```bash
-# 상태 확인
-curl http://localhost:8767/status
-
-# 명령 실행
-curl -X POST http://localhost:8767/command \
+curl -X POST http://localhost:8768/hook \
   -H "Content-Type: application/json" \
-  -d '{"command": "execute_command", "args": {"command": "cursorRemote.toggle"}}'
+  -d '{"type":"chat_response","text":"example"}'
 ```
+
+익스텐션에는 공개 `/status`, `/command` REST API가 없습니다.
 
 ### 개발
 

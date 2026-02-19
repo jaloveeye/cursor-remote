@@ -13,6 +13,7 @@ export class HttpServer {
     private port: number | null = null;
     private outputChannel: vscode.OutputChannel;
     private wsServer: WebSocketServer;
+    private static readonly MAX_HOOK_BODY_BYTES = 1024 * 1024; // 1MB
 
     constructor(outputChannel: vscode.OutputChannel, wsServer: WebSocketServer) {
         this.outputChannel = outputChannel;
@@ -107,16 +108,45 @@ export class HttpServer {
         this.server = http.createServer((req, res) => {
             if (req.method === 'POST' && req.url === '/hook') {
                 let body = '';
+                let receivedBytes = 0;
+                let rejected = false;
 
-                req.on('data', (chunk) => {
+                req.on('data', (chunk: Buffer) => {
+                    if (rejected) {
+                        return;
+                    }
+                    receivedBytes += chunk.length;
+                    if (receivedBytes > HttpServer.MAX_HOOK_BODY_BYTES) {
+                        rejected = true;
+                        this.logError(
+                            `Hook payload too large (${receivedBytes} bytes, max: ${HttpServer.MAX_HOOK_BODY_BYTES})`
+                        );
+                        res.writeHead(413, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ success: false, error: 'Payload too large' }));
+                        return;
+                    }
                     body += chunk.toString();
                 });
 
                 req.on('end', () => {
+                    if (rejected) {
+                        return;
+                    }
                     try {
-                        const data = JSON.parse(body);
+                        const data = JSON.parse(body) as Record<string, unknown>;
+                        if (data == null || typeof data !== 'object') {
+                            throw new Error('Invalid JSON payload');
+                        }
+                        if (data.type != null && typeof data.type !== 'string') {
+                            throw new Error('Invalid payload: type must be a string');
+                        }
+                        if (data.text != null && typeof data.text !== 'string') {
+                            throw new Error('Invalid payload: text must be a string');
+                        }
                         const messageType = data.type || 'unknown';
-                        this.log(`Received from hook: ${messageType} (${data.text?.length || 0} bytes)`);
+                        const textSize =
+                            typeof data.text === 'string' ? data.text.length : 0;
+                        this.log(`Received from hook: ${messageType} (${textSize} bytes)`);
 
                         // Send to WebSocket client
                         if (this.wsServer) {

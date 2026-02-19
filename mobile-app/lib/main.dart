@@ -7,242 +7,11 @@ import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'models/connection_models.dart';
+import 'services/app_settings.dart';
+
 // Relay 서버 URL
 const String RELAY_SERVER_URL = 'https://relay.jaloveeye.com';
-
-// 연결 타입
-enum ConnectionType {
-  local, // 로컬 서버 (IP 주소 직접 연결)
-  relay, // 릴레이 서버 (세션 ID 사용)
-}
-
-// 테마 모드
-enum ThemeModeSetting {
-  light,
-  dark,
-  system,
-}
-
-// ============================================================
-// 앱 설정 관리
-// ============================================================
-// ============================================================
-// 연결 히스토리 항목
-// ============================================================
-class ConnectionHistoryItem {
-  final ConnectionType type;
-  final String? ip; // 로컬 모드일 때
-  final String? sessionId; // 릴레이 모드일 때
-  final DateTime timestamp;
-
-  ConnectionHistoryItem({
-    required this.type,
-    this.ip,
-    this.sessionId,
-    required this.timestamp,
-  });
-
-  // JSON 직렬화
-  Map<String, dynamic> toJson() => {
-        'type': type.index,
-        'ip': ip,
-        'sessionId': sessionId,
-        'timestamp': timestamp.toIso8601String(),
-      };
-
-  // JSON 역직렬화
-  factory ConnectionHistoryItem.fromJson(Map<String, dynamic> json) {
-    return ConnectionHistoryItem(
-      type: ConnectionType.values[json['type'] as int],
-      ip: json['ip'] as String?,
-      sessionId: json['sessionId'] as String?,
-      timestamp: DateTime.parse(json['timestamp'] as String),
-    );
-  }
-
-  // 동일 연결인지 확인 (타입과 주소/세션ID가 같으면 동일)
-  bool isSameConnection(ConnectionHistoryItem other) {
-    if (type != other.type) return false;
-    if (type == ConnectionType.local) {
-      return ip == other.ip;
-    } else {
-      return sessionId == other.sessionId;
-    }
-  }
-
-  // 표시용 문자열
-  String get displayText {
-    if (type == ConnectionType.local) {
-      return ip ?? 'Unknown IP';
-    } else {
-      return sessionId ?? 'Unknown Session';
-    }
-  }
-
-  // 상대 시간 문자열
-  String get relativeTime {
-    final now = DateTime.now();
-    final diff = now.difference(timestamp);
-
-    if (diff.inMinutes < 1) {
-      return '방금 전';
-    } else if (diff.inMinutes < 60) {
-      return '${diff.inMinutes}분 전';
-    } else if (diff.inHours < 24) {
-      return '${diff.inHours}시간 전';
-    } else if (diff.inDays < 7) {
-      return '${diff.inDays}일 전';
-    } else {
-      return '${timestamp.month}/${timestamp.day}';
-    }
-  }
-}
-
-// ============================================================
-// 앱 설정 관리
-// ============================================================
-class AppSettings extends ChangeNotifier {
-  static final AppSettings _instance = AppSettings._internal();
-  factory AppSettings() => _instance;
-  AppSettings._internal();
-
-  // 설정 키
-  static const String _keyThemeMode = 'theme_mode';
-  static const String _keyShowHistory = 'show_history';
-  static const String _keyDefaultAgentMode = 'default_agent_mode';
-  static const String _keyAutoConnect = 'auto_connect';
-  static const String _keyConnectionHistory = 'connection_history';
-
-  // 설정 값
-  ThemeModeSetting _themeMode = ThemeModeSetting.system;
-  bool _showHistory = false; // 기본값: 숨김
-  String _defaultAgentMode = 'auto';
-  bool _autoConnect = false;
-  List<ConnectionHistoryItem> _connectionHistory = [];
-
-  // 최대 히스토리 개수
-  static const int _maxHistoryCount = 5;
-
-  // Getters
-  ThemeModeSetting get themeMode => _themeMode;
-  bool get showHistory => _showHistory;
-  String get defaultAgentMode => _defaultAgentMode;
-  bool get autoConnect => _autoConnect;
-  List<ConnectionHistoryItem> get connectionHistory =>
-      List.unmodifiable(_connectionHistory);
-
-  // 테마 모드를 ThemeMode로 변환
-  ThemeMode get themeModeValue {
-    switch (_themeMode) {
-      case ThemeModeSetting.light:
-        return ThemeMode.light;
-      case ThemeModeSetting.dark:
-        return ThemeMode.dark;
-      case ThemeModeSetting.system:
-        return ThemeMode.system;
-    }
-  }
-
-  // 설정 로드
-  Future<void> load() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    final themeModeIndex = prefs.getInt(_keyThemeMode) ?? 2; // 기본값: system
-    _themeMode = ThemeModeSetting.values[themeModeIndex.clamp(0, 2)];
-
-    _showHistory = prefs.getBool(_keyShowHistory) ?? false;
-    _defaultAgentMode = prefs.getString(_keyDefaultAgentMode) ?? 'auto';
-    _autoConnect = prefs.getBool(_keyAutoConnect) ?? false;
-
-    // 연결 히스토리 로드
-    final historyJson = prefs.getString(_keyConnectionHistory);
-    if (historyJson != null) {
-      try {
-        final List<dynamic> historyList = jsonDecode(historyJson);
-        _connectionHistory = historyList
-            .map((item) =>
-                ConnectionHistoryItem.fromJson(item as Map<String, dynamic>))
-            .toList();
-      } catch (e) {
-        _connectionHistory = [];
-      }
-    }
-
-    notifyListeners();
-  }
-
-  // 테마 모드 설정
-  Future<void> setThemeMode(ThemeModeSetting mode) async {
-    _themeMode = mode;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_keyThemeMode, mode.index);
-    notifyListeners();
-  }
-
-  // 히스토리 표시 설정
-  Future<void> setShowHistory(bool value) async {
-    _showHistory = value;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyShowHistory, value);
-    notifyListeners();
-  }
-
-  // 기본 에이전트 모드 설정
-  Future<void> setDefaultAgentMode(String mode) async {
-    _defaultAgentMode = mode;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyDefaultAgentMode, mode);
-    notifyListeners();
-  }
-
-  // 자동 연결 설정
-  Future<void> setAutoConnect(bool value) async {
-    _autoConnect = value;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyAutoConnect, value);
-    notifyListeners();
-  }
-
-  // 연결 히스토리에 추가
-  Future<void> addConnectionHistory(ConnectionHistoryItem item) async {
-    // 동일한 연결이 있으면 제거 (최신으로 갱신하기 위해)
-    _connectionHistory.removeWhere((h) => h.isSameConnection(item));
-
-    // 맨 앞에 추가
-    _connectionHistory.insert(0, item);
-
-    // 최대 개수 유지
-    if (_connectionHistory.length > _maxHistoryCount) {
-      _connectionHistory = _connectionHistory.sublist(0, _maxHistoryCount);
-    }
-
-    // 저장
-    await _saveConnectionHistory();
-    notifyListeners();
-  }
-
-  // 연결 히스토리 저장
-  Future<void> _saveConnectionHistory() async {
-    final prefs = await SharedPreferences.getInstance();
-    final historyJson =
-        jsonEncode(_connectionHistory.map((h) => h.toJson()).toList());
-    await prefs.setString(_keyConnectionHistory, historyJson);
-  }
-
-  // 연결 히스토리 삭제
-  Future<void> removeConnectionHistory(ConnectionHistoryItem item) async {
-    _connectionHistory.removeWhere((h) => h.isSameConnection(item));
-    await _saveConnectionHistory();
-    notifyListeners();
-  }
-
-  // 연결 히스토리 전체 삭제
-  Future<void> clearConnectionHistory() async {
-    _connectionHistory.clear();
-    await _saveConnectionHistory();
-    notifyListeners();
-  }
-}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -556,6 +325,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Map<String, dynamic>? _sessionInfo; // 현재 세션 정보
   List<Map<String, dynamic>> _chatHistory = []; // 대화 히스토리 목록
   List<String> _availableSessions = []; // 사용 가능한 세션 목록
+  List<Map<String, dynamic>> _pendingCommandApprovals = [];
+  List<Map<String, dynamic>> _recentCommandEvents = [];
+  bool _loadingCommandApprovals = false;
+  bool _loadingCommandEvents = false;
+  DateTime? _lastCommandMetaRefreshAt;
   /// 같은 세션 재연결 시 메인 목록에 히스토리 반영용 (get_chat_history 응답 시 사용)
   bool _loadingSessionHistoryForDisplay = false;
 
@@ -565,6 +339,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // 로컬 서버 관련
   WebSocketChannel? _localWebSocket;
   final TextEditingController _localIpController = TextEditingController();
+  final TextEditingController _localPortController =
+      TextEditingController(text: '8766');
 
   // 재연결 관련
   Timer? _reconnectTimer;
@@ -588,7 +364,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final FocusNode _localIpFocusNode = FocusNode();
   final FocusNode _commandFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
-  final ExpansibleController _expansionTileController = ExpansibleController();
+  final ExpansionTileController _expansionTileController =
+      ExpansionTileController();
 
   /// 스크롤 버튼 표시: 위로/아래로 스크롤 가능할 때만
   bool _canScrollUp = false;
@@ -714,17 +491,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
       return;
     }
+    final portText = _localPortController.text.trim();
+    final port = int.tryParse(portText);
+    if (port == null || port < 1 || port > 65535) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('포트는 1~65535 사이 숫자여야 합니다')),
+      );
+      return;
+    }
 
     try {
       setState(() {
         _messages.add(MessageItem(
-            'Connecting to Extension WebSocket server at $ip:8766...',
+            'Connecting to Extension WebSocket server at $ip:$port...',
             type: MessageType.system));
       });
 
-      // Extension의 WebSocket 서버에 직접 연결 (포트 8766)
-      // HTTP 확인은 생략 (Extension은 HTTP 서버를 제공하지 않음)
-      final wsUrl = 'ws://$ip:8766';
+      // Extension의 WebSocket 서버에 직접 연결
+      final wsUrl = 'ws://$ip:$port';
       _localWebSocket = WebSocketChannel.connect(Uri.parse(wsUrl));
 
       _localWebSocket!.stream.listen(
@@ -764,7 +548,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _lastConnectionError = null;
         _stopReconnect();
         _messages.add(MessageItem(
-            '✅ Connected to Extension WebSocket server at $ip:8766',
+            '✅ Connected to Extension WebSocket server at $ip:$port',
             type: MessageType.system));
       });
 
@@ -775,6 +559,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       AppSettings().addConnectionHistory(ConnectionHistoryItem(
         type: ConnectionType.local,
         ip: ip,
+        port: port,
         timestamp: DateTime.now(),
       ));
 
@@ -1183,6 +968,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _isReconnecting = false;
           _reconnectAttempts = 0;
           _lastConnectionError = null;
+          _lastCommandMetaRefreshAt = null;
           _stopReconnect();
           _messages.add(MessageItem('✅ Connected to session $sessionId',
               type: MessageType.system));
@@ -1212,6 +998,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _loadingSessionHistoryForDisplay = true;
         Future.delayed(const Duration(milliseconds: 300), () {
           _loadChatHistory(sessionId: _sessionId);
+        });
+        Future.delayed(const Duration(milliseconds: 300), () {
+          _loadCommandApprovals(silent: true);
+          _loadCommandEvents(silent: true);
         });
       } else if (response.statusCode == 403 &&
           (errorCode == 'PIN_REQUIRED' ||
@@ -1319,6 +1109,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _connectionType = item.type;
       if (item.type == ConnectionType.local) {
         _localIpController.text = item.ip ?? '';
+        if (item.port != null) {
+          _localPortController.text = item.port!.toString();
+        }
       } else {
         _sessionIdController.text = item.sessionId ?? '';
       }
@@ -1349,6 +1142,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               _handleRelayMessage(msg);
             }
           }
+          unawaited(_refreshCommandMetaIfStale());
         }
       } catch (e) {
         // 폴링 에러는 조용히 무시 (일시적인 네트워크 문제일 수 있음)
@@ -1840,6 +1634,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _sessionId = null;
         _isReconnecting = false;
         _reconnectAttempts = 0;
+        _pendingCommandApprovals = [];
+        _recentCommandEvents = [];
+        _loadingCommandApprovals = false;
+        _loadingCommandEvents = false;
+        _lastCommandMetaRefreshAt = null;
         _messages.add(MessageItem('Disconnected', type: MessageType.system));
       });
     }
@@ -2030,11 +1829,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               }
               final success = response.statusCode == 200 &&
                   (responseData?['success'] == true);
+              final responseMeta =
+                  responseData?['data'] as Map<String, dynamic>? ?? {};
+              final policyDecision =
+                  responseMeta['policyDecision']?.toString() ?? '';
+              final approvalId = responseMeta['approvalId']?.toString();
+              final riskLevel = responseMeta['riskLevel']?.toString() ?? '';
+
               setState(() {
                 if (success) {
                   _messages.add(MessageItem('✅ 메시지 전송됨, 응답 대기 중…',
                       type: MessageType.system));
                   // _isWaitingForResponse는 이미 true, 유지
+                } else if (policyDecision == 'approval_required') {
+                  _messages.add(MessageItem(
+                      '⏳ 승인 필요: $approvalId (risk: $riskLevel)',
+                      type: MessageType.system));
+                  _isWaitingForResponse = false;
+                } else if (policyDecision == 'deny') {
+                  _messages.add(MessageItem(
+                      '🚫 정책 차단: ${responseData?['error'] ?? 'command denied'}',
+                      type: MessageType.system));
+                  _isWaitingForResponse = false;
                 } else {
                   _messages.add(MessageItem(
                       '❌ 전송 실패: ${responseData?['error'] ?? 'HTTP ${response.statusCode}'}',
@@ -2042,6 +1858,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   _isWaitingForResponse = false;
                 }
               });
+
+              if (policyDecision == 'approval_required') {
+                _loadCommandApprovals(silent: true);
+                _loadCommandEvents(silent: true);
+              }
               _scrollToBottom();
             }
           } catch (e) {
@@ -2571,6 +2392,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (savedIp != null && savedIp.isNotEmpty) {
         _localIpController.text = savedIp;
       }
+      final savedPort = prefs.getString('local_ws_port');
+      if (savedPort != null && savedPort.isNotEmpty) {
+        _localPortController.text = savedPort;
+      }
 
       // 마지막 세션 ID 로드 (선택사항)
       final lastSessionId = prefs.getString('last_session_id');
@@ -2594,6 +2419,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // PC(Extension) IP 주소 저장
       if (_localIpController.text.trim().isNotEmpty) {
         await prefs.setString('pc_server_ip', _localIpController.text.trim());
+      }
+      if (_localPortController.text.trim().isNotEmpty) {
+        await prefs.setString('local_ws_port', _localPortController.text.trim());
       }
 
       // 세션 ID 저장 (연결 성공 시)
@@ -2659,6 +2487,203 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           limit: limit);
     } catch (e) {
       // 에러는 조용히 무시
+    }
+  }
+
+  Future<void> _refreshCommandMetaIfStale(
+      {Duration minInterval = const Duration(seconds: 6)}) async {
+    if (!_isConnected || _connectionType != ConnectionType.relay) return;
+    final now = DateTime.now();
+    if (_lastCommandMetaRefreshAt != null &&
+        now.difference(_lastCommandMetaRefreshAt!) < minInterval) {
+      return;
+    }
+    _lastCommandMetaRefreshAt = now;
+    await _loadCommandApprovals(silent: true);
+    await _loadCommandEvents(silent: true);
+  }
+
+  Future<void> _loadCommandApprovals({bool silent = false}) async {
+    if (!_isConnected || _sessionId == null) return;
+    if (_connectionType != ConnectionType.relay) return;
+    if (_loadingCommandApprovals) return;
+
+    if (mounted) {
+      setState(() => _loadingCommandApprovals = true);
+    }
+
+    try {
+      final uri = Uri.parse('$RELAY_SERVER_URL/api/command-approvals')
+          .replace(queryParameters: {'sessionId': _sessionId});
+      final response = await http.get(uri);
+      final body = response.body.isNotEmpty
+          ? jsonDecode(response.body) as Map<String, dynamic>
+          : <String, dynamic>{};
+
+      if (!mounted) return;
+      if (response.statusCode == 200 && body['success'] == true) {
+        final data = body['data'] as Map<String, dynamic>? ?? {};
+        final approvals =
+            List<Map<String, dynamic>>.from((data['approvals'] as List? ?? [])
+                .map((e) => Map<String, dynamic>.from(e as Map)));
+
+        setState(() {
+          _pendingCommandApprovals = approvals;
+          _loadingCommandApprovals = false;
+        });
+
+        if (!silent) {
+          setState(() {
+            _messages.add(MessageItem('🔐 Pending approvals: ${approvals.length}',
+                type: MessageType.system));
+          });
+          _scrollToBottom();
+        }
+      } else {
+        setState(() => _loadingCommandApprovals = false);
+        if (!silent) {
+          setState(() {
+            _messages.add(MessageItem(
+                '❌ approvals 조회 실패: ${body['error'] ?? 'HTTP ${response.statusCode}'}',
+                type: MessageType.system));
+          });
+          _scrollToBottom();
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadingCommandApprovals = false);
+      if (!silent) {
+        setState(() {
+          _messages.add(
+              MessageItem('❌ approvals 조회 오류: $e', type: MessageType.system));
+        });
+        _scrollToBottom();
+      }
+    }
+  }
+
+  Future<void> _loadCommandEvents({int limit = 20, bool silent = false}) async {
+    if (!_isConnected || _sessionId == null) return;
+    if (_connectionType != ConnectionType.relay) return;
+    if (_loadingCommandEvents) return;
+
+    if (mounted) {
+      setState(() => _loadingCommandEvents = true);
+    }
+
+    try {
+      final uri = Uri.parse('$RELAY_SERVER_URL/api/command-events').replace(
+          queryParameters: {'sessionId': _sessionId, 'limit': '$limit'});
+      final response = await http.get(uri);
+      final body = response.body.isNotEmpty
+          ? jsonDecode(response.body) as Map<String, dynamic>
+          : <String, dynamic>{};
+
+      if (!mounted) return;
+      if (response.statusCode == 200 && body['success'] == true) {
+        final data = body['data'] as Map<String, dynamic>? ?? {};
+        final events =
+            List<Map<String, dynamic>>.from((data['events'] as List? ?? [])
+                .map((e) => Map<String, dynamic>.from(e as Map)));
+        setState(() {
+          _recentCommandEvents = events;
+          _loadingCommandEvents = false;
+        });
+
+        if (!silent) {
+          setState(() {
+            _messages.add(MessageItem('📚 Command events: ${events.length}',
+                type: MessageType.system));
+          });
+          _scrollToBottom();
+        }
+      } else {
+        setState(() => _loadingCommandEvents = false);
+        if (!silent) {
+          setState(() {
+            _messages.add(MessageItem(
+                '❌ command-events 조회 실패: ${body['error'] ?? 'HTTP ${response.statusCode}'}',
+                type: MessageType.system));
+          });
+          _scrollToBottom();
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadingCommandEvents = false);
+      if (!silent) {
+        setState(() {
+          _messages.add(MessageItem('❌ command-events 조회 오류: $e',
+              type: MessageType.system));
+        });
+        _scrollToBottom();
+      }
+    }
+  }
+
+  Future<void> _resolveCommandApproval(String approvalId, String action) async {
+    if (!_isConnected || _sessionId == null) return;
+    if (_connectionType != ConnectionType.relay) return;
+
+    try {
+      final response = await http.post(
+        Uri.parse('$RELAY_SERVER_URL/api/resolve-command-approval'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'sessionId': _sessionId,
+          'approvalId': approvalId,
+          'action': action,
+          'resolvedBy': _deviceId,
+          'reason': 'resolved via mobile app',
+        }),
+      );
+      final body = response.body.isNotEmpty
+          ? jsonDecode(response.body) as Map<String, dynamic>
+          : <String, dynamic>{};
+
+      if (!mounted) return;
+      if (response.statusCode == 200 && body['success'] == true) {
+        final status =
+            (body['data'] as Map<String, dynamic>? ?? {})['status'] ?? action;
+        setState(() {
+          _messages.add(MessageItem('✅ Approval resolved: $approvalId → $status',
+              type: MessageType.system));
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Approval $action 완료')),
+        );
+        _scrollToBottom();
+        await _loadCommandApprovals(silent: true);
+        await _loadCommandEvents(silent: true);
+      } else {
+        setState(() {
+          _messages.add(MessageItem(
+              '❌ Approval 처리 실패: ${body['error'] ?? 'HTTP ${response.statusCode}'}',
+              type: MessageType.system));
+        });
+        _scrollToBottom();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _messages.add(
+            MessageItem('❌ Approval 처리 오류: $e', type: MessageType.system));
+      });
+      _scrollToBottom();
+    }
+  }
+
+  Color _riskColor(String? riskLevel) {
+    switch (riskLevel) {
+      case 'critical':
+        return Colors.red;
+      case 'high':
+        return Colors.orange;
+      case 'medium':
+        return Colors.amber.shade700;
+      default:
+        return Colors.blueGrey;
     }
   }
 
@@ -2751,6 +2776,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _commandController.dispose();
     _sessionIdController.dispose();
     _localIpController.dispose();
+    _localPortController.dispose();
     _scrollController.dispose();
     _sessionIdFocusNode.dispose();
     _localIpFocusNode.dispose();
@@ -3183,32 +3209,66 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               const SizedBox(height: 16),
                               // 로컬 서버 연결 UI
                               if (_connectionType == ConnectionType.local) ...[
-                                TextField(
-                                  controller: _localIpController,
-                                  focusNode: _localIpFocusNode,
-                                  decoration: const InputDecoration(
-                                    labelText: 'PC IP (Extension이 실행 중인 PC)',
-                                    hintText: '192.168.0.10',
-                                    border: OutlineInputBorder(),
-                                    isDense: true,
-                                    contentPadding: EdgeInsets.all(12),
-                                    prefixIcon: Icon(Icons.computer),
-                                    helperText: '이전에 사용한 IP 주소가 자동으로 표시됩니다',
-                                  ),
-                                  enabled: !_isConnected,
-                                  keyboardType: TextInputType.number,
-                                  textInputAction: TextInputAction.done,
-                                  onSubmitted: (value) {
-                                    if (!_isConnected) {
-                                      _connect();
-                                    }
-                                  },
-                                  onChanged: (value) {
-                                    // IP 주소 변경 시 자동 저장 (선택사항)
-                                    if (value.trim().isNotEmpty) {
-                                      _saveConnectionSettings();
-                                    }
-                                  },
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _localIpController,
+                                        focusNode: _localIpFocusNode,
+                                        decoration: const InputDecoration(
+                                          labelText:
+                                              'PC IP (Extension이 실행 중인 PC)',
+                                          hintText: '192.168.0.10',
+                                          border: OutlineInputBorder(),
+                                          isDense: true,
+                                          contentPadding: EdgeInsets.all(12),
+                                          prefixIcon: Icon(Icons.computer),
+                                          helperText:
+                                              '이전에 사용한 IP 주소가 자동으로 표시됩니다',
+                                        ),
+                                        enabled: !_isConnected,
+                                        keyboardType: TextInputType.number,
+                                        textInputAction: TextInputAction.next,
+                                        onSubmitted: (value) {
+                                          if (!_isConnected) {
+                                            _connect();
+                                          }
+                                        },
+                                        onChanged: (value) {
+                                          if (value.trim().isNotEmpty) {
+                                            _saveConnectionSettings();
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    SizedBox(
+                                      width: 110,
+                                      child: TextField(
+                                        controller: _localPortController,
+                                        decoration: const InputDecoration(
+                                          labelText: '포트',
+                                          hintText: '8766',
+                                          border: OutlineInputBorder(),
+                                          isDense: true,
+                                          contentPadding: EdgeInsets.all(12),
+                                        ),
+                                        enabled: !_isConnected,
+                                        keyboardType: TextInputType.number,
+                                        textInputAction: TextInputAction.done,
+                                        onSubmitted: (value) {
+                                          if (!_isConnected) {
+                                            _connect();
+                                          }
+                                        },
+                                        onChanged: (value) {
+                                          if (value.trim().isNotEmpty) {
+                                            _saveConnectionSettings();
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 const SizedBox(height: 8),
                                 Container(
@@ -3237,7 +3297,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                       const SizedBox(width: 8),
                                       Expanded(
                                         child: Text(
-                                          'PC와 모바일이 같은 네트워크에 있어야 합니다',
+                                          'PC와 모바일이 같은 네트워크에 있어야 합니다 (기본 포트 8766)',
                                           style: TextStyle(
                                             fontSize: 12,
                                             fontWeight: FontWeight.w500,
@@ -4944,6 +5004,342 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                         ),
                                       ),
                                     ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            Container(
+                              margin: const EdgeInsets.only(top: 8.0),
+                              child: Card(
+                                child: ExpansionTile(
+                                  title: Text(
+                                    'Command approvals & events',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    'pending: ${_pendingCommandApprovals.length}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
+                                  ),
+                                  leading: Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .tertiaryContainer,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Icon(
+                                      Icons.security,
+                                      size: 18,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onTertiaryContainer,
+                                    ),
+                                  ),
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 8),
+                                      child: Row(
+                                        children: [
+                                          OutlinedButton.icon(
+                                            onPressed: _isConnected
+                                                ? () {
+                                                    _loadCommandApprovals();
+                                                    _loadCommandEvents();
+                                                  }
+                                                : null,
+                                            icon: const Icon(Icons.refresh,
+                                                size: 16),
+                                            label: const Text('새로고침'),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          if (_loadingCommandApprovals ||
+                                              _loadingCommandEvents)
+                                            const SizedBox(
+                                              width: 16,
+                                              height: 16,
+                                              child: CircularProgressIndicator(
+                                                  strokeWidth: 2),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 4),
+                                      child: Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text(
+                                          'Pending approvals',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    if (_pendingCommandApprovals.isEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                            12, 0, 12, 8),
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            '대기 중인 승인 요청이 없습니다.',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    else
+                                      ..._pendingCommandApprovals
+                                          .take(5)
+                                          .map((approval) {
+                                        final approvalId =
+                                            approval['approval_id']
+                                                    ?.toString() ??
+                                                '';
+                                        final commandMessage =
+                                            approval['command_message']
+                                                    as Map<String, dynamic>? ??
+                                                {};
+                                        final commandData =
+                                            commandMessage['data']
+                                                    as Map<String, dynamic>? ??
+                                                {};
+                                        final commandRaw =
+                                            commandData['command']
+                                                    ?.toString() ??
+                                                '(unknown)';
+                                        final policy = approval['policy']
+                                                as Map<String, dynamic>? ??
+                                            {};
+                                        final riskLevel =
+                                            policy['risk_level']?.toString() ??
+                                                'unknown';
+                                        final reasons = (policy['reasons']
+                                                    as List? ??
+                                                [])
+                                            .map((e) => e.toString())
+                                            .join(', ');
+                                        return Card(
+                                          margin: const EdgeInsets.fromLTRB(
+                                              12, 4, 12, 4),
+                                          elevation: 0,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                            side: BorderSide(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .outline
+                                                  .withOpacity(0.2),
+                                            ),
+                                          ),
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(10),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: Text(
+                                                        commandRaw,
+                                                        style: const TextStyle(
+                                                          fontSize: 12,
+                                                          fontFamily:
+                                                              'monospace',
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    Container(
+                                                      padding: const EdgeInsets
+                                                          .symmetric(
+                                                          horizontal: 8,
+                                                          vertical: 2),
+                                                      decoration: BoxDecoration(
+                                                        color: _riskColor(
+                                                                riskLevel)
+                                                            .withOpacity(0.14),
+                                                        borderRadius:
+                                                            BorderRadius
+                                                                .circular(12),
+                                                      ),
+                                                      child: Text(
+                                                        riskLevel,
+                                                        style: TextStyle(
+                                                          fontSize: 10,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          color: _riskColor(
+                                                              riskLevel),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                if (reasons.isNotEmpty) ...[
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    reasons,
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .onSurfaceVariant,
+                                                    ),
+                                                  ),
+                                                ],
+                                                const SizedBox(height: 8),
+                                                Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: OutlinedButton(
+                                                        onPressed: () {
+                                                          _resolveCommandApproval(
+                                                              approvalId,
+                                                              'reject');
+                                                        },
+                                                        child:
+                                                            const Text('Reject'),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Expanded(
+                                                      child: FilledButton(
+                                                        onPressed: () {
+                                                          _resolveCommandApproval(
+                                                              approvalId,
+                                                              'approve');
+                                                        },
+                                                        child:
+                                                            const Text('Approve'),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      }),
+                                    const Divider(height: 20),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 4),
+                                      child: Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text(
+                                          'Recent command events',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    if (_recentCommandEvents.isEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                            12, 0, 12, 12),
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            '표시할 command event가 없습니다.',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    else
+                                      ..._recentCommandEvents
+                                          .take(5)
+                                          .map((event) {
+                                        final result = event['result']
+                                                as Map<String, dynamic>? ??
+                                            {};
+                                        final command = event['command']
+                                                as Map<String, dynamic>? ??
+                                            {};
+                                        final approval = event['approval']
+                                                as Map<String, dynamic>? ??
+                                            {};
+                                        final risk = event['risk']
+                                                as Map<String, dynamic>? ??
+                                            {};
+                                        final status =
+                                            result['status']?.toString() ??
+                                                'unknown';
+                                        final raw = command['raw']
+                                                ?.toString() ??
+                                            '(unknown)';
+                                        final approvalStatus =
+                                            approval['status']?.toString() ??
+                                                'not_required';
+                                        final riskLevel =
+                                            risk['level']?.toString() ?? 'low';
+                                        Color statusColor;
+                                        switch (status) {
+                                          case 'success':
+                                            statusColor = Colors.green;
+                                            break;
+                                          case 'error':
+                                          case 'cancelled':
+                                            statusColor = Colors.red;
+                                            break;
+                                          default:
+                                            statusColor = Colors.orange;
+                                        }
+
+                                        return ListTile(
+                                          dense: true,
+                                          leading: Icon(Icons.bolt,
+                                              size: 16, color: statusColor),
+                                          title: Text(
+                                            '$status • $raw',
+                                            style:
+                                                const TextStyle(fontSize: 12),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          subtitle: Text(
+                                            'risk: $riskLevel · approval: $approvalStatus',
+                                            style:
+                                                const TextStyle(fontSize: 11),
+                                          ),
+                                        );
+                                      }),
+                                    const SizedBox(height: 8),
                                   ],
                                 ),
                               ),

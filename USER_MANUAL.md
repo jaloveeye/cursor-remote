@@ -204,8 +204,8 @@ Extension이 정상적으로 활성화되면 상태 표시줄 우측 하단에 �
 
 | 상태 | 의미 |
 |------|------|
-| ☁️ **Cursor Remote: Waiting** | 서버 실행 중, 연결 대기 |
-| ☁️ **Cursor Remote: Connected** | 클라이언트 연결됨 |
+| ☁️ **Cursor Remote: 비활성** | WebSocket 서버 실행 중, 로컬/릴레이 클라이언트 미연결 |
+| ☁️ **Cursor Remote: Connected** | 클라이언트 연결됨 (릴레이 연결 시 세션 ID 표시 가능) |
 | 🚫 **Cursor Remote: Stopped** | 서버 중지됨 |
 
 **상태 표시줄이 안 보인다면:**
@@ -256,62 +256,60 @@ JSON 형식으로 직접 편집하려면:
 
 ## 5. 로컬 서버 연결 방법
 
-### 아키텍처
+### 아키텍처 (현재)
 
 ```
-┌─────────────┐     WebSocket      ┌─────────────┐     Extension API   ┌─────────────┐
-│   Mobile    │◄──────────────────►│  PC Server  │◄───────────────────►│  Cursor IDE │
-│     App     │    Port 8767       │  (Node.js)  │     Port 8766       │  Extension  │
-└─────────────┘                    └─────────────┘                     └─────────────┘
+┌─────────────┐     WebSocket (ws://<PC_IP>:<PORT>)     ┌─────────────┐
+│   Mobile    │◄────────────────────────────────────────►│  Cursor IDE │
+│     App     │                                          │  Extension  │
+└─────────────┘                                          └─────────────┘
 
+※ 기본 포트는 8766, 충돌 시 Extension이 8767~8776 중 사용 가능한 포트로 자동 시작
 ※ PC와 모바일이 같은 Wi-Fi 네트워크에 있어야 합니다
 ```
 
 ### Step 1: Extension 실행 확인
 
 1. Cursor IDE 실행
-2. 상태 표시줄에서 "Cursor Remote: Waiting" 확인
+2. 상태 표시줄에서 "Cursor Remote: 비활성" 또는 "Cursor Remote: Connected" 확인
 3. 안 보이면: `Cmd+Shift+P` → "Start Cursor Remote Server"
 
-### Step 2: PC 서버 실행
+### Step 2: PC IP와 Extension 포트 확인
 
-```bash
-cd pc-server
-npm install
-npm run build
-npm start
-```
+1. PC의 로컬 IP 확인:
+   ```bash
+   # macOS/Linux
+   ifconfig | grep "inet " | grep -v 127.0.0.1
 
-**실행 결과 예시:**
-```
-[2026-01-21 10:00:00] PC Server started
-[2026-01-21 10:00:00] Local IP: 192.168.0.10
-[2026-01-21 10:00:00] WebSocket server listening on port 8767
-[2026-01-21 10:00:01] Connected to Cursor Extension on port 8766
-```
+   # Windows
+   ipconfig | findstr IPv4
+   ```
+2. Cursor IDE Output 패널(`View` → `Output` → "Cursor Remote")에서 다음 로그 확인:
+   - `WebSocket server started on port 8766` (기본)
+   - 또는 `포트 8766가 사용 중이어서 포트 8767...` 후 실제 시작 포트
 
-> 📝 **메모**: 표시되는 IP 주소 (예: `192.168.0.10`)를 기억하세요. 모바일 앱에서 사용합니다.
+> 📝 **메모**: IP와 실제 포트를 모바일 앱에 동일하게 입력해야 연결됩니다.
 
 ### Step 3: 모바일 앱 연결
 
 1. 모바일 앱 실행
 2. **연결 모드**: "로컬 서버" 선택
-3. **서버 주소**: PC 서버의 IP 주소 입력 (예: `192.168.0.10`)
-4. **Connect** 버튼 클릭
+3. **서버 주소**: Extension이 실행 중인 PC의 IP 입력 (예: `192.168.0.10`)
+4. **포트**: Extension 실제 포트 입력 (기본 `8766`)
+5. **Connect** 버튼 클릭
 
 ### Step 4: 연결 확인
 
 **성공 시:**
 - 모바일 앱: 연결 상태 아이콘이 녹색으로 변경
-- PC 서버: "Mobile client connected" 로그 출력
 - Cursor Extension: "Cursor Remote: Connected" 표시
+- Output 패널: `Client connected to Cursor Remote` 로그 출력
 
 ### 포트 정보
 
 | 포트 | 프로토콜 | 용도 |
 |------|----------|------|
-| 8766 | WebSocket | Extension ↔ PC 서버 |
-| 8767 | WebSocket | PC 서버 ↔ 모바일 앱 |
+| 8766 | WebSocket | 모바일 앱 ↔ Extension (기본 포트, 충돌 시 8767~8776 자동 대체) |
 
 ---
 
@@ -333,14 +331,14 @@ npm start
        └───────── Session ID (예: ABC123) ─┴─────────────────────────────────────┘
 
 ※ PC와 모바일이 다른 네트워크에 있어도 연결 가능
-※ PC 서버 없이 Extension이 직접 릴레이 서버에 연결 (Heartbeat로 연결 유지)
+※ Extension이 직접 릴레이 서버에 연결 (Heartbeat로 연결 유지)
 ```
 
 ### 익스텐션: 세션 ID 입력·저장
 
-- **첫 실행 시**: 익스텐션이 활성화되면 **세션 ID 6자** 입력 프롬프트가 뜹니다. (모바일에서 생성·연결할 세션 ID를 입력하세요.)
-- **저장**: 입력한 세션 ID는 **globalState**에 저장되어, 다음부터는 자동으로 그 세션만 연결을 시도합니다.
-- **변경**: 명령 팔레트 → **"Cursor Remote: 릴레이 세션 ID 설정 (다음 시작 시 사용)"** 으로 저장된 세션 ID를 바꿀 수 있습니다. **"Cursor Remote: 세션 ID로 릴레이 연결"** 으로 다른 세션에 바로 연결할 수도 있으며, 연결 성공 시 그 세션 ID가 저장됩니다.
+- **입력 시점**: 상태줄의 **"Cursor Remote"** 를 클릭하거나 명령 팔레트의 **"Cursor Remote: 세션 ID로 릴레이 연결"** 을 실행하면 세션 ID 6자를 입력할 수 있습니다.
+- **저장**: 연결에 사용한 세션 ID는 **globalState**에 저장되어, 다음 입력 시 기본값으로 재사용됩니다.
+- **변경**: 명령 팔레트의 **"Cursor Remote: 릴레이 세션 ID 설정 (다음 시작 시 사용)"** 으로 저장 값을 바꿀 수 있습니다. 단, 릴레이 연결 자체는 현재 수동으로 시작해야 합니다.
 - **중복 사용**: 같은 세션 ID를 **다른 PC(다른 Cursor 창)** 에서 쓰면, 릴레이 서버가 **409 "Session already in use by another PC"** 를 반환합니다. 다른 PC를 닫거나, 모바일에서 새 세션을 만든 뒤 그 세션 ID를 사용하세요.
 
 ### 세션 ID 연속성
@@ -397,18 +395,19 @@ vercel env add UPSTASH_REDIS_REST_TOKEN
 ### Step 1: Extension 실행 확인
 
 1. Cursor IDE 실행
-2. 상태 표시줄에서 "Cursor Remote: Waiting" 확인
+2. 상태 표시줄에서 "Cursor Remote: 비활성" 또는 "Cursor Remote: Connected" 확인
 
 ### Step 2: Extension이 릴레이 모드로 연결
 
-> **0.3.6 이후**: PC 서버가 없어졌습니다. Extension이 직접 릴레이 서버에 연결합니다.
+> **0.3.6 이후**: 릴레이 연결은 Extension이 직접 수행합니다 (PC 서버 없음).
 
-#### 첫 실행 시
+#### 연결 시작
 
 1. Cursor IDE 실행 및 Extension 활성화
-2. **세션 ID 입력 프롬프트**가 자동으로 표시됩니다
-3. 6자리 영숫자 세션 ID를 입력합니다 (예: `ABC123`)
-4. Extension이 해당 세션 ID로 릴레이 서버에 연결을 시도합니다
+2. 상태줄의 **"Cursor Remote"** 클릭 (또는 명령 팔레트의 **"Cursor Remote: 세션 ID로 릴레이 연결"** 실행)
+3. 6자리 영숫자 세션 ID 입력 (예: `ABC123`)
+4. 필요하면 PIN(4~6자리 숫자) 입력
+5. Extension이 해당 세션 ID로 릴레이 서버에 연결을 시도합니다
 
 **연결 성공 예시 (Output 패널):**
 ```
@@ -423,7 +422,7 @@ vercel env add UPSTASH_REDIS_REST_TOKEN
 | 명령어 | 설명 |
 |--------|------|
 | `Cursor Remote: 세션 ID로 릴레이 연결` | 다른 세션에 **즉시** 연결 (성공 시 저장됨) |
-| `Cursor Remote: 릴레이 세션 ID 설정` | 저장된 세션 ID 변경 (**다음 실행 시** 사용) |
+| `Cursor Remote: 릴레이 세션 ID 설정 (다음 시작 시 사용)` | 저장된 세션 ID 변경 (다음 입력 시 기본값으로 사용) |
 | `Cursor Remote: 릴레이 서버 상태 확인` | 릴레이 서버 상태 및 세션 수 확인 |
 
 #### Heartbeat 및 세션 해제
@@ -503,7 +502,7 @@ flutter build ios        # iOS
 | 연결 모드 | Local | Relay |
 | 서버 주소 | PC IP (예: 192.168.0.10) | 릴레이 URL |
 | 세션 코드 | - (불필요) | 6자리 코드 |
-| 포트 | 8767 | - (불필요) |
+| 포트 | Extension 포트 (기본 8766) | - (불필요) |
 
 ### 기본 사용법
 
@@ -675,7 +674,7 @@ kill -9 <PID>
 # 3. Cursor IDE 재시작
 ```
 
-> 💡 Extension은 8766 포트가 사용 중이면 8767~8776까지 자동으로 시도합니다.
+> 💡 Extension은 8766 포트가 사용 중이면 8767~8776까지 자동으로 시도합니다. 모바일 앱 포트 입력값도 같은 번호로 맞춰야 합니다.
 
 #### 포트 권한 문제 (EPERM)
 
@@ -797,7 +796,7 @@ Session not found
 ```
 
 **해결:**
-1. 새 세션 생성: Extension 상태 표시줄 클릭 → "Connect to Relay"
+1. Extension 상태줄 "Cursor Remote" 클릭 후 세션 ID(6자리) 입력
 2. 모바일 앱에서 새 세션 코드 입력
 3. 세션은 24시간 후 자동 만료됨
 
@@ -865,7 +864,7 @@ WebSocket error: ...
 #### 메시지가 전달되지 않는 경우
 
 **디버깅 순서:**
-1. Extension 상태 확인 (상태 표시줄: "Connected" 또는 "Waiting")
+1. Extension 상태 확인 (상태 표시줄: "Connected" 또는 "비활성")
 2. Output 패널 로그 확인 (`View` → `Output` → "Cursor Remote")
 3. 모바일 앱 연결 상태 확인
 4. 네트워크 연결 상태 확인
@@ -901,7 +900,7 @@ WebSocket error: ...
 > A: `Cmd+Shift+P` → "Start Cursor Remote Server" 실행
 
 **Q: 세션 코드는 어디서 확인하나요?**
-> A: Extension 상태 표시줄 클릭 → "Connect to Relay" 선택 시 생성됨
+> A: Extension 상태줄 "Cursor Remote"를 클릭해 입력/연결합니다. 이미 연결된 세션 ID는 연결 정보 패널 또는 상태줄 텍스트에서 확인할 수 있습니다.
 
 **Q: 로컬 모드와 릴레이 모드 중 뭘 써야 하나요?**
 > A: 같은 Wi-Fi면 로컬 모드 (빠름), 다른 네트워크면 릴레이 모드 사용
@@ -921,10 +920,8 @@ cd cursor-extension && npm install && npm run compile
 
 # 2. Cursor IDE 실행 및 Extension 로드
 
-# 3. PC 서버 실행
-cd pc-server && npm install && npm run build && npm start
-
-# 4. 모바일 앱에서 PC IP로 연결
+# 3. 모바일 앱에서 로컬 서버 선택
+# 4. PC IP + Extension 포트(기본 8766) 입력 후 연결
 ```
 
 ### 릴레이 서버 빠른 시작
@@ -935,11 +932,8 @@ cd cursor-extension && npm install && npm run compile
 
 # 2. Cursor IDE 실행 및 Extension 로드
 
-# 3. PC 서버 릴레이 모드 실행
-cd pc-server
-RELAY_SERVER=https://relay.jaloveeye.com npm start
-
-# 4. 표시된 세션 코드를 모바일 앱에 입력
+# 3. Extension 상태줄 "Cursor Remote" 클릭 후 세션 ID 입력
+# 4. 모바일 앱에서 Relay 모드 선택 후 같은 세션 ID 입력
 ```
 
 ### 포트 요약
@@ -947,7 +941,7 @@ RELAY_SERVER=https://relay.jaloveeye.com npm start
 | 포트 | 용도 | 사용 시점 |
 |------|------|----------|
 | 8766 | Extension WebSocket | 항상 |
-| 8767 | PC 서버 ↔ 모바일 (로컬) | 로컬 모드만 |
+| 8767~8776 | Extension WebSocket 대체 포트 | 8766 충돌 시 |
 | 443 | HTTPS (릴레이 서버) | 릴레이 모드만 |
 
 ---

@@ -2,6 +2,8 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createSession, getSession } from '../lib/store.js';
 import { ApiResponse, Session } from '../lib/types.js';
 
+type PublicSession = Omit<Session, "pcPinHash">;
+
 // 랜덤 세션 ID 생성 (6자리)
 function generateSessionId(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 혼동되는 문자 제외
@@ -10,6 +12,11 @@ function generateSessionId(): string {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return result;
+}
+
+function toPublicSession(session: Session): PublicSession {
+  const { pcPinHash: _, ...safeSession } = session;
+  return safeSession;
 }
 
 export default async function handler(
@@ -40,9 +47,9 @@ export default async function handler(
         const sessionId = generateSessionId();
         const session = await createSession(sessionId);
         
-        const response: ApiResponse<Session> = {
+        const response: ApiResponse<PublicSession> = {
           success: true,
-          data: session,
+          data: toPublicSession(session),
           timestamp: Date.now(),
         };
         
@@ -85,9 +92,9 @@ export default async function handler(
         return res.status(404).json(response);
       }
       
-      const response: ApiResponse<Session> = {
+      const response: ApiResponse<PublicSession> = {
         success: true,
-        data: session,
+        data: toPublicSession(session),
         timestamp: Date.now(),
       };
       
@@ -116,9 +123,6 @@ export default async function handler(
       error: isRedisError 
         ? 'Database connection error. Please check server configuration.'
         : errorMessage,
-      errorStack: process.env.NODE_ENV === 'development' && error instanceof Error 
-        ? error.stack 
-        : undefined,
       timestamp: Date.now(),
     };
     return res.status(500).json(response);

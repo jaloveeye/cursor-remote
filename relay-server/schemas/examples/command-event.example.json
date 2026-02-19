@@ -1,0 +1,37 @@
+{
+  "event_id": "evt_20260219_0001",
+  "session_id": "ABCD12",
+  "timestamp": 1766173200000,
+  "tool": {
+    "provider": "codex",
+    "name": "codex-cli"
+  },
+  "command": {
+    "raw": "git status",
+    "cwd": "/Users/herace/Workspace/cursor-remote"
+  },
+  "risk": {
+    "level": "low",
+    "reasons": []
+  },
+  "policy": {
+    "decision": "allow",
+    "rule_id": "default-safe-command"
+  },
+  "approval": {
+    "required": false,
+    "status": "not_required",
+    "approved_by": null,
+    "approved_at": null,
+    "reason": null
+  },
+  "result": {
+    "status": "success",
+    "exit_code": 0,
+    "duration_ms": 85,
+    "error_message": null
+  },
+  "metadata": {
+    "request_id": "req_1234"
+  }
+}

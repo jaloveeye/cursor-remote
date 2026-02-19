@@ -40,6 +40,68 @@ export interface ApiResponse<T = unknown> {
   timestamp: number;
 }
 
+export type RiskLevel = "low" | "medium" | "high" | "critical";
+export type PolicyDecision = "allow" | "approval_required" | "deny";
+export type ApprovalStatus =
+  | "not_required"
+  | "pending"
+  | "approved"
+  | "rejected";
+
+export interface CommandEvent {
+  event_id: string;
+  session_id: string;
+  timestamp: number;
+  tool: {
+    provider: "cursor" | "codex" | "other";
+    name: string;
+  };
+  command: {
+    raw: string;
+    cwd?: string;
+  };
+  risk: {
+    level: RiskLevel;
+    reasons: string[];
+  };
+  policy: {
+    decision: PolicyDecision;
+    rule_id?: string;
+  };
+  approval: {
+    required: boolean;
+    status: ApprovalStatus;
+    approved_by?: string | null;
+    approved_at?: number | null;
+    reason?: string | null;
+  };
+  result: {
+    status: "pending" | "running" | "success" | "error" | "cancelled" | "timeout";
+    exit_code?: number | null;
+    duration_ms?: number;
+    error_message?: string | null;
+  };
+  metadata?: Record<string, unknown>;
+}
+
+export interface CommandApprovalRequest {
+  approval_id: string;
+  session_id: string;
+  created_at: number;
+  status: "pending" | "approved" | "rejected";
+  requested_by: string;
+  command_message: RelayMessage;
+  policy: {
+    decision: "approval_required";
+    rule_id: string;
+    risk_level: RiskLevel;
+    reasons: string[];
+  };
+  resolved_at?: number | null;
+  resolved_by?: string | null;
+  resolution_reason?: string | null;
+}
+
 // Redis 키 패턴
 export const REDIS_KEYS = {
   // 세션 정보
@@ -58,6 +120,11 @@ export const REDIS_KEYS = {
   // 푸시 알림용 pubsub 채널
   channel: (sessionId: string, target: DeviceType) =>
     `channel:${sessionId}:${target}`,
+  // 커맨드 이벤트 로그 (세션별 타임라인)
+  commandEvents: (sessionId: string) => `events:${sessionId}:commands`,
+  // 커맨드 승인 요청 (세션별 + 개별)
+  sessionApprovals: (sessionId: string) => `approvals:${sessionId}:ids`,
+  commandApproval: (approvalId: string) => `approval:${approvalId}`,
 } as const;
 
 // TTL 설정 (초)
