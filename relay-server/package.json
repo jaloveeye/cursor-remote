@@ -8,7 +8,9 @@
     "dev": "vercel dev",
     "build": "vercel build",
     "deploy": "vercel --prod",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "validate:command-event": "node scripts/validate-command-event-example.mjs",
+    "test:command-policy": "node --experimental-strip-types scripts/test-command-policy.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

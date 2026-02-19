@@ -49,3 +49,24 @@ export const hasMessages = useSupabase
 export const deleteSession = useSupabase
   ? supabaseStore.deleteSession
   : redisStore.deleteSession;
+export const appendCommandEvent = useSupabase
+  ? supabaseStore.appendCommandEvent
+  : redisStore.appendCommandEvent;
+export const listCommandEvents = useSupabase
+  ? supabaseStore.listCommandEvents
+  : redisStore.listCommandEvents;
+export const createCommandApproval = useSupabase
+  ? supabaseStore.createCommandApproval
+  : redisStore.createCommandApproval;
+export const getCommandApproval = useSupabase
+  ? supabaseStore.getCommandApproval
+  : redisStore.getCommandApproval;
+export const listPendingCommandApprovals = useSupabase
+  ? supabaseStore.listPendingCommandApprovals
+  : redisStore.listPendingCommandApprovals;
+export const listCommandApprovals = useSupabase
+  ? supabaseStore.listCommandApprovals
+  : redisStore.listCommandApprovals;
+export const resolveCommandApproval = useSupabase
+  ? supabaseStore.resolveCommandApproval
+  : redisStore.resolveCommandApproval;
