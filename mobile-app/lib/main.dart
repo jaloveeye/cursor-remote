@@ -7,242 +7,11 @@ import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'models/connection_models.dart';
+import 'services/app_settings.dart';
+
 // Relay 서버 URL
 const String RELAY_SERVER_URL = 'https://relay.jaloveeye.com';
-
-// 연결 타입
-enum ConnectionType {
-  local, // 로컬 서버 (IP 주소 직접 연결)
-  relay, // 릴레이 서버 (세션 ID 사용)
-}
-
-// 테마 모드
-enum ThemeModeSetting {
-  light,
-  dark,
-  system,
-}
-
-// ============================================================
-// 앱 설정 관리
-// ============================================================
-// ============================================================
-// 연결 히스토리 항목
-// ============================================================
-class ConnectionHistoryItem {
-  final ConnectionType type;
-  final String? ip; // 로컬 모드일 때
-  final String? sessionId; // 릴레이 모드일 때
-  final DateTime timestamp;
-
-  ConnectionHistoryItem({
-    required this.type,
-    this.ip,
-    this.sessionId,
-    required this.timestamp,
-  });
-
-  // JSON 직렬화
-  Map<String, dynamic> toJson() => {
-        'type': type.index,
-        'ip': ip,
-        'sessionId': sessionId,
-        'timestamp': timestamp.toIso8601String(),
-      };
-
-  // JSON 역직렬화
-  factory ConnectionHistoryItem.fromJson(Map<String, dynamic> json) {
-    return ConnectionHistoryItem(
-      type: ConnectionType.values[json['type'] as int],
-      ip: json['ip'] as String?,
-      sessionId: json['sessionId'] as String?,
-      timestamp: DateTime.parse(json['timestamp'] as String),
-    );
-  }
-
-  // 동일 연결인지 확인 (타입과 주소/세션ID가 같으면 동일)
-  bool isSameConnection(ConnectionHistoryItem other) {
-    if (type != other.type) return false;
-    if (type == ConnectionType.local) {
-      return ip == other.ip;
-    } else {
-      return sessionId == other.sessionId;
-    }
-  }
-
-  // 표시용 문자열
-  String get displayText {
-    if (type == ConnectionType.local) {
-      return ip ?? 'Unknown IP';
-    } else {
-      return sessionId ?? 'Unknown Session';
-    }
-  }
-
-  // 상대 시간 문자열
-  String get relativeTime {
-    final now = DateTime.now();
-    final diff = now.difference(timestamp);
-
-    if (diff.inMinutes < 1) {
-      return '방금 전';
-    } else if (diff.inMinutes < 60) {
-      return '${diff.inMinutes}분 전';
-    } else if (diff.inHours < 24) {
-      return '${diff.inHours}시간 전';
-    } else if (diff.inDays < 7) {
-      return '${diff.inDays}일 전';
-    } else {
-      return '${timestamp.month}/${timestamp.day}';
-    }
-  }
-}
-
-// ============================================================
-// 앱 설정 관리
-// ============================================================
-class AppSettings extends ChangeNotifier {
-  static final AppSettings _instance = AppSettings._internal();
-  factory AppSettings() => _instance;
-  AppSettings._internal();
-
-  // 설정 키
-  static const String _keyThemeMode = 'theme_mode';
-  static const String _keyShowHistory = 'show_history';
-  static const String _keyDefaultAgentMode = 'default_agent_mode';
-  static const String _keyAutoConnect = 'auto_connect';
-  static const String _keyConnectionHistory = 'connection_history';
-
-  // 설정 값
-  ThemeModeSetting _themeMode = ThemeModeSetting.system;
-  bool _showHistory = false; // 기본값: 숨김
-  String _defaultAgentMode = 'auto';
-  bool _autoConnect = false;
-  List<ConnectionHistoryItem> _connectionHistory = [];
-
-  // 최대 히스토리 개수
-  static const int _maxHistoryCount = 5;
-
-  // Getters
-  ThemeModeSetting get themeMode => _themeMode;
-  bool get showHistory => _showHistory;
-  String get defaultAgentMode => _defaultAgentMode;
-  bool get autoConnect => _autoConnect;
-  List<ConnectionHistoryItem> get connectionHistory =>
-      List.unmodifiable(_connectionHistory);
-
-  // 테마 모드를 ThemeMode로 변환
-  ThemeMode get themeModeValue {
-    switch (_themeMode) {
-      case ThemeModeSetting.light:
-        return ThemeMode.light;
-      case ThemeModeSetting.dark:
-        return ThemeMode.dark;
-      case ThemeModeSetting.system:
-        return ThemeMode.system;
-    }
-  }
-
-  // 설정 로드
-  Future<void> load() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    final themeModeIndex = prefs.getInt(_keyThemeMode) ?? 2; // 기본값: system
-    _themeMode = ThemeModeSetting.values[themeModeIndex.clamp(0, 2)];
-
-    _showHistory = prefs.getBool(_keyShowHistory) ?? false;
-    _defaultAgentMode = prefs.getString(_keyDefaultAgentMode) ?? 'auto';
-    _autoConnect = prefs.getBool(_keyAutoConnect) ?? false;
-
-    // 연결 히스토리 로드
-    final historyJson = prefs.getString(_keyConnectionHistory);
-    if (historyJson != null) {
-      try {
-        final List<dynamic> historyList = jsonDecode(historyJson);
-        _connectionHistory = historyList
-            .map((item) =>
-                ConnectionHistoryItem.fromJson(item as Map<String, dynamic>))
-            .toList();
-      } catch (e) {
-        _connectionHistory = [];
-      }
-    }
-
-    notifyListeners();
-  }
-
-  // 테마 모드 설정
-  Future<void> setThemeMode(ThemeModeSetting mode) async {
-    _themeMode = mode;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_keyThemeMode, mode.index);
-    notifyListeners();
-  }
-
-  // 히스토리 표시 설정
-  Future<void> setShowHistory(bool value) async {
-    _showHistory = value;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyShowHistory, value);
-    notifyListeners();
-  }
-
-  // 기본 에이전트 모드 설정
-  Future<void> setDefaultAgentMode(String mode) async {
-    _defaultAgentMode = mode;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyDefaultAgentMode, mode);
-    notifyListeners();
-  }
-
-  // 자동 연결 설정
-  Future<void> setAutoConnect(bool value) async {
-    _autoConnect = value;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyAutoConnect, value);
-    notifyListeners();
-  }
-
-  // 연결 히스토리에 추가
-  Future<void> addConnectionHistory(ConnectionHistoryItem item) async {
-    // 동일한 연결이 있으면 제거 (최신으로 갱신하기 위해)
-    _connectionHistory.removeWhere((h) => h.isSameConnection(item));
-
-    // 맨 앞에 추가
-    _connectionHistory.insert(0, item);
-
-    // 최대 개수 유지
-    if (_connectionHistory.length > _maxHistoryCount) {
-      _connectionHistory = _connectionHistory.sublist(0, _maxHistoryCount);
-    }
-
-    // 저장
-    await _saveConnectionHistory();
-    notifyListeners();
-  }
-
-  // 연결 히스토리 저장
-  Future<void> _saveConnectionHistory() async {
-    final prefs = await SharedPreferences.getInstance();
-    final historyJson =
-        jsonEncode(_connectionHistory.map((h) => h.toJson()).toList());
-    await prefs.setString(_keyConnectionHistory, historyJson);
-  }
-
-  // 연결 히스토리 삭제
-  Future<void> removeConnectionHistory(ConnectionHistoryItem item) async {
-    _connectionHistory.removeWhere((h) => h.isSameConnection(item));
-    await _saveConnectionHistory();
-    notifyListeners();
-  }
-
-  // 연결 히스토리 전체 삭제
-  Future<void> clearConnectionHistory() async {
-    _connectionHistory.clear();
-    await _saveConnectionHistory();
-    notifyListeners();
-  }
-}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -565,6 +334,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   // 로컬 서버 관련
   WebSocketChannel? _localWebSocket;
   final TextEditingController _localIpController = TextEditingController();
+  final TextEditingController _localPortController =
+      TextEditingController(text: '8766');
 
   // 재연결 관련
   Timer? _reconnectTimer;
@@ -714,17 +485,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
       return;
     }
+    final portText = _localPortController.text.trim();
+    final port = int.tryParse(portText);
+    if (port == null || port < 1 || port > 65535) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('포트는 1~65535 사이 숫자여야 합니다')),
+      );
+      return;
+    }
 
     try {
       setState(() {
         _messages.add(MessageItem(
-            'Connecting to Extension WebSocket server at $ip:8766...',
+            'Connecting to Extension WebSocket server at $ip:$port...',
             type: MessageType.system));
       });
 
-      // Extension의 WebSocket 서버에 직접 연결 (포트 8766)
-      // HTTP 확인은 생략 (Extension은 HTTP 서버를 제공하지 않음)
-      final wsUrl = 'ws://$ip:8766';
+      // Extension의 WebSocket 서버에 직접 연결
+      final wsUrl = 'ws://$ip:$port';
       _localWebSocket = WebSocketChannel.connect(Uri.parse(wsUrl));
 
       _localWebSocket!.stream.listen(
@@ -764,7 +542,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _lastConnectionError = null;
         _stopReconnect();
         _messages.add(MessageItem(
-            '✅ Connected to Extension WebSocket server at $ip:8766',
+            '✅ Connected to Extension WebSocket server at $ip:$port',
             type: MessageType.system));
       });
 
@@ -775,6 +553,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       AppSettings().addConnectionHistory(ConnectionHistoryItem(
         type: ConnectionType.local,
         ip: ip,
+        port: port,
         timestamp: DateTime.now(),
       ));
 
@@ -1319,6 +1098,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _connectionType = item.type;
       if (item.type == ConnectionType.local) {
         _localIpController.text = item.ip ?? '';
+        if (item.port != null) {
+          _localPortController.text = item.port!.toString();
+        }
       } else {
         _sessionIdController.text = item.sessionId ?? '';
       }
@@ -2571,6 +2353,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (savedIp != null && savedIp.isNotEmpty) {
         _localIpController.text = savedIp;
       }
+      final savedPort = prefs.getString('local_ws_port');
+      if (savedPort != null && savedPort.isNotEmpty) {
+        _localPortController.text = savedPort;
+      }
 
       // 마지막 세션 ID 로드 (선택사항)
       final lastSessionId = prefs.getString('last_session_id');
@@ -2594,6 +2380,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // PC(Extension) IP 주소 저장
       if (_localIpController.text.trim().isNotEmpty) {
         await prefs.setString('pc_server_ip', _localIpController.text.trim());
+      }
+      if (_localPortController.text.trim().isNotEmpty) {
+        await prefs.setString('local_ws_port', _localPortController.text.trim());
       }
 
       // 세션 ID 저장 (연결 성공 시)
@@ -2751,6 +2540,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _commandController.dispose();
     _sessionIdController.dispose();
     _localIpController.dispose();
+    _localPortController.dispose();
     _scrollController.dispose();
     _sessionIdFocusNode.dispose();
     _localIpFocusNode.dispose();
@@ -3183,32 +2973,66 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               const SizedBox(height: 16),
                               // 로컬 서버 연결 UI
                               if (_connectionType == ConnectionType.local) ...[
-                                TextField(
-                                  controller: _localIpController,
-                                  focusNode: _localIpFocusNode,
-                                  decoration: const InputDecoration(
-                                    labelText: 'PC IP (Extension이 실행 중인 PC)',
-                                    hintText: '192.168.0.10',
-                                    border: OutlineInputBorder(),
-                                    isDense: true,
-                                    contentPadding: EdgeInsets.all(12),
-                                    prefixIcon: Icon(Icons.computer),
-                                    helperText: '이전에 사용한 IP 주소가 자동으로 표시됩니다',
-                                  ),
-                                  enabled: !_isConnected,
-                                  keyboardType: TextInputType.number,
-                                  textInputAction: TextInputAction.done,
-                                  onSubmitted: (value) {
-                                    if (!_isConnected) {
-                                      _connect();
-                                    }
-                                  },
-                                  onChanged: (value) {
-                                    // IP 주소 변경 시 자동 저장 (선택사항)
-                                    if (value.trim().isNotEmpty) {
-                                      _saveConnectionSettings();
-                                    }
-                                  },
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _localIpController,
+                                        focusNode: _localIpFocusNode,
+                                        decoration: const InputDecoration(
+                                          labelText:
+                                              'PC IP (Extension이 실행 중인 PC)',
+                                          hintText: '192.168.0.10',
+                                          border: OutlineInputBorder(),
+                                          isDense: true,
+                                          contentPadding: EdgeInsets.all(12),
+                                          prefixIcon: Icon(Icons.computer),
+                                          helperText:
+                                              '이전에 사용한 IP 주소가 자동으로 표시됩니다',
+                                        ),
+                                        enabled: !_isConnected,
+                                        keyboardType: TextInputType.number,
+                                        textInputAction: TextInputAction.next,
+                                        onSubmitted: (value) {
+                                          if (!_isConnected) {
+                                            _connect();
+                                          }
+                                        },
+                                        onChanged: (value) {
+                                          if (value.trim().isNotEmpty) {
+                                            _saveConnectionSettings();
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    SizedBox(
+                                      width: 110,
+                                      child: TextField(
+                                        controller: _localPortController,
+                                        decoration: const InputDecoration(
+                                          labelText: '포트',
+                                          hintText: '8766',
+                                          border: OutlineInputBorder(),
+                                          isDense: true,
+                                          contentPadding: EdgeInsets.all(12),
+                                        ),
+                                        enabled: !_isConnected,
+                                        keyboardType: TextInputType.number,
+                                        textInputAction: TextInputAction.done,
+                                        onSubmitted: (value) {
+                                          if (!_isConnected) {
+                                            _connect();
+                                          }
+                                        },
+                                        onChanged: (value) {
+                                          if (value.trim().isNotEmpty) {
+                                            _saveConnectionSettings();
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 const SizedBox(height: 8),
                                 Container(
@@ -3237,7 +3061,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                       const SizedBox(width: 8),
                                       Expanded(
                                         child: Text(
-                                          'PC와 모바일이 같은 네트워크에 있어야 합니다',
+                                          'PC와 모바일이 같은 네트워크에 있어야 합니다 (기본 포트 8766)',
                                           style: TextStyle(
                                             fontSize: 12,
                                             fontWeight: FontWeight.w500,

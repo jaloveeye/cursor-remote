@@ -39,7 +39,7 @@ const redis = {
   llen: (...args: Parameters<Redis["llen"]>) => getRedis().llen(...args),
   expire: (...args: Parameters<Redis["expire"]>) => getRedis().expire(...args),
   sadd: (...args: Parameters<Redis["sadd"]>) => getRedis().sadd(...args),
-  smembers: <T>(...args: Parameters<Redis["smembers"]>) =>
+  smembers: <T extends unknown[]>(...args: Parameters<Redis["smembers"]>) =>
     getRedis().smembers<T>(...args),
   srem: (...args: Parameters<Redis["srem"]>) => getRedis().srem(...args),
 };

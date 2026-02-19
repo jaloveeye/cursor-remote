@@ -233,7 +233,7 @@ npm run compile
 
 #### 2.3 Verify Activation
 
-- Check status bar for "Cursor Remote: Waiting" or "Connected"
+- Check status bar for "Cursor Remote: Connected" or "Cursor Remote: 비활성"
 - Check Output panel for "Cursor Remote extension is now active!" message
 
 ---
@@ -424,9 +424,8 @@ Select "Cursor Remote" channel in Cursor IDE's Output panel to see logs like:
 
 | Port | Protocol | Purpose |
 |------|----------|---------|
-| 8766 | WebSocket | Extension WebSocket server (PC server connects as client) |
 | 8766 | WebSocket | Mobile/Web app ↔ Extension (real-time bidirectional communication) |
-| 8765 | HTTP | Extension → Server (command delivery, for future expansion) |
+| 8768 | HTTP | Extension hook endpoint (`POST /hook`, local only) |
 
 ---
 
@@ -605,7 +604,7 @@ Cursor Remote는 모바일 기기에서 Cursor AI를 원격으로 제어할 수 
 
 **로컬 모드**: 모바일/웹 앱이 Extension WebSocket(8766)에 직접 연결.
 
-**릴레이 모드 (0.3.6+)**: 앱 ↔ 릴레이 서버 ↔ Extension(RelayClient). PC 서버는 사용하지 않습니다. 세션 ID(6자리)로 연결하며, 익스텐션 첫 실행 시 입력한 세션 ID가 저장되어 재사용됩니다.
+**릴레이 모드 (0.3.6+)**: 앱 ↔ 릴레이 서버 ↔ Extension(RelayClient). PC 서버는 사용하지 않습니다. 세션 ID(6자리)로 연결하며, 상태줄 클릭(또는 릴레이 명령)으로 연결합니다.
 
 #### 연결 모드
 
@@ -748,7 +747,7 @@ npm run compile
 
 #### 2.3 활성화 확인
 
-- 상태 표시줄에 "Cursor Remote: Waiting" 또는 "Connected" 표시 확인
+- 상태 표시줄에 "Cursor Remote: Connected" 또는 "Cursor Remote: 비활성" 표시 확인
 - Output 패널에서 "Cursor Remote extension is now active!" 메시지 확인
 
 ---
@@ -808,7 +807,7 @@ PC와 모바일이 같은 Wi-Fi에 연결된 경우 사용합니다.
 | 항목 | 설명 |
 |------|------|
 | 동일 네트워크 | PC와 모바일이 같은 Wi-Fi에 연결 |
-| 포트 개방 | PC 방화벽에서 포트 8766 허용 |
+| 포트 개방 | PC 방화벽에서 WebSocket 포트 허용 (기본 8766, 충돌 시 8767~8776) |
 | IP 확인 | PC의 로컬 IP 주소 확인 필요 |
 
 #### PC IP 주소 확인 방법
@@ -839,9 +838,10 @@ PC와 모바일이 다른 네트워크에 있을 때 릴레이 서버를 통해 
 
 #### 설정 방법 (0.3.6+)
 
-1. **Extension 첫 실행 시 세션 ID 입력 프롬프트**
+1. **Extension에서 릴레이 연결 시작**
+   - 상태줄의 "Cursor Remote" 클릭 또는 명령 팔레트에서 "Cursor Remote: 세션 ID로 릴레이 연결" 실행
    - 6자리 영숫자 세션 ID 입력 (예: `ABC123`)
-   - 세션 ID는 저장되어 다음 실행 시 자동 재사용
+   - 필요하면 PIN(4~6자리 숫자) 입력
 
 2. **모바일 앱에서 연결**
    - 릴레이 서버 모드 선택
@@ -861,7 +861,7 @@ PC와 모바일이 다른 네트워크에 있을 때 릴레이 서버를 통해 
 
 | 기능 | 설명 |
 |------|------|
-| **세션 ID 저장** | Extension의 globalState에 저장, 다음 실행 시 재사용 |
+| **세션 ID 저장** | Extension의 globalState에 저장, 다음 입력 시 기본값으로 재사용 |
 | **Heartbeat** | Extension이 30초마다 heartbeat 전송 |
 | **자동 해제** | 2분간 비활성 시 세션 해제 |
 | **충돌 감지** | 같은 세션 ID를 다른 PC에서 사용 시 409 에러 |
@@ -939,9 +939,8 @@ Cursor IDE의 Output 패널에서 "Cursor Remote" 채널을 선택하면 다음�
 
 | 포트 | 프로토콜 | 용도 |
 |------|----------|------|
-| 8766 | WebSocket | Extension WebSocket 서버 (PC 서버가 클라이언트로 연결) |
 | 8766 | WebSocket | 모바일/웹 앱 ↔ Extension (실시간 양방향 통신) |
-| 8768 | HTTP | Extension 훅 서버 (Rules 기반 채팅 등) |
+| 8768 | HTTP | Extension 훅 엔드포인트 (`POST /hook`, 로컬 전용) |
 
 ---
 
@@ -980,7 +979,7 @@ agent login
 
 ### 서버 관련 문제
 
-#### PC 서버가 Extension에 연결되지 않는 경우
+#### 모바일 앱이 Extension에 연결되지 않는 경우 (로컬 모드)
 
 ```bash
 # 포트 8766 충돌 확인
@@ -992,8 +991,9 @@ lsof -i :8766
 #### 연결되지 않는 경우
 
 - PC와 모바일이 같은 Wi-Fi 네트워크에 있는지 확인
-- PC 방화벽에서 포트 8766 허용
+- PC 방화벽에서 WebSocket 포트 허용 (기본 8766, 충돌 시 8767~8776)
 - PC IP 주소가 올바른지 확인 (동일 네트워크)
+- 모바일 앱의 로컬 포트 입력값이 Extension 실제 포트와 같은지 확인
 
 ---
 
@@ -1007,30 +1007,13 @@ lsof -i :8766
 
 ## 문서
 
-모든 문서는 [docs/](./docs/) 폴더에 정리되어 있습니다.
-
-### 주요 가이드
-
-- [빠른 시작 가이드](./docs/guides/QUICK_START.md) - 빠른 설정 및 실행 방법
-- [Extension 설치 가이드](./docs/guides/EXTENSION_SETUP.md) - Extension 설치 및 활성화
-- [통신 프로토콜](./docs/guides/PROTOCOL.md) - WebSocket 메시지 형식 및 프로토콜
-- [테스트 가이드](./docs/guides/TEST_GUIDE.md) - 전체 시스템 테스트 방법
-
-### CLI 모드
-
-- [CLI 모드 작동 원리](./docs/cli/CLI_MODE_HOW_IT_WORKS.md) - CLI 모드 동작 방식
-- [Cursor CLI 가이드](./docs/cli/CURSOR_CLI_GUIDE.md) - Cursor CLI 사용법
-- [CLI 인증 가이드](./docs/cli/CLI_AUTHENTICATION.md) - CLI 인증 방법
-
-### 테스트
-
-- [CLI 모드 테스트](./docs/testing/CLI_MODE_TEST.md) - CLI 모드 테스트 방법
-
-### 문제 해결
-
-- [CLI 모드 문제 해결](./docs/troubleshooting/CLI_MODE_NOT_WORKING_FIX.md) - CLI 모드 문제 해결
-
-자세한 문서 목록은 [docs/README.md](./docs/README.md)를 참조하세요.
+- [PROTOCOL.md](./PROTOCOL.md) - 통신 프로토콜
+- [USER_MANUAL.md](./USER_MANUAL.md) - 사용자 매뉴얼
+- [cursor-extension/README.md](./cursor-extension/README.md) - Extension 가이드
+- [relay-server/README.md](./relay-server/README.md) - Relay 서버 가이드
+- [relay-server/TEST_PLAN.md](./relay-server/TEST_PLAN.md) - Relay 테스트 계획
+- [relay-server/MAINTENANCE.md](./relay-server/MAINTENANCE.md) - Relay 운영 점검
+- [mobile-app/README.md](./mobile-app/README.md) - Mobile 앱 가이드
 
 ---
 
@@ -1039,7 +1022,7 @@ lsof -i :8766
 ### Phase 1: 기본 통신 인프라
 
 - [ ] Cursor Extension 개발 (WebSocket 서버)
-- [ ] PC 서버 개발 (브릿지)
+- [ ] Extension 중심 로컬/릴레이 연결 안정화
 - [ ] 모바일 앱 기본 UI
 - [ ] 기본 명령 전송 (텍스트 삽입)
 

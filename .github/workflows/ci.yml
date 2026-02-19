@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  node-workspaces:
+    name: Extension + PC Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install root workspace deps
+        run: npm ci
+
+      - name: Compile extension
+        run: npm --workspace cursor-extension run compile
+
+      - name: Build pc-server
+        run: npm --workspace pc-server run build
+
+  relay-typecheck:
+    name: Relay Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: relay-server/package-lock.json
+
+      - name: Install relay deps
+        working-directory: relay-server
+        run: npm ci
+
+      - name: Run type-check
+        working-directory: relay-server
+        run: npm run type-check
+
+  mobile-analyze:
+    name: Mobile Analyze
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29.0"
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        working-directory: mobile-app
+        run: flutter pub get
+
+      - name: Flutter analyze (errors only)
+        working-directory: mobile-app
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings

@@ -98,12 +98,34 @@ export class CommandRouter {
           return;
       }
 
+      // result.success를 실제 응답 success에 반영
+      const { success: resultSuccess = true, ...resultWithoutSuccess } =
+        result || { success: true };
+
+      if (!resultSuccess) {
+        const fallbackError =
+          resultWithoutSuccess.error ||
+          resultWithoutSuccess.message ||
+          `Command ${command.type} failed`;
+        this.log(`Command ${command.type} failed: ${fallbackError}`);
+        this.wsServer.send(
+          JSON.stringify({
+            id: commandId,
+            type: "command_result",
+            success: false,
+            command_type: command.type,
+            ...resultWithoutSuccess,
+            ...(resultWithoutSuccess.error
+              ? {}
+              : { error: String(fallbackError) }),
+          })
+        );
+        return;
+      }
+
       // Send success response
       const successMsg = `Command ${command.type} executed successfully`;
       this.log(successMsg);
-
-      // result에 success가 이미 포함되어 있을 수 있으므로 분리
-      const { success: _, ...resultWithoutSuccess } = result || {};
       this.wsServer.send(
         JSON.stringify({
           id: commandId,
